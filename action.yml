@@ -1,0 +1,41 @@
+name: ghcr.io cleanup action
+
+description: >
+  ghcr.io cleanup action - delete image tags and untagged images from github
+  container registry
+
+author: Dataaxiom Inc
+
+branding:
+  icon: delete
+  color: blue
+
+inputs:
+  token:
+    description: >
+      Token to delete package versions.
+    required: true
+
+  owner:
+    description: >
+      Owner of the package (user or organization)
+    required: false
+
+  name:
+    description: >
+      Name of the package
+    required: false
+
+  number-untagged:
+    description: >
+      Number of untagged images to keep (sorted by date)
+    required: false
+
+  tags:
+    description: >
+      Tags to delete (comma seperated)
+    required: false
+
+runs:
+  using: node20
+  main: dist/index.js
