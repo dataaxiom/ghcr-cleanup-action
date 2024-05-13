@@ -61,7 +61,7 @@ to be set. It will use the current repository information to setup the owner and
 package name.
 
 ```yaml
-steps:
+jobs:
   - name: ghcr.io Cleanup Action
     id: ghcr-clenaup-action
     steps:
