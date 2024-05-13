@@ -75,7 +75,7 @@ steps:
 Set the tags option to delete specific tags
 
 ```yaml
-steps:
+jobs:
   - name: ghcr.io image cleanup sction
     id: ghcr-clenaup-action
     steps:
@@ -96,7 +96,7 @@ multi-architecture images so the number of untagged images showing after running
 the action may be higher then the number-tagged value set.
 
 ```yaml
-steps:
+jobs:
   - name: ghcr.io image cleanup sction
     id: ghcr-clenaup-action
     steps:
@@ -152,7 +152,7 @@ package name but for cross project setup these can be overriden by setting owner
 and name values.
 
 ```yaml
-steps:
+jobs:
   - name: ghcr.io Cleanup Action
     id: ghcr-clenaup-action
     steps:
