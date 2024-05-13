@@ -14,7 +14,8 @@ It includes the following features:
 - GitHub User and Organization code repository support
 - Multi tag untagging support
 - Multi architecture image support
-- Supporting keeping a number of untagged images
+- Keeping a number of untagged images
+- Keeping a number of tagged images
 
 ## Setup
 
@@ -43,14 +44,18 @@ ensure it's permissions have been setup correctly, either by:
 | --------------- | :------: | ------------------------------------------------------ |
 | token           |   yes    | Token used to connect with ghcr.io and the package API |
 | tags            |    no    | Comma sperated list of tags to delete                  |
-| number-untagged |    no    | Number of untagged images to keep, sorted by date      |
+| exclude-tags    |    no    | Comma sperated list of tags to exclude                 |
+| keep-n-untagged |    no    | Number of untagged images to keep, sorted by date      |
+| keep-n-tagged   |    no    | Number of tagged images to keep, sorted by date        |
+| dry-run         |    no    | Simulate cleanup action, does not make changes         |
 | owner           |    no    | The repository owner, can be organization or user      |
 | name            |    no    | The package name                                       |
 
-If the tags or number_untagged options are not set then all untagged images will
-be deleted.
+If the tags, keep_n_untagged or keep_n_tagged options are not set then all
+untagged images will be deleted.
 
-The tags and number_untagged options can not be set at the same time.
+The tags, keep_n_untagged and keep_n_tagged options can not be set at the same
+time.
 
 ## Usage
 
@@ -62,12 +67,12 @@ package name.
 
 ```yaml
 jobs:
-  - name: ghcr.io Cleanup Action
-    id: ghcr-clenaup-action
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
     steps:
-      - uses: dataaxiom/ghcr-cleanup-action@v1.0.0
+      - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          token: ${{secrets.GITHUB_TOKEN}}
+          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Cleanup tagged images
@@ -76,13 +81,13 @@ Set the tags option to delete specific tags
 
 ```yaml
 jobs:
-  - name: ghcr.io image cleanup sction
-    id: ghcr-clenaup-action
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
     steps:
-      - uses: dataaxiom/ghcr-cleanup-action@v1.0.0
+      - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           tags: mytag,mytag2
-          token: ${{secrets.GITHUB_TOKEN}}
+          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 If the tag links to an image with multiple tags, the action will unlink the tag
@@ -91,19 +96,34 @@ not be deleted unless all tags are deleted.
 
 ### Cleanup 'n' untagged images
 
-Cleans up untagged images but keeps the last "number-tagged" images. It supports
-multi-architecture images so the number of untagged images showing after running
-the action may be higher then the number-tagged value set.
+Cleans up untagged images but keeps the number of "keep-n-untagged" images. It
+supports multi-architecture images so the number of untagged images showing
+after running the action may be higher then the number-tagged value set.
 
 ```yaml
 jobs:
-  - name: ghcr.io image cleanup sction
-    id: ghcr-clenaup-action
+  - name: ghcr cleanup action
+    runs-on: ubuntu-latest
     steps:
-      - uses: dataaxiom/ghcr-cleanup-action@v1.0.0
+      - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          number-untagged: 3
-          token: ${{secrets.GITHUB_TOKEN}}
+          keep-n-untagged: 3
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Cleanup 'n' tagged images
+
+Cleans up tagged images but keeps the number of "keep-n-tagged" tagged images.
+
+```yaml
+jobs:
+  - name: ghcr cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          keep-n-tagged: 3
+          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Delete image when Pull Reqeust is closed
@@ -115,20 +135,20 @@ on:
     types: [closed]
 jobs:
   ghcr-cleanup-image:
-    name: ghcr.io image cleanup action
+    name: ghcr cleanup action
     runs-on: ubuntu-latest
     steps:
       - name: Delete image
-        uses: dataaxiom/ghcr-cleanup-action@v1.0.0
+        uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           tags: pr-${{github.event.pull_request.number}}
-          token: ${{secrets.GITHUB_TOKEN}}
+          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Daily image cleanup
 
 ```yaml
-name: Cleanup Untagged Images
+name: Daily Image Cleanup
 on:
   # every day at 01:30am
   schedule:
@@ -137,12 +157,12 @@ on:
   workflow_dispatch:
 jobs:
   ghcr-cleanup-image:
-    name: Delete Untagged Images
+    name: ghcr cleanup action
     runs-on: ubuntu-latest
     steps:
-      - uses: dataaxiom/ghcr-cleanup-action@v1.0.0
+      - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          token: ${{secrets.GITHUB_TOKEN}}
+          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Override default repository/package
@@ -153,13 +173,13 @@ and name values.
 
 ```yaml
 jobs:
-  - name: ghcr.io Cleanup Action
-    id: ghcr-clenaup-action
+  - name: ghcr cleanup action
+    runs-on: ubuntu-latest
     steps:
-      - uses: dataaxiom/ghcr-cleanup-action@v1.0.0
+      - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           tags: mytag,mytag2
           owner: dataaxiom
           name: tiecd
-          token: ${{secrets.GITHUB_TOKEN}}
+          token: ${{ secrets.GITHUB_TOKEN }}
 ```

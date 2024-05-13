@@ -5,7 +5,10 @@ export class Config {
   owner?: string
   name?: string
   tags?: string
-  numberUntagged?: number
+  excludeTags?: string
+  keepNuntagged?: number
+  keepNtagged?: number
+  dryRun?: boolean
   token: string
   octokit: any
 
@@ -43,17 +46,40 @@ export function getConfig(): Config {
   }
 
   config.tags = core.getInput('tags')
+  config.excludeTags = core.getInput('exclude-tags')
+  if (core.getInput('dry-run')) {
+    config.dryRun = core.getBooleanInput('dry-run')
+    if (config.dryRun) {
+      core.info('in dry run mode - no packages will be deleted')
+    }
+  } else {
+    config.dryRun = false
+  }
 
-  if (core.getInput('number-untagged')) {
-    if (isNaN(parseInt(core.getInput('number-untagged')))) {
-      throw new Error('number-untagged is not number')
+  if (core.getInput('keep-n-untagged')) {
+    if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
+      throw new Error('keep-n-untagged is not number')
     } else {
-      config.numberUntagged = parseInt(core.getInput('number-untagged'))
+      config.keepNuntagged = parseInt(core.getInput('keep-n-untagged'))
+    }
+  }
+  if (core.getInput('keep-n-tagged')) {
+    if (isNaN(parseInt(core.getInput('keep-n-tagged')))) {
+      throw new Error('keep-n-tagged is not number')
+    } else {
+      config.keepNtagged = parseInt(core.getInput('keep-n-tagged'))
     }
   }
 
-  if (config.tags && config.numberUntagged) {
-    throw Error('tags and number-untagged can not be set at the same time')
+  if (config.tags && (config.keepNuntagged || config.keepNtagged)) {
+    throw Error(
+      'tags cannot be used with keep-n-untagged or keep-n-tagged options'
+    )
+  }
+  if (config.keepNuntagged && config.keepNtagged) {
+    throw Error(
+      'keep-n-untagged and keep-n-tagged options can not be set at the same time'
+    )
   }
 
   if (!config.owner) {

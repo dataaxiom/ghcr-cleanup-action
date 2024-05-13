@@ -77,9 +77,9 @@ export class Registry {
     return tags
   }
 
-  async getRawManifest(tag: string): Promise<string> {
+  async getRawManifest(reference: string): Promise<string> {
     const response = await this.axios.get(
-      `/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
+      `/v2/${this.config.owner}/${this.config.name}/manifests/${reference}`,
       {
         transformResponse: [
           data => {
@@ -91,22 +91,11 @@ export class Registry {
     return response?.data
   }
 
-  async isMultiArch(tag: string): Promise<boolean> {
-    let multiArch = false
-    const response = await this.axios.get(
-      `/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`
-    )
-    if (response.data.manifests) {
-      multiArch = true
-    }
-    return multiArch
-  }
-
-  async tagExists(tag: string): Promise<boolean> {
+  async tagExists(reference: string): Promise<boolean> {
     let exists = false
     try {
       await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`
+        `/v2/${this.config.owner}/${this.config.name}/manifests/${reference}`
       )
       exists = true
     } catch (error) {
@@ -142,64 +131,66 @@ export class Registry {
     manifest: any,
     multiArch: boolean
   ): Promise<void> {
-    let contentType = 'application/vnd.oci.image.manifest.v1+json'
-    if (multiArch) {
-      contentType = 'application/vnd.oci.image.index.v1+json'
-    }
-    const config = {
-      headers: {
-        'Content-Type': contentType
+    if (!this.config.dryRun) {
+      let contentType = 'application/vnd.oci.image.manifest.v1+json'
+      if (multiArch) {
+        contentType = 'application/vnd.oci.image.index.v1+json'
       }
-    }
-    // upgrade token
-    let putToken
-    const auth = axios.create()
-    try {
-      await auth.put(
-        `https://ghcr.io/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
-        manifest,
-        config
-      )
-    } catch (error) {
-      if (isAxiosError(error) && error.response) {
-        if (error.response?.status === 401) {
-          const challenge = error.response?.headers['www-authenticate']
-          const attributes = parseChallenge(challenge)
-          if (isValidChallenge(attributes)) {
-            // crude
-            const tokenResponse = await auth.get(
-              `${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`,
-              {
-                auth: {
-                  username: 'token',
-                  password: this.config.token
+      const config = {
+        headers: {
+          'Content-Type': contentType
+        }
+      }
+      // upgrade token
+      let putToken
+      const auth = axios.create()
+      try {
+        await auth.put(
+          `https://ghcr.io/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
+          manifest,
+          config
+        )
+      } catch (error) {
+        if (isAxiosError(error) && error.response) {
+          if (error.response?.status === 401) {
+            const challenge = error.response?.headers['www-authenticate']
+            const attributes = parseChallenge(challenge)
+            if (isValidChallenge(attributes)) {
+              // crude
+              const tokenResponse = await auth.get(
+                `${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`,
+                {
+                  auth: {
+                    username: 'token',
+                    password: this.config.token
+                  }
                 }
-              }
-            )
-            putToken = tokenResponse.data.token
+              )
+              putToken = tokenResponse.data.token
+            } else {
+              throw new Error(`invalid www-authenticate challenge ${challenge}`)
+            }
           } else {
-            throw new Error(`invalid www-authenticate challenge ${challenge}`)
+            throw error
           }
-        } else {
-          throw error
         }
       }
-    }
 
-    if (putToken) {
-      // now put the updated manifest
-      await this.axios.put(
-        `/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
-        manifest,
-        {
-          headers: {
-            'content-type': contentType,
-            Authorization: `Bearer ${putToken}`
+      if (putToken) {
+        // now put the updated manifest
+        await this.axios.put(
+          `/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
+          manifest,
+          {
+            headers: {
+              'content-type': contentType,
+              Authorization: `Bearer ${putToken}`
+            }
           }
-        }
-      )
-    } else {
-      throw new Error('no token set to upload manifest')
+        )
+      } else {
+        throw new Error('no token set to upload manifest')
+      }
     }
   }
 }

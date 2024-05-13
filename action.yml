@@ -26,14 +26,29 @@ inputs:
       Name of the package
     required: false
 
-  number-untagged:
+  keep-n-untagged:
     description: >
       Number of untagged images to keep (sorted by date)
+    required: false
+
+  keep-n-tagged:
+    description: >
+      Number of tagged images to keep (sorted by date)
     required: false
 
   tags:
     description: >
       Tags to delete (comma seperated)
+    required: false
+
+  exclude-tags:
+    description: >
+      Tags to exclude from deletion (comma seperated)
+    required: false
+
+  dry-run:
+    description: >
+      Simulate action - does not remove any packages
     required: false
 
 runs:
