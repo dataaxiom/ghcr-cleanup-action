@@ -94,7 +94,7 @@ class CleanupAction {
             } else {
               // preform a "ghcr.io" image deleltion
               // as the registry doesn't support manifest deletion directly
-              // wwe instead assign the tag to a different manifest first
+              // we instead assign the tag to a different manifest first
               // then we delete it
               core.info(`untagging ${tag}`)
               const data = JSON.parse(manifest)
