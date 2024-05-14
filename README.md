@@ -11,7 +11,7 @@ A workflow action that cleans up images in the GitHub Container Registry
 
 It includes the following features:
 
-- GitHub User and Organization code repository support
+- Automatic GitHub User and Organization code repository support
 - Multi tag untagging support
 - Multi architecture image support
 - Keeping a number of untagged images
