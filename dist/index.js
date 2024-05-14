@@ -32836,9 +32836,9 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.GithubPackage = void 0;
+exports.GithubPackageRepo = void 0;
 const core = __importStar(__nccwpck_require__(2186));
-class GithubPackage {
+class GithubPackageRepo {
     config;
     repoType = 'Organization';
     constructor(config) {
@@ -32924,7 +32924,7 @@ class GithubPackage {
         }
     }
 }
-exports.GithubPackage = GithubPackage;
+exports.GithubPackageRepo = GithubPackageRepo;
 
 
 /***/ }),
@@ -32957,6 +32957,9 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.run = void 0;
 const core = __importStar(__nccwpck_require__(2186));
@@ -32964,33 +32967,54 @@ const config_1 = __nccwpck_require__(6373);
 const registry_1 = __nccwpck_require__(2113);
 const github_package_1 = __nccwpck_require__(1693);
 const utils_1 = __nccwpck_require__(1314);
+const wildcard_match_1 = __importDefault(__nccwpck_require__(7309));
 async function run() {
-    const action = new CleanupAction();
-    await action.init();
-    await action.run();
+    try {
+        const action = new CleanupAction();
+        await action.init();
+        await action.run();
+    }
+    catch (error) {
+        // Fail the workflow run if an error occurs
+        if (error instanceof Error)
+            core.setFailed(error.message);
+    }
 }
 exports.run = run;
 class CleanupAction {
     config;
     excludeTags = [];
     registry;
-    githubPackage;
+    githubPackageRepo;
     packageIdByDigest = new Map();
     packages = new Map();
+    tags = new Set();
     trimmedMultiArchPackages = new Map();
     constructor() {
         this.config = (0, config_1.getConfig)();
-        if (this.config.excludeTags) {
-            this.excludeTags = this.config.excludeTags.split(',');
-        }
         this.registry = new registry_1.Registry(this.config);
-        this.githubPackage = new github_package_1.GithubPackage(this.config);
+        this.githubPackageRepo = new github_package_1.GithubPackageRepo(this.config);
     }
     async init() {
         await this.registry.login();
-        await this.githubPackage.init();
+        await this.githubPackageRepo.init();
         // get list of all the current packages
-        await this.githubPackage.loadPackages(this.packageIdByDigest, this.packages);
+        await this.githubPackageRepo.loadPackages(this.packageIdByDigest, this.packages);
+        // extract tags
+        for (const ghPackage of this.packages.values()) {
+            for (const tag of ghPackage.metadata.container.tags) {
+                this.tags.add(tag);
+            }
+        }
+        // find exclude tags using matcher
+        if (this.config.excludeTags) {
+            const isTagMatch = (0, wildcard_match_1.default)(this.config.excludeTags.split(','));
+            for (const tag of this.tags) {
+                if (isTagMatch(tag)) {
+                    this.excludeTags.push(tag);
+                }
+            }
+        }
     }
     async trimMultiArchImages(reference) {
         const manifest = await this.registry.getRawManifest(reference);
@@ -33011,28 +33035,33 @@ class CleanupAction {
     async deleteByTag() {
         if (this.config.tags) {
             core.info(`deleting images by tags`);
-            const tags = this.config.tags.split(',');
-            for (const tag of tags) {
-                if (!this.excludeTags.includes(tag)) {
-                    if (await this.registry.tagExists(tag)) {
+            // find the tags the match wildcard patterns
+            const isTagMatch = (0, wildcard_match_1.default)(this.config.tags.split(','));
+            const matchTags = [];
+            for (const tag of this.tags) {
+                if (isTagMatch(tag)) {
+                    matchTags.push(tag);
+                }
+            }
+            if (matchTags.length > 0) {
+                for (const tag of matchTags) {
+                    if (!this.excludeTags.includes(tag)) {
                         let manifest = await this.registry.getRawManifest(tag);
                         const manifestDigest = (0, utils_1.calcDigest)(manifest);
                         // get the package
                         const ghPackageId = this.packageIdByDigest.get(manifestDigest);
-                        const ghPackage = await this.githubPackage.getPackage(ghPackageId);
+                        const ghPackage = await this.githubPackageRepo.getPackage(ghPackageId);
                         // if the image only has one tag - delete it
                         if (ghPackage.data.metadata.container.tags.length === 1) {
                             const data = JSON.parse(manifest);
-                            await this.githubPackage.deletePackage(ghPackageId, manifestDigest, ghPackage.data.metadata.container.tags);
+                            await this.githubPackageRepo.deletePackage(ghPackageId, manifestDigest, ghPackage.data.metadata.container.tags);
                             if (data.manifests) {
                                 // a multiarch image
                                 for (const imageManifest of data.manifests) {
                                     const imageDigest = imageManifest.digest;
                                     const id = this.packageIdByDigest.get(imageDigest);
                                     if (id) {
-                                        await this.githubPackage.deletePackage(id, imageDigest, [
-                                            `architecture ${imageManifest.platform.architecture}`
-                                        ]);
+                                        await this.githubPackageRepo.deletePackage(id, imageDigest, [`architecture ${imageManifest.platform.architecture}`]);
                                     }
                                     else {
                                         core.warning(`couldn't find package id ${id} with digest ${imageDigest} to delete`);
@@ -33060,13 +33089,13 @@ class CleanupAction {
                             // reload package ids to find the new package id
                             const reloadPackageByDigest = new Map();
                             const githubPackages = new Map();
-                            await this.githubPackage.loadPackages(reloadPackageByDigest, githubPackages);
+                            await this.githubPackageRepo.loadPackages(reloadPackageByDigest, githubPackages);
                             // reload the manifest
                             manifest = await this.registry.getRawManifest(tag);
                             const untaggedDigest = (0, utils_1.calcDigest)(manifest);
                             const id = reloadPackageByDigest.get(untaggedDigest);
                             if (id) {
-                                await this.githubPackage.deletePackage(id, untaggedDigest, [
+                                await this.githubPackageRepo.deletePackage(id, untaggedDigest, [
                                     tag
                                 ]);
                             }
@@ -33075,10 +33104,10 @@ class CleanupAction {
                             }
                         }
                     }
-                    else {
-                        core.info(`skipping ${tag} tag deletion, it doesn't exist in registry`);
-                    }
                 }
+            }
+            else {
+                core.info('skipping tag deletion, no matching tags exist');
             }
         }
     }
@@ -33104,27 +33133,22 @@ class CleanupAction {
                 // now sort the remaining packages by date
                 let untaggedPackages = [...this.packages.values()];
                 untaggedPackages.sort((a, b) => {
-                    return Date.parse(a.updated_at) - Date.parse(b.updated_at);
+                    return Date.parse(b.updated_at) - Date.parse(a.updated_at);
                 });
                 // now delete the remainder untagged packages/images minus the keep value
                 if (untaggedPackages.length > this.config.keepNuntagged) {
-                    if (untaggedPackages.length === 1 && this.config.keepNtagged === 1) {
-                        untaggedPackages = [];
-                    }
-                    else if (untaggedPackages.length > this.config.keepNuntagged) {
-                        untaggedPackages = untaggedPackages.slice(this.config.keepNuntagged);
-                    }
+                    untaggedPackages = untaggedPackages.splice(untaggedPackages.length - this.config.keepNuntagged);
                     for (const untaggedPackage of untaggedPackages) {
                         const ghPackage = this.packages.get(untaggedPackage.id);
                         // get the manifest before we delete it
                         const manifest = await this.registry.getRawManifest(untaggedPackage.name);
-                        await this.githubPackage.deletePackage(untaggedPackage.id, untaggedPackage.name, ghPackage.metadata.container.tags);
+                        await this.githubPackageRepo.deletePackage(untaggedPackage.id, untaggedPackage.name, ghPackage.metadata.container.tags);
                         // if multi arch image now delete the platform packages/images
                         const data = JSON.parse(manifest);
                         if (data.manifests) {
                             for (const imageManifest of data.manifests) {
                                 const trimmedPackage = this.trimmedMultiArchPackages.get(imageManifest.digest);
-                                await this.githubPackage.deletePackage(trimmedPackage.id, trimmedPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
+                                await this.githubPackageRepo.deletePackage(trimmedPackage.id, trimmedPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
                             }
                         }
                     }
@@ -33150,13 +33174,13 @@ class CleanupAction {
                 }
                 const data = JSON.parse(manifest);
                 if (data.manifests) {
-                    await this.githubPackage.deletePackage(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
+                    await this.githubPackageRepo.deletePackage(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
                     deleted.add(untaggedPackage.name);
                     // if multi arch image now delete the platform packages/images
                     for (const imageManifest of data.manifests) {
                         const packackeId = this.packageIdByDigest.get(imageManifest.digest);
                         const ghPackage = this.packages.get(packackeId);
-                        await this.githubPackage.deletePackage(ghPackage.id, ghPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
+                        await this.githubPackageRepo.deletePackage(ghPackage.id, ghPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
                         deleted.add(ghPackage.name);
                     }
                 }
@@ -33165,7 +33189,7 @@ class CleanupAction {
         // now process the remainder
         for (const untaggedPackage of this.packages.values()) {
             if (!deleted.has(untaggedPackage.name)) {
-                await this.githubPackage.deletePackage(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
+                await this.githubPackageRepo.deletePackage(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
                 deleted.add(untaggedPackage.name);
             }
         }
@@ -33173,46 +33197,13 @@ class CleanupAction {
     async keepNtagged() {
         if (this.config.keepNtagged != null) {
             core.info(`deleting tagged images, keeping ${this.config.keepNtagged} versions`);
-            let packagesToKeep = [];
-            // get all the packages with tags
-            if (this.config.keepNtagged > 0) {
-                for (const ghPackage of this.packages.values()) {
-                    if (ghPackage.metadata.container.tags.length > 0) {
-                        // only add for excluded tags
-                        let excluded = false;
-                        for (const excludeTag of this.excludeTags) {
-                            if (ghPackage.metadata.container.tags.includes(excludeTag)) {
-                                excluded = true;
-                                break;
-                            }
-                        }
-                        if (!excluded) {
-                            packagesToKeep.push(ghPackage);
-                        }
-                    }
-                }
-                // sort them by date
-                packagesToKeep.sort((a, b) => {
-                    return Date.parse(a.updated_at) - Date.parse(b.updated_at);
-                });
-                // trim to size
-                if (packagesToKeep.length > this.config.keepNtagged) {
-                    packagesToKeep = packagesToKeep.splice(this.config.keepNtagged + 1);
-                }
-                // now strip these from the package list
-                for (const ghPackage of packagesToKeep) {
-                    // if multi arch delete those
-                    await this.trimMultiArchImages(ghPackage.name);
-                    this.packages.delete(ghPackage.id);
-                }
-            }
             // remove the excluded tags
-            for (const tag of this.excludeTags) {
-                const manifest = await this.registry.getRawManifest(tag);
+            for (const excludedTag of this.excludeTags) {
+                const manifest = await this.registry.getRawManifest(excludedTag);
                 const imageDigest = (0, utils_1.calcDigest)(manifest);
                 const data = JSON.parse(manifest);
                 if (data.manifests) {
-                    await this.trimMultiArchImages(tag);
+                    await this.trimMultiArchImages(excludedTag);
                 }
                 const id = this.packageIdByDigest.get(imageDigest);
                 if (id) {
@@ -33222,8 +33213,30 @@ class CleanupAction {
                     core.warning(`couldn't find package id ${id} with digest ${imageDigest} to delete`);
                 }
             }
-            await this.deletePackages();
+            // create an array to sort by date
+            let packagesToKeep = [];
+            for (const ghPackage of this.packages.values()) {
+                // only copy images with tags
+                if (ghPackage.metadata.container.tags.length > 0) {
+                    packagesToKeep.push(ghPackage);
+                }
+            }
+            // sort them by date
+            packagesToKeep.sort((a, b) => {
+                return Date.parse(a.updated_at) - Date.parse(b.updated_at);
+            });
+            // trim to size
+            if (packagesToKeep.length > this.config.keepNtagged) {
+                packagesToKeep = packagesToKeep.splice(packagesToKeep.length - this.config.keepNtagged);
+            }
+            // now strip these from the package list
+            for (const ghPackage of packagesToKeep) {
+                // if multi arch delete those
+                await this.trimMultiArchImages(ghPackage.name);
+                this.packages.delete(ghPackage.id);
+            }
         }
+        await this.deletePackages();
     }
     async run() {
         try {
@@ -35366,6 +35379,180 @@ function parseParams (str) {
 }
 
 module.exports = parseParams
+
+
+/***/ }),
+
+/***/ 7309:
+/***/ ((module) => {
+
+"use strict";
+
+
+/**
+ * Escapes a character if it has a special meaning in regular expressions
+ * and returns the character as is if it doesn't
+ */
+function escapeRegExpChar(char) {
+    if (char === '-' ||
+        char === '^' ||
+        char === '$' ||
+        char === '+' ||
+        char === '.' ||
+        char === '(' ||
+        char === ')' ||
+        char === '|' ||
+        char === '[' ||
+        char === ']' ||
+        char === '{' ||
+        char === '}' ||
+        char === '*' ||
+        char === '?' ||
+        char === '\\') {
+        return "\\".concat(char);
+    }
+    else {
+        return char;
+    }
+}
+/**
+ * Escapes all characters in a given string that have a special meaning in regular expressions
+ */
+function escapeRegExpString(str) {
+    var result = '';
+    for (var i = 0; i < str.length; i++) {
+        result += escapeRegExpChar(str[i]);
+    }
+    return result;
+}
+/**
+ * Transforms one or more glob patterns into a RegExp pattern
+ */
+function transform(pattern, separator) {
+    if (separator === void 0) { separator = true; }
+    if (Array.isArray(pattern)) {
+        var regExpPatterns = pattern.map(function (p) { return "^".concat(transform(p, separator), "$"); });
+        return "(?:".concat(regExpPatterns.join('|'), ")");
+    }
+    var separatorSplitter = '';
+    var separatorMatcher = '';
+    var wildcard = '.';
+    if (separator === true) {
+        separatorSplitter = '/';
+        separatorMatcher = '[/\\\\]';
+        wildcard = '[^/\\\\]';
+    }
+    else if (separator) {
+        separatorSplitter = separator;
+        separatorMatcher = escapeRegExpString(separatorSplitter);
+        if (separatorMatcher.length > 1) {
+            separatorMatcher = "(?:".concat(separatorMatcher, ")");
+            wildcard = "((?!".concat(separatorMatcher, ").)");
+        }
+        else {
+            wildcard = "[^".concat(separatorMatcher, "]");
+        }
+    }
+    var requiredSeparator = separator ? "".concat(separatorMatcher, "+?") : '';
+    var optionalSeparator = separator ? "".concat(separatorMatcher, "*?") : '';
+    var segments = separator ? pattern.split(separatorSplitter) : [pattern];
+    var result = '';
+    for (var s = 0; s < segments.length; s++) {
+        var segment = segments[s];
+        var nextSegment = segments[s + 1];
+        var currentSeparator = '';
+        if (!segment && s > 0) {
+            continue;
+        }
+        if (separator) {
+            if (s === segments.length - 1) {
+                currentSeparator = optionalSeparator;
+            }
+            else if (nextSegment !== '**') {
+                currentSeparator = requiredSeparator;
+            }
+            else {
+                currentSeparator = '';
+            }
+        }
+        if (separator && segment === '**') {
+            if (currentSeparator) {
+                result += s === 0 ? '' : currentSeparator;
+                result += "(?:".concat(wildcard, "*?").concat(currentSeparator, ")*?");
+            }
+            continue;
+        }
+        for (var c = 0; c < segment.length; c++) {
+            var char = segment[c];
+            if (char === '\\') {
+                if (c < segment.length - 1) {
+                    result += escapeRegExpChar(segment[c + 1]);
+                    c++;
+                }
+            }
+            else if (char === '?') {
+                result += wildcard;
+            }
+            else if (char === '*') {
+                result += "".concat(wildcard, "*?");
+            }
+            else {
+                result += escapeRegExpChar(char);
+            }
+        }
+        result += currentSeparator;
+    }
+    return result;
+}
+
+function isMatch(regexp, sample) {
+    if (typeof sample !== 'string') {
+        throw new TypeError("Sample must be a string, but ".concat(typeof sample, " given"));
+    }
+    return regexp.test(sample);
+}
+/**
+ * Compiles one or more glob patterns into a RegExp and returns an isMatch function.
+ * The isMatch function takes a sample string as its only argument and returns `true`
+ * if the string matches the pattern(s).
+ *
+ * ```js
+ * wildcardMatch('src/*.js')('src/index.js') //=> true
+ * ```
+ *
+ * ```js
+ * const isMatch = wildcardMatch('*.example.com', '.')
+ * isMatch('foo.example.com') //=> true
+ * isMatch('foo.bar.com') //=> false
+ * ```
+ */
+function wildcardMatch(pattern, options) {
+    if (typeof pattern !== 'string' && !Array.isArray(pattern)) {
+        throw new TypeError("The first argument must be a single pattern string or an array of patterns, but ".concat(typeof pattern, " given"));
+    }
+    if (typeof options === 'string' || typeof options === 'boolean') {
+        options = { separator: options };
+    }
+    if (arguments.length === 2 &&
+        !(typeof options === 'undefined' ||
+            (typeof options === 'object' && options !== null && !Array.isArray(options)))) {
+        throw new TypeError("The second argument must be an options object or a string/boolean separator, but ".concat(typeof options, " given"));
+    }
+    options = options || {};
+    if (options.separator === '\\') {
+        throw new Error('\\ is not a valid separator because it is used for escaping. Try setting the separator to `true` instead');
+    }
+    var regexpPattern = transform(pattern, options.separator);
+    var regexp = new RegExp("^".concat(regexpPattern, "$"), options.flags);
+    var fn = isMatch.bind(null, regexp);
+    fn.options = options;
+    fn.pattern = pattern;
+    fn.regexp = regexp;
+    return fn;
+}
+
+module.exports = wildcardMatch;
+//# sourceMappingURL=index.js.map
 
 
 /***/ }),

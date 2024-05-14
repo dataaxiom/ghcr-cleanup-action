@@ -11,7 +11,7 @@ A workflow action that cleans up images in the GitHub Container Registry
 
 It includes the following features:
 
-- Automatic GitHub User and Organization code repository support
+- Automatic GitHub user/organization repository support
 - Removing tags on multi tagged images
 - Multi architecture image support
 - Keeping a number of untagged images
@@ -40,16 +40,16 @@ ensure it's permissions have been setup correctly, either by:
 
 ### Action Options
 
-| Option          | Required | Description                                            |
-| --------------- | :------: | ------------------------------------------------------ |
-| token           |   yes    | Token used to connect with ghcr.io and the package API |
-| tags            |    no    | Comma sperated list of tags to delete                  |
-| exclude-tags    |    no    | Comma sperated list of tags to exclude                 |
-| keep-n-untagged |    no    | Number of untagged images to keep, sorted by date      |
-| keep-n-tagged   |    no    | Number of tagged images to keep, sorted by date        |
-| dry-run         |    no    | Simulate cleanup action, does not make changes         |
-| owner           |    no    | The repository owner, can be organization or user type |
-| name            |    no    | The package name                                       |
+| Option          | Required | Description                                                       |
+| --------------- | :------: | ----------------------------------------------------------------- |
+| token           |   yes    | Token used to connect with ghcr.io and the package API            |
+| tags            |    no    | Comma sperated list of tags to delete (supports wildcard syntax)  |
+| exclude-tags    |    no    | Comma sperated list of tags to exclude (supports wildcard syntax) |
+| keep-n-untagged |    no    | Number of untagged images to keep, sorted by date                 |
+| keep-n-tagged   |    no    | Number of tagged images to keep, sorted by date                   |
+| dry-run         |    no    | Simulate cleanup action, does not make changes                    |
+| owner           |    no    | The repository owner, can be organization or user type            |
+| name            |    no    | The repo/package name                                             |
 
 If the tags, keep_n_untagged or keep_n_tagged options are not set then all
 untagged images will be deleted.
@@ -126,7 +126,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Delete image when Pull Reqeust is closed
+### Delete image when pull reqeust is closed
 
 ```yaml
 name: Cleanup Pull Request Images
@@ -183,3 +183,37 @@ jobs:
           name: tiecd
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+### Tag Wildcard
+
+The tags and exclude-tags action options can make use of a wildcard syntax using
+the ?, \* and \*\* characters.
+
+```yaml
+jobs:
+  - name: ghcr cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          keep-n-tagged: 3
+          exclude-tags: 'v*,dev,latest'
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Image Deletion Guidelines
+
+### Do a dry-run
+
+Test your cleanup action first by setting the "dry-run: true" option on the
+action and the reviewing the workflow log. This mode will simulate the cleanup
+action but will not delete any images/packages.
+
+### Package Restoration?
+
+GitHub has a package restoration API capability. The package IDs are printed in
+the workflow log where the ghcr-cleanup-action is run.
+
+[Restore Organization Package](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#restore-package-version-for-an-organization)
+
+[Restore User Package](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#restore-a-package-version-for-the-authenticated-user)

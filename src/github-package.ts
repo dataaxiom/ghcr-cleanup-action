@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import { Config } from './config'
 
-export class GithubPackage {
+export class GithubPackageRepo {
   config: Config
   repoType = 'Organization'
 

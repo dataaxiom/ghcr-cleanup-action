@@ -1,38 +1,60 @@
 import * as core from '@actions/core'
 import { Config, getConfig } from './config'
 import { Registry } from './registry'
-import { GithubPackage } from './github-package'
+import { GithubPackageRepo } from './github-package'
 import { calcDigest } from './utils'
+import wcmatch from 'wildcard-match'
 
 export async function run(): Promise<void> {
-  const action = new CleanupAction()
-  await action.init()
-  await action.run()
+  try {
+    const action = new CleanupAction()
+    await action.init()
+    await action.run()
+  } catch (error) {
+    // Fail the workflow run if an error occurs
+    if (error instanceof Error) core.setFailed(error.message)
+  }
 }
 
 class CleanupAction {
   config: Config
   excludeTags: string[] = []
   registry: Registry
-  githubPackage: GithubPackage
+  githubPackageRepo: GithubPackageRepo
   packageIdByDigest = new Map<string, string>()
   packages = new Map<string, any>()
+  tags = new Set<string>()
   trimmedMultiArchPackages = new Map<string, any>()
 
   constructor() {
     this.config = getConfig()
-    if (this.config.excludeTags) {
-      this.excludeTags = this.config.excludeTags.split(',')
-    }
     this.registry = new Registry(this.config)
-    this.githubPackage = new GithubPackage(this.config)
+    this.githubPackageRepo = new GithubPackageRepo(this.config)
   }
 
   async init(): Promise<void> {
     await this.registry.login()
-    await this.githubPackage.init()
+    await this.githubPackageRepo.init()
     // get list of all the current packages
-    await this.githubPackage.loadPackages(this.packageIdByDigest, this.packages)
+    await this.githubPackageRepo.loadPackages(
+      this.packageIdByDigest,
+      this.packages
+    )
+    // extract tags
+    for (const ghPackage of this.packages.values()) {
+      for (const tag of ghPackage.metadata.container.tags) {
+        this.tags.add(tag)
+      }
+    }
+    // find exclude tags using matcher
+    if (this.config.excludeTags) {
+      const isTagMatch = wcmatch(this.config.excludeTags.split(','))
+      for (const tag of this.tags) {
+        if (isTagMatch(tag)) {
+          this.excludeTags.push(tag)
+        }
+      }
+    }
   }
 
   async trimMultiArchImages(reference: string): Promise<void> {
@@ -58,19 +80,28 @@ class CleanupAction {
   async deleteByTag(): Promise<void> {
     if (this.config.tags) {
       core.info(`deleting images by tags`)
-      const tags = this.config.tags.split(',')
-      for (const tag of tags) {
-        if (!this.excludeTags.includes(tag)) {
-          if (await this.registry.tagExists(tag)) {
+      // find the tags the match wildcard patterns
+      const isTagMatch = wcmatch(this.config.tags.split(','))
+      const matchTags = []
+      for (const tag of this.tags) {
+        if (isTagMatch(tag)) {
+          matchTags.push(tag)
+        }
+      }
+      if (matchTags.length > 0) {
+        for (const tag of matchTags) {
+          if (!this.excludeTags.includes(tag)) {
             let manifest = await this.registry.getRawManifest(tag)
             const manifestDigest = calcDigest(manifest)
             // get the package
             const ghPackageId = this.packageIdByDigest.get(manifestDigest)
-            const ghPackage = await this.githubPackage.getPackage(ghPackageId!)
+            const ghPackage = await this.githubPackageRepo.getPackage(
+              ghPackageId!
+            )
             // if the image only has one tag - delete it
             if (ghPackage.data.metadata.container.tags.length === 1) {
               const data = JSON.parse(manifest)
-              await this.githubPackage.deletePackage(
+              await this.githubPackageRepo.deletePackage(
                 ghPackageId!,
                 manifestDigest,
                 ghPackage.data.metadata.container.tags
@@ -81,9 +112,11 @@ class CleanupAction {
                   const imageDigest = imageManifest.digest
                   const id = this.packageIdByDigest.get(imageDigest)
                   if (id) {
-                    await this.githubPackage.deletePackage(id, imageDigest, [
-                      `architecture ${imageManifest.platform.architecture}`
-                    ])
+                    await this.githubPackageRepo.deletePackage(
+                      id,
+                      imageDigest,
+                      [`architecture ${imageManifest.platform.architecture}`]
+                    )
                   } else {
                     core.warning(
                       `couldn't find package id ${id} with digest ${imageDigest} to delete`
@@ -111,7 +144,7 @@ class CleanupAction {
               // reload package ids to find the new package id
               const reloadPackageByDigest = new Map<string, string>()
               const githubPackages = new Map<string, any>()
-              await this.githubPackage.loadPackages(
+              await this.githubPackageRepo.loadPackages(
                 reloadPackageByDigest,
                 githubPackages
               )
@@ -120,7 +153,7 @@ class CleanupAction {
               const untaggedDigest = calcDigest(manifest)
               const id = reloadPackageByDigest.get(untaggedDigest)
               if (id) {
-                await this.githubPackage.deletePackage(id, untaggedDigest, [
+                await this.githubPackageRepo.deletePackage(id, untaggedDigest, [
                   tag
                 ])
               } else {
@@ -129,12 +162,10 @@ class CleanupAction {
                 )
               }
             }
-          } else {
-            core.info(
-              `skipping ${tag} tag deletion, it doesn't exist in registry`
-            )
           }
         }
+      } else {
+        core.info('skipping tag deletion, no matching tags exist')
       }
     }
   }
@@ -166,23 +197,21 @@ class CleanupAction {
         // now sort the remaining packages by date
         let untaggedPackages = [...this.packages.values()]
         untaggedPackages.sort((a, b) => {
-          return Date.parse(a.updated_at) - Date.parse(b.updated_at)
+          return Date.parse(b.updated_at) - Date.parse(a.updated_at)
         })
 
         // now delete the remainder untagged packages/images minus the keep value
         if (untaggedPackages.length > this.config.keepNuntagged) {
-          if (untaggedPackages.length === 1 && this.config.keepNtagged === 1) {
-            untaggedPackages = []
-          } else if (untaggedPackages.length > this.config.keepNuntagged) {
-            untaggedPackages = untaggedPackages.slice(this.config.keepNuntagged)
-          }
+          untaggedPackages = untaggedPackages.splice(
+            untaggedPackages.length - this.config.keepNuntagged
+          )
           for (const untaggedPackage of untaggedPackages) {
             const ghPackage = this.packages.get(untaggedPackage.id)
             // get the manifest before we delete it
             const manifest = await this.registry.getRawManifest(
               untaggedPackage.name
             )
-            await this.githubPackage.deletePackage(
+            await this.githubPackageRepo.deletePackage(
               untaggedPackage.id,
               untaggedPackage.name,
               ghPackage.metadata.container.tags
@@ -194,7 +223,7 @@ class CleanupAction {
                 const trimmedPackage = this.trimmedMultiArchPackages.get(
                   imageManifest.digest
                 )
-                await this.githubPackage.deletePackage(
+                await this.githubPackageRepo.deletePackage(
                   trimmedPackage.id,
                   trimmedPackage.name,
                   [`architecture ${imageManifest.platform.architecture}`]
@@ -225,7 +254,7 @@ class CleanupAction {
         }
         const data = JSON.parse(manifest)
         if (data.manifests) {
-          await this.githubPackage.deletePackage(
+          await this.githubPackageRepo.deletePackage(
             untaggedPackage.id,
             untaggedPackage.name,
             untaggedPackage.metadata.container.tags
@@ -236,7 +265,7 @@ class CleanupAction {
           for (const imageManifest of data.manifests) {
             const packackeId = this.packageIdByDigest.get(imageManifest.digest)
             const ghPackage = this.packages.get(packackeId!)
-            await this.githubPackage.deletePackage(
+            await this.githubPackageRepo.deletePackage(
               ghPackage.id,
               ghPackage.name,
               [`architecture ${imageManifest.platform.architecture}`]
@@ -249,7 +278,7 @@ class CleanupAction {
     // now process the remainder
     for (const untaggedPackage of this.packages.values()) {
       if (!deleted.has(untaggedPackage.name)) {
-        await this.githubPackage.deletePackage(
+        await this.githubPackageRepo.deletePackage(
           untaggedPackage.id,
           untaggedPackage.name,
           untaggedPackage.metadata.container.tags
@@ -264,49 +293,13 @@ class CleanupAction {
       core.info(
         `deleting tagged images, keeping ${this.config.keepNtagged} versions`
       )
-      let packagesToKeep = []
-      // get all the packages with tags
-      if (this.config.keepNtagged > 0) {
-        for (const ghPackage of this.packages.values()) {
-          if (ghPackage.metadata.container.tags.length > 0) {
-            // only add for excluded tags
-            let excluded = false
-            for (const excludeTag of this.excludeTags) {
-              if (ghPackage.metadata.container.tags.includes(excludeTag)) {
-                excluded = true
-                break
-              }
-            }
-            if (!excluded) {
-              packagesToKeep.push(ghPackage)
-            }
-          }
-        }
-
-        // sort them by date
-        packagesToKeep.sort((a, b) => {
-          return Date.parse(a.updated_at) - Date.parse(b.updated_at)
-        })
-        // trim to size
-        if (packagesToKeep.length > this.config.keepNtagged) {
-          packagesToKeep = packagesToKeep.splice(this.config.keepNtagged + 1)
-        }
-
-        // now strip these from the package list
-        for (const ghPackage of packagesToKeep) {
-          // if multi arch delete those
-          await this.trimMultiArchImages(ghPackage.name)
-          this.packages.delete(ghPackage.id)
-        }
-      }
-
       // remove the excluded tags
-      for (const tag of this.excludeTags) {
-        const manifest = await this.registry.getRawManifest(tag)
+      for (const excludedTag of this.excludeTags) {
+        const manifest = await this.registry.getRawManifest(excludedTag)
         const imageDigest = calcDigest(manifest)
         const data = JSON.parse(manifest)
         if (data.manifests) {
-          await this.trimMultiArchImages(tag)
+          await this.trimMultiArchImages(excludedTag)
         }
         const id = this.packageIdByDigest.get(imageDigest)
         if (id) {
@@ -317,8 +310,32 @@ class CleanupAction {
           )
         }
       }
-      await this.deletePackages()
+      // create an array to sort by date
+      let packagesToKeep = []
+      for (const ghPackage of this.packages.values()) {
+        // only copy images with tags
+        if (ghPackage.metadata.container.tags.length > 0) {
+          packagesToKeep.push(ghPackage)
+        }
+      }
+      // sort them by date
+      packagesToKeep.sort((a, b) => {
+        return Date.parse(a.updated_at) - Date.parse(b.updated_at)
+      })
+      // trim to size
+      if (packagesToKeep.length > this.config.keepNtagged) {
+        packagesToKeep = packagesToKeep.splice(
+          packagesToKeep.length - this.config.keepNtagged
+        )
+      }
+      // now strip these from the package list
+      for (const ghPackage of packagesToKeep) {
+        // if multi arch delete those
+        await this.trimMultiArchImages(ghPackage.name)
+        this.packages.delete(ghPackage.id)
+      }
     }
+    await this.deletePackages()
   }
 
   async run(): Promise<void> {
