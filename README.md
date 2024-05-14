@@ -205,8 +205,8 @@ jobs:
 
 ### Do a dry-run
 
-Test your cleanup action first by setting the "dry-run: true" option on the
-action and the reviewing the workflow log. This mode will simulate the cleanup
+Test the cleanup action first by setting the "dry-run: true" option on the
+action and then reviewing the workflow log. This mode will simulate the cleanup
 action but will not delete any images/packages.
 
 ### Package Restoration?
