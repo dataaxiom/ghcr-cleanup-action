@@ -43,8 +43,8 @@ ensure it's permissions have been setup correctly, either by:
 | Option          | Required | Description                                                       |
 | --------------- | :------: | ----------------------------------------------------------------- |
 | token           |   yes    | Token used to connect with ghcr.io and the package API            |
-| tags            |    no    | Comma seperated list of tags to delete (supports wildcard syntax)  |
-| exclude-tags    |    no    | Comma seperated list of tags to exclude (supports wildcard syntax) |
+| tags            |    no    | Comma separated list of tags to delete (supports wildcard syntax)  |
+| exclude-tags    |    no    | Comma separated list of tags to exclude (supports wildcard syntax) |
 | keep-n-untagged |    no    | Number of untagged images to keep, sorted by date                 |
 | keep-n-tagged   |    no    | Number of tagged images to keep, sorted by date                   |
 | dry-run         |    no    | Simulate cleanup action, does not make changes (true/false, defaults to false)                   |
