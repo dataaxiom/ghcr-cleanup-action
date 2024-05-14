@@ -32990,6 +32990,8 @@ class CleanupAction {
     packages = new Map();
     tags = new Set();
     trimmedMultiArchPackages = new Map();
+    numberMultiImagesDeleted = 0;
+    numberImagesDeleted = 0;
     constructor() {
         this.config = (0, config_1.getConfig)();
         this.registry = new registry_1.Registry(this.config);
@@ -33055,13 +33057,16 @@ class CleanupAction {
                         if (ghPackage.data.metadata.container.tags.length === 1) {
                             const data = JSON.parse(manifest);
                             await this.githubPackageRepo.deletePackage(ghPackageId, manifestDigest, ghPackage.data.metadata.container.tags);
+                            this.numberImagesDeleted += 1;
                             if (data.manifests) {
                                 // a multiarch image
+                                this.numberMultiImagesDeleted += 1;
                                 for (const imageManifest of data.manifests) {
                                     const imageDigest = imageManifest.digest;
                                     const id = this.packageIdByDigest.get(imageDigest);
                                     if (id) {
                                         await this.githubPackageRepo.deletePackage(id, imageDigest, [`architecture ${imageManifest.platform.architecture}`]);
+                                        this.numberImagesDeleted += 1;
                                     }
                                     else {
                                         core.warning(`couldn't find image digest ${imageDigest} in repository, skipping`);
@@ -33098,9 +33103,10 @@ class CleanupAction {
                                 await this.githubPackageRepo.deletePackage(id, untaggedDigest, [
                                     tag
                                 ]);
+                                this.numberImagesDeleted += 1;
                             }
                             else {
-                                core.warning(`couldn't find package id ${id} with digest ${untaggedDigest} to delete`);
+                                core.warning(`couldn't find package with digest ${untaggedDigest} to delete`);
                             }
                         }
                     }
@@ -33143,13 +33149,16 @@ class CleanupAction {
                         // get the manifest before we delete it
                         const manifest = await this.registry.getRawManifest(untaggedPackage.name);
                         await this.githubPackageRepo.deletePackage(untaggedPackage.id, untaggedPackage.name, ghPackage.metadata.container.tags);
+                        this.numberImagesDeleted += 1;
                         // if multi arch image now delete the platform packages/images
                         const data = JSON.parse(manifest);
                         if (data.manifests) {
+                            this.numberMultiImagesDeleted += 1;
                             for (const imageManifest of data.manifests) {
                                 const trimmedPackage = this.trimmedMultiArchPackages.get(imageManifest.digest);
                                 if (trimmedPackage) {
                                     await this.githubPackageRepo.deletePackage(trimmedPackage.id, trimmedPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
+                                    this.numberImagesDeleted += 1;
                                 }
                             }
                         }
@@ -33166,7 +33175,6 @@ class CleanupAction {
         const deleted = new Set();
         // cache for second iteration
         const manifests = new Map();
-        let numberMultiImages = 0;
         for (const untaggedPackage of this.packages.values()) {
             if (!deleted.has(untaggedPackage.name)) {
                 // get the manifest before we delete it
@@ -33179,7 +33187,8 @@ class CleanupAction {
                 if (data.manifests) {
                     await this.githubPackageRepo.deletePackage(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
                     deleted.add(untaggedPackage.name);
-                    numberMultiImages += 1;
+                    this.numberImagesDeleted += 1;
+                    this.numberMultiImagesDeleted += 1;
                     // if multi arch image now delete the platform packages/images
                     for (const imageManifest of data.manifests) {
                         const packageId = this.packageIdByDigest.get(imageManifest.digest);
@@ -33188,10 +33197,8 @@ class CleanupAction {
                             if (ghPackage) {
                                 await this.githubPackageRepo.deletePackage(ghPackage.id, ghPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
                                 deleted.add(ghPackage.name);
+                                this.numberImagesDeleted += 1;
                             }
-                        }
-                        else {
-                            core.warning(`couldn't find image digest ${imageManifest.digest} in repository, skipping`);
                         }
                     }
                 }
@@ -33204,10 +33211,6 @@ class CleanupAction {
                 deleted.add(untaggedPackage.name);
             }
         }
-        if (numberMultiImages > 0) {
-            core.info(`number of multi architecture images deleted = ${numberMultiImages}`);
-        }
-        core.info(`total number of images deleted = ${deleted.size}`);
     }
     async keepNtagged() {
         if (this.config.keepNtagged != null) {
@@ -33225,7 +33228,7 @@ class CleanupAction {
                     this.packages.delete(id);
                 }
                 else {
-                    core.warning(`couldn't find package id ${id} with digest ${imageDigest} to delete`);
+                    core.warning(`couldn't find image digest ${imageDigest} in repository, skipping`);
                 }
             }
             // create an array to sort by date
@@ -33276,10 +33279,21 @@ class CleanupAction {
                 // remove these from the saved packages list
                 for (const digest of inUseDigests) {
                     const id = this.packageIdByDigest.get(digest);
-                    if (id)
+                    if (id) {
                         this.packages.delete(id);
+                    }
+                    else {
+                        core.warning(`couldn't find image digest ${digest} in repository, skipping`);
+                    }
                 }
                 await this.deletePackages();
+            }
+            // print stats
+            if (this.numberMultiImagesDeleted > 0) {
+                core.info(`number of multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
+            }
+            if (this.numberImagesDeleted > 0) {
+                core.info(`total number of images deleted = ${this.numberImagesDeleted}`);
             }
         }
         catch (error) {
@@ -33404,21 +33418,6 @@ class Registry {
             ]
         });
         return response?.data;
-    }
-    async tagExists(reference) {
-        let exists = false;
-        try {
-            await this.axios.get(`/v2/${this.config.owner}/${this.config.name}/manifests/${reference}`);
-            exists = true;
-        }
-        catch (error) {
-            if ((0, axios_1.isAxiosError)(error)) {
-                if (error.response?.status !== 404) {
-                    throw error;
-                }
-            }
-        }
-        return exists;
     }
     async getAllTagDigests() {
         const images = [];

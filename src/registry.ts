@@ -91,23 +91,6 @@ export class Registry {
     return response?.data
   }
 
-  async tagExists(reference: string): Promise<boolean> {
-    let exists = false
-    try {
-      await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.name}/manifests/${reference}`
-      )
-      exists = true
-    } catch (error) {
-      if (isAxiosError(error)) {
-        if (error.response?.status !== 404) {
-          throw error
-        }
-      }
-    }
-    return exists
-  }
-
   async getAllTagDigests(): Promise<string[]> {
     const images = []
     const tags = await this.getTags()
