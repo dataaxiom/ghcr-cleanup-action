@@ -48,7 +48,7 @@ ensure it's permissions have been setup correctly, either by:
 | keep-n-untagged |    no    | Number of untagged images to keep, sorted by date      |
 | keep-n-tagged   |    no    | Number of tagged images to keep, sorted by date        |
 | dry-run         |    no    | Simulate cleanup action, does not make changes         |
-| owner           |    no    | The repository owner, can be organization or user      |
+| owner           |    no    | The repository owner, can be organization or user type |
 | name            |    no    | The package name                                       |
 
 If the tags, keep_n_untagged or keep_n_tagged options are not set then all
