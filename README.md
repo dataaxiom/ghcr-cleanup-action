@@ -43,11 +43,11 @@ ensure it's permissions have been setup correctly, either by:
 | Option          | Required | Description                                                       |
 | --------------- | :------: | ----------------------------------------------------------------- |
 | token           |   yes    | Token used to connect with ghcr.io and the package API            |
-| tags            |    no    | Comma sperated list of tags to delete (supports wildcard syntax)  |
-| exclude-tags    |    no    | Comma sperated list of tags to exclude (supports wildcard syntax) |
+| tags            |    no    | Comma seperated list of tags to delete (supports wildcard syntax)  |
+| exclude-tags    |    no    | Comma seperated list of tags to exclude (supports wildcard syntax) |
 | keep-n-untagged |    no    | Number of untagged images to keep, sorted by date                 |
 | keep-n-tagged   |    no    | Number of tagged images to keep, sorted by date                   |
-| dry-run         |    no    | Simulate cleanup action, does not make changes                    |
+| dry-run         |    no    | Simulate cleanup action, does not make changes (true/false, defaults to false)                   |
 | owner           |    no    | The repository owner, can be organization or user type            |
 | name            |    no    | The repo/package name                                             |
 
@@ -126,7 +126,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Delete image when pull reqeust is closed
+### Delete image when pull request is closed
 
 ```yaml
 name: Cleanup Pull Request Images
@@ -200,6 +200,25 @@ jobs:
           exclude-tags: 'v*,dev,latest'
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+### Keep 10 tagged images and "dev" image, and dry-run
+
+Simulates how to keep 10 tagged images as well as the dev-image.
+
+```yaml
+jobs:
+  - name: ghcr cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Clean up docker images"
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          keep-n-tagged: 10
+          exclude-tags: dev
+          dry-run: true
+          token: ${{secrets.GITHUB_TOKEN}}
+```
+
 
 ## Image Deletion Guidelines
 
