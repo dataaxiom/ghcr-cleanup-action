@@ -219,7 +219,6 @@ jobs:
           token: ${{secrets.GITHUB_TOKEN}}
 ```
 
-
 ## Image Deletion Guidelines
 
 ### Do a dry-run
