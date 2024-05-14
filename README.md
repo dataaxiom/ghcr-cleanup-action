@@ -197,7 +197,7 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           keep-n-tagged: 3
-          exclude-tags: 'v*,dev,latest'
+          exclude-tags: v*,dev,latest
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
@@ -216,7 +216,7 @@ jobs:
           keep-n-tagged: 10
           exclude-tags: dev
           dry-run: true
-          token: ${{secrets.GITHUB_TOKEN}}
+          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Image Deletion Guidelines
