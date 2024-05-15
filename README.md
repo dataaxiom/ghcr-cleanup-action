@@ -197,7 +197,7 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           keep-n-tagged: 3
-          exclude-tags: v*,dev,latest
+          exclude-tags: 'v*,dev,latest'
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
