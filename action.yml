@@ -46,6 +46,11 @@ inputs:
       Tags to exclude from deletion (comma seperated)
     required: false
 
+  validate:
+    description: >
+      Validate all multi architecture images manifests by checking their digests
+      are present in the registry
+
   dry-run:
     description: >
       Simulate action - does not remove any packages

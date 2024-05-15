@@ -48,14 +48,14 @@ ensure it's permissions have been setup correctly, either by:
 | keep-n-untagged |    no    | Number of untagged images to keep, sorted by date                              |
 | keep-n-tagged   |    no    | Number of tagged images to keep, sorted by date                                |
 | dry-run         |    no    | Simulate cleanup action, does not make changes (true/false, defaults to false) |
+| validate        |    no    | Validate all multi architecture images in the registry after cleanup           |
 | owner           |    no    | The repository owner, can be organization or user type                         |
 | name            |    no    | The repo/package name                                                          |
 
 If the tags, keep_n_untagged or keep_n_tagged options are not set then all
 untagged images will be deleted.
 
-The tags, keep_n_untagged and keep_n_tagged options can not be set at the same
-time.
+The keep_n_untagged and keep_n_tagged options can not be set at the same time.
 
 ## Usage
 
@@ -186,8 +186,8 @@ jobs:
 
 ### Tag Wildcard
 
-The tags and exclude-tags action options can make use of a wildcard syntax using
-the ?, \* and \*\* characters.
+The tags and exclude-tags options can use a wildcard syntax, using the ?, \* and
+\*\* characters. (Utilizes the wildcard-match library)
 
 ```yaml
 jobs:

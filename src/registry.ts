@@ -5,6 +5,10 @@ import { calcDigest, isValidChallenge, parseChallenge } from './utils'
 export class Registry {
   config: Config
   axios: AxiosInstance
+  // cache of loaded manifests, by digest
+  manifestCache = new Map<string, any>()
+  // map of tag digests
+  digestByTagCache = new Map<string, string>()
 
   constructor(config: Config) {
     this.config = config
@@ -77,31 +81,72 @@ export class Registry {
     return tags
   }
 
-  async getRawManifest(reference: string): Promise<string> {
-    const response = await this.axios.get(
-      `/v2/${this.config.owner}/${this.config.name}/manifests/${reference}`,
-      {
-        transformResponse: [
-          data => {
-            return data
-          }
-        ]
-      }
-    )
-    return response?.data
+  async getManifestByDigest(digest: string): Promise<any> {
+    if (this.manifestCache.has(digest)) {
+      return this.manifestCache.get(digest)!
+    } else {
+      const response = await this.axios.get(
+        `/v2/${this.config.owner}/${this.config.name}/manifests/${digest}`,
+        {
+          transformResponse: [
+            data => {
+              return data
+            }
+          ]
+        }
+      )
+      const obj = JSON.parse(response?.data)
+      // save it for later use
+      this.manifestCache.set(digest, obj)
+      return obj
+    }
+  }
+
+  deleteTag(tag: string) {
+    this.digestByTagCache.delete(tag)
+  }
+
+  async getTagDigest(tag: string): Promise<string> {
+    if (!this.digestByTagCache.has(tag)) {
+      // load it
+      await this.getManifestByTag(tag)
+    }
+    return this.digestByTagCache.get(tag)!
+  }
+
+  async getManifestByTag(tag: string): Promise<any> {
+    if (this.digestByTagCache.has(tag)) {
+      // get the digest to look up the manifest
+      return this.manifestCache.get(this.digestByTagCache.get(tag)!)
+    } else {
+      const response = await this.axios.get(
+        `/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
+        {
+          transformResponse: [
+            data => {
+              return data
+            }
+          ]
+        }
+      )
+      const digest = calcDigest(response?.data)
+      const obj = JSON.parse(response?.data)
+      this.manifestCache.set(digest, obj)
+      this.digestByTagCache.set(tag, digest)
+      return obj
+    }
   }
 
   async getAllTagDigests(): Promise<string[]> {
     const images = []
     const tags = await this.getTags()
     for (const tag of tags) {
-      const manifest = await this.getRawManifest(tag)
-      const hexDigest = calcDigest(manifest)
-      images.push(hexDigest)
+      const manifest = await this.getManifestByTag(tag)
+      const digest = await this.getTagDigest(tag)
+      images.push(digest)
       // if manifest image add the images to
-      const data = JSON.parse(manifest)
-      if (data.manifests) {
-        for (const imageManifest of data.manifests) {
+      if (manifest.manifests) {
+        for (const imageManifest of manifest.manifests) {
           images.push(imageManifest.digest)
         }
       }

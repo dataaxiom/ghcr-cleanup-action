@@ -3,9 +3,11 @@ import { getOctokit } from '@actions/github'
 
 export class Config {
   owner?: string
+  isPrivateRepo = false
   name?: string
   tags?: string
   excludeTags?: string
+  validate?: boolean
   keepNuntagged?: number
   keepNtagged?: number
   dryRun?: boolean
@@ -21,6 +23,7 @@ export class Config {
     const result = await this.octokit.request(
       `GET /repos/${this.owner}/${this.name}`
     )
+    this.isPrivateRepo = result.data.private
     return result.data.owner.type
   }
 }
@@ -55,6 +58,11 @@ export function getConfig(): Config {
   } else {
     config.dryRun = false
   }
+  if (core.getInput('validate')) {
+    config.validate = core.getBooleanInput('validate')
+  } else {
+    config.validate = false
+  }
 
   if (core.getInput('keep-n-untagged')) {
     if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
@@ -71,11 +79,6 @@ export function getConfig(): Config {
     }
   }
 
-  if (config.tags && (config.keepNuntagged || config.keepNtagged)) {
-    throw Error(
-      'tags cannot be used with keep-n-untagged or keep-n-tagged options'
-    )
-  }
   if (config.keepNuntagged && config.keepNtagged) {
     throw Error(
       'keep-n-untagged and keep-n-tagged options can not be set at the same time'
