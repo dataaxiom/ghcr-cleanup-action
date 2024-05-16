@@ -42,25 +42,25 @@ ensure it's permissions have been setup correctly, either by:
 
 ### Action Options
 
-| Option          | Required | Defaults         | Description                                                          |
-| --------------- | :------: | ---------------- | -------------------------------------------------------------------- |
-| token           |   yes    |                  | Token used to connect with ghcr.io and the package API               |
-| tags            |    no    |                  | Comma separated list of tags to delete (supports wildcard syntax)    |
-| exclude-tags    |    no    |                  | Comma separated list of tags to exclude (supports wildcard syntax)   |
-| keep-n-untagged |    no    |                  | Number of untagged images to keep, sorted by date                    |
-| keep-n-tagged   |    no    |                  | Number of tagged images to keep, sorted by date                      |
-| dry-run         |    no    | false            | Simulate cleanup action, does not make changes (true/false)          |
-| validate        |    no    | false            | Validate all multi architecture images in the registry after cleanup |
-| owner           |    no    | project owner    | The repository owner, can be organization or user type               |
-| repository      |    no    | repository name  | The repository name                                                  |
-| package         |    no    | respository name | The package name                                                     |
+| Option          | Required | Defaults        | Description                                                          |
+| --------------- | :------: | --------------- | -------------------------------------------------------------------- |
+| token           |   yes    |                 | Token used to connect with ghcr.io and the package API               |
+| tags            |    no    |                 | Comma separated list of tags to delete (supports wildcard syntax)    |
+| exclude-tags    |    no    |                 | Comma separated list of tags to exclude (supports wildcard syntax)   |
+| keep-n-untagged |    no    |                 | Number of untagged images to keep, sorted by date                    |
+| keep-n-tagged   |    no    |                 | Number of tagged images to keep, sorted by date                      |
+| dry-run         |    no    | false           | Simulate cleanup action, does not make changes (true/false)          |
+| validate        |    no    | false           | Validate all multi architecture images in the registry after cleanup |
+| owner           |    no    | project owner   | The repository owner, can be organization or user type               |
+| repository      |    no    | repository name | The repository name                                                  |
+| package         |    no    | repository name | The package name                                                     |
 
 If the tags, keep_n_untagged or keep_n_tagged options are not set then all
 untagged images will be deleted.
 
 The keep_n_untagged and keep_n_tagged options can not be set at the same time.
 
-## Main Modes
+## Main Execution Modes
 
 ### Delete all untagged images
 
@@ -248,10 +248,10 @@ the workflow log where the ghcr-cleanup-action is run.
 
 ### Ghost Images
 
-Multi architecture images which have no underlying platform digest packages are
+Multi architecture images which have no underlying platform packages are
 automatically removed for the keep-n-untagged and keep-n-tagged modes and not
 include in their count. Partially corrupt images are not removed by default, use
-the validate option to be able to identify then fix them.
+the validate option to be able to identify and then fix them.
 
 ### Validate Option
 
