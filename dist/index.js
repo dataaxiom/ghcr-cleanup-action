@@ -32887,10 +32887,10 @@ class GithubPackageRepo {
     }
     async deletePackage(id, digest, tags) {
         if (tags.length > 0) {
-            core.info(`deleting package id: ${id} digest:${digest} tag:${tags}`);
+            core.info(` deleting package id: ${id} digest:${digest} tag:${tags}`);
         }
         else {
-            core.info(`deleting package id: ${id} digest:${digest}`);
+            core.info(` deleting package id: ${id} digest:${digest}`);
         }
         if (!this.config.dryRun) {
             if (this.repoType === 'User') {
