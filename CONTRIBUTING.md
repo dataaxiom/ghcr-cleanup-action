@@ -8,6 +8,12 @@ Build the dist folder
 npm run bundle
 ```
 
+## Running CI Tests
+
+On forked repos the ci.yml workflow will run an publish into a package
+"ghcr-cleanup-action", it's recommended to change the visability of that package
+to "private".
+
 ## Publishing a New Release
 
 This project includes a helper script, [`script/release`](./script/release)

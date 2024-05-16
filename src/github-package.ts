@@ -54,7 +54,7 @@ export class GithubPackageRepo {
     }
   }
 
-  async deletePackage(
+  async deletePackageVersion(
     id: string,
     digest: string,
     tags: string[]

@@ -44,12 +44,10 @@ export function getConfig(): Config {
       if (!config.package) {
         config.package = parts[1]
       }
-      config.repository = parts[1]
-    } else {
-      throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`)
+      if (!config.repository) {
+        config.repository = parts[1]
+      }
     }
-  } else {
-    throw Error('GITHUB_REPOSITORY is not set')
   }
 
   config.tags = core.getInput('tags')

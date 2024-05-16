@@ -32761,14 +32761,10 @@ function getConfig() {
             if (!config.package) {
                 config.package = parts[1];
             }
-            config.repository = parts[1];
+            if (!config.repository) {
+                config.repository = parts[1];
+            }
         }
-        else {
-            throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`);
-        }
-    }
-    else {
-        throw Error('GITHUB_REPOSITORY is not set');
     }
     config.tags = core.getInput('tags');
     config.excludeTags = core.getInput('exclude-tags');
@@ -32894,7 +32890,7 @@ class GithubPackageRepo {
             }
         }
     }
-    async deletePackage(id, digest, tags) {
+    async deletePackageVersion(id, digest, tags) {
         if (tags.length > 0) {
             core.info(` deleting package id: ${id} digest:${digest} tag:${tags}`);
         }
@@ -33103,7 +33099,8 @@ class CleanupAction {
                         const ghPackage = await this.githubPackageRepo.getPackage(ghPackageId);
                         // if the image only has one tag - delete it
                         if (ghPackage.data.metadata.container.tags.length === 1) {
-                            await this.githubPackageRepo.deletePackage(ghPackageId, manifestDigest, ghPackage.data.metadata.container.tags);
+                            await this.githubPackageRepo.deletePackageVersion(ghPackageId, manifestDigest, ghPackage.data.metadata.container.tags);
+                            this.numberImagesDeleted += 1;
                             if (manifest.manifests) {
                                 // a multiarch image
                                 this.numberMultiImagesDeleted += 1;
@@ -33111,7 +33108,7 @@ class CleanupAction {
                                     const imageDigest = imageManifest.digest;
                                     const id = this.packageIdByDigest.get(imageDigest);
                                     if (id) {
-                                        await this.githubPackageRepo.deletePackage(id, imageDigest, [`architecture ${imageManifest.platform.architecture}`]);
+                                        await this.githubPackageRepo.deletePackageVersion(id, imageDigest, [`architecture ${imageManifest.platform.architecture}`]);
                                         this.numberImagesDeleted += 1;
                                     }
                                     else {
@@ -33148,9 +33145,7 @@ class CleanupAction {
                             const untaggedDigest = await this.registry.getTagDigest(tag);
                             const id = reloadPackageByDigest.get(untaggedDigest);
                             if (id) {
-                                await this.githubPackageRepo.deletePackage(id, untaggedDigest, [
-                                    tag
-                                ]);
+                                await this.githubPackageRepo.deletePackageVersion(id, untaggedDigest, [tag]);
                                 this.numberImagesDeleted += 1;
                             }
                             else {
@@ -33220,7 +33215,7 @@ class CleanupAction {
                         const ghPackage = this.packagesById.get(untaggedPackage.id);
                         // get the manifest before we delete it
                         const manifest = await this.registry.getManifestByDigest(untaggedPackage.name);
-                        await this.githubPackageRepo.deletePackage(untaggedPackage.id, untaggedPackage.name, ghPackage.metadata.container.tags);
+                        await this.githubPackageRepo.deletePackageVersion(untaggedPackage.id, untaggedPackage.name, ghPackage.metadata.container.tags);
                         this.numberImagesDeleted += 1;
                         // if multi arch image now delete the platform packages/images
                         if (manifest.manifests) {
@@ -33228,7 +33223,7 @@ class CleanupAction {
                             for (const imageManifest of manifest.manifests) {
                                 const trimmedPackage = this.trimmedMultiArchPackages.get(imageManifest.digest);
                                 if (trimmedPackage) {
-                                    await this.githubPackageRepo.deletePackage(trimmedPackage.id, trimmedPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
+                                    await this.githubPackageRepo.deletePackageVersion(trimmedPackage.id, trimmedPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
                                     this.numberImagesDeleted += 1;
                                 }
                             }
@@ -33246,7 +33241,7 @@ class CleanupAction {
                 // get the manifest before we delete it
                 const manifest = await this.registry.getManifestByDigest(untaggedPackage.name);
                 if (manifest.manifests) {
-                    await this.githubPackageRepo.deletePackage(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
+                    await this.githubPackageRepo.deletePackageVersion(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
                     deleted.add(untaggedPackage.name);
                     this.numberImagesDeleted += 1;
                     this.numberMultiImagesDeleted += 1;
@@ -33256,7 +33251,7 @@ class CleanupAction {
                         if (packageId) {
                             const ghPackage = this.packagesById.get(packageId);
                             if (ghPackage) {
-                                await this.githubPackageRepo.deletePackage(ghPackage.id, ghPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
+                                await this.githubPackageRepo.deletePackageVersion(ghPackage.id, ghPackage.name, [`architecture ${imageManifest.platform.architecture}`]);
                                 deleted.add(ghPackage.name);
                                 this.numberImagesDeleted += 1;
                             }
@@ -33271,8 +33266,9 @@ class CleanupAction {
         // now process the remainder
         for (const untaggedPackage of this.packagesById.values()) {
             if (!deleted.has(untaggedPackage.name)) {
-                await this.githubPackageRepo.deletePackage(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
+                await this.githubPackageRepo.deletePackageVersion(untaggedPackage.id, untaggedPackage.name, untaggedPackage.metadata.container.tags);
                 deleted.add(untaggedPackage.name);
+                this.numberImagesDeleted += 1;
             }
         }
     }
