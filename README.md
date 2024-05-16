@@ -61,7 +61,7 @@ The keep_n_untagged and keep_n_tagged options can not be set at the same time.
 
 ## Usage
 
-### Cleanup untagged images
+### Delete all untagged images
 
 To cleanup all untagged images in a image repository only the token is required
 to be set. It will use the current repository information to setup the owner and
@@ -77,7 +77,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Cleanup tagged images
+### Delete specific tagged images
 
 Set the tags option to delete specific tags
 
@@ -96,11 +96,12 @@ If the tag links to an image with multiple tags, the action will unlink the tag
 before is deleted, effetively untagging the image, but the underlying image will
 not be deleted unless all tags are deleted.
 
-### Keep 'n' untagged images cleanup
+### Keep 'n' untagged images cleanup (keep-n-untagged)
 
-Cleans up untagged images but keeps the number of "keep-n-untagged" images. It
-supports multi-architecture images so the number of untagged images showing
-after running the action may be higher then the number-tagged value set.
+Keeps all tagged images and removes all untagged images except for the number of
+"keep-n-untagged" images (sorted by date). It supports multi-architecture images
+so the number of untagged images showing after running the action may be higher
+then the keep-n-untagged value set.
 
 ```yaml
 jobs:
@@ -113,9 +114,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Keep 'n' tagged images cleanup
+### Keep 'n' tagged images cleanup (keep-n-tagged)
 
-Cleans up tagged images but keeps the number of "keep-n-tagged" tagged images.
+Keeps a number (keep-n-tagged) of tagged images and then deletes the rest. Tags
+are sorted by date. Additional exclude-tags values are not include the total
+count.
 
 ```yaml
 jobs:
@@ -221,7 +224,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-## Image Deletion Guidelines
+## Notes
 
 ### Do a dry-run
 
@@ -229,7 +232,7 @@ Test the cleanup action first by setting the "dry-run: true" option on the
 action and then reviewing the workflow log. This mode will simulate the cleanup
 action but will not delete any images/packages.
 
-### Package Restoration?
+### Package Restoration
 
 GitHub has a package restoration API capability. The package IDs are printed in
 the workflow log where the ghcr-cleanup-action is run.
@@ -237,3 +240,17 @@ the workflow log where the ghcr-cleanup-action is run.
 [Restore Organization Package](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#restore-package-version-for-an-organization)
 
 [Restore User Package](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#restore-a-package-version-for-the-authenticated-user)
+
+### Ghost Images
+
+Multi architecture images which have no underlying platform digest packages are
+automatically removed for the keep-n-untagged and keep-n-tagged modes and not
+include in their count. Partially corrupt images are not removed by default, use
+the validate option to be able to identify then fix them.
+
+### Validate Option
+
+Set the validate option to true to enable a full scan of the image repository at
+the end of the exectuion to check that all multi architecture images have no
+missing platform images. Warnings will be outputed if there are missing
+packages.
