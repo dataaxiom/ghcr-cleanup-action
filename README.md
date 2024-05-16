@@ -17,7 +17,7 @@ It includes the following features:
 - Keeping a number of untagged images
 - Keeping a number of tagged images
 - Supports wildcard syntax for tag/exclude tag options
-- Validate multi architecture images have all platform digests packages
+- Validate multi architecture images have all platform packages
 
 ## Setup
 
@@ -52,14 +52,15 @@ ensure it's permissions have been setup correctly, either by:
 | dry-run         |    no    | false            | Simulate cleanup action, does not make changes (true/false)          |
 | validate        |    no    | false            | Validate all multi architecture images in the registry after cleanup |
 | owner           |    no    | project owner    | The repository owner, can be organization or user type               |
-| name            |    no    | respository name | The package name                                                     |
+| repository      |    no    | repository name  | The repository name                                                  |
+| package         |    no    | respository name | The package name                                                     |
 
 If the tags, keep_n_untagged or keep_n_tagged options are not set then all
 untagged images will be deleted.
 
 The keep_n_untagged and keep_n_tagged options can not be set at the same time.
 
-## Usage
+## Main Modes
 
 ### Delete all untagged images
 
@@ -101,7 +102,8 @@ not be deleted unless all tags are deleted.
 Keeps all tagged images and removes all untagged images except for the number of
 "keep-n-untagged" images (sorted by date). It supports multi-architecture images
 so the number of untagged images showing after running the action may be higher
-then the keep-n-untagged value set.
+then the keep-n-untagged value set. May be combined with tags option to delete
+those tags too.
 
 ```yaml
 jobs:
@@ -130,6 +132,8 @@ jobs:
           keep-n-tagged: 3
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+## Extra Samples
 
 ### Delete image when pull request is closed
 
@@ -170,11 +174,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Override default repository/package
+### Override default owner/repository/package
 
-The default settings will use the current project to determine the owner and
-package name but for cross project setup these can be overriden by setting owner
-and name values.
+The default settings will use the current project to determine the owner,
+repository and package name but for cross project and multiple package support
+these can be overriden by setting owner, repository and package values.
 
 ```yaml
 jobs:
@@ -185,7 +189,8 @@ jobs:
         with:
           tags: mytag,mytag2
           owner: dataaxiom
-          name: tiecd
+          repository: tiecd
+          package: tiecd
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
