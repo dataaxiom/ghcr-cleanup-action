@@ -96,7 +96,7 @@ If the tag links to an image with multiple tags, the action will unlink the tag
 before is deleted, effetively untagging the image, but the underlying image will
 not be deleted unless all tags are deleted.
 
-### Cleanup 'n' untagged images
+### Keep 'n' untagged images cleanup
 
 Cleans up untagged images but keeps the number of "keep-n-untagged" images. It
 supports multi-architecture images so the number of untagged images showing
@@ -113,7 +113,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Cleanup 'n' tagged images
+### Keep 'n' tagged images cleanup
 
 Cleans up tagged images but keeps the number of "keep-n-tagged" tagged images.
 
