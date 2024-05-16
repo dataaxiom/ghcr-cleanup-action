@@ -4,8 +4,8 @@ import { getOctokit } from '@actions/github'
 export class Config {
   owner?: string
   isPrivateRepo = false
-  repoName?: string
-  name?: string
+  repository?: string
+  package?: string
   tags?: string
   excludeTags?: string
   validate?: boolean
@@ -22,7 +22,7 @@ export class Config {
 
   async getOwnerType(): Promise<string> {
     const result = await this.octokit.request(
-      `GET /repos/${this.owner}/${this.repoName}`
+      `GET /repos/${this.owner}/${this.repository}`
     )
     this.isPrivateRepo = result.data.private
     return result.data.owner.type
@@ -41,10 +41,10 @@ export function getConfig(): Config {
       if (!config.owner) {
         config.owner = parts[0]
       }
-      if (!config.name) {
-        config.name = parts[1]
+      if (!config.package) {
+        config.package = parts[1]
       }
-      config.repoName = parts[1]
+      config.repository = parts[1]
     } else {
       throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`)
     }
@@ -92,8 +92,11 @@ export function getConfig(): Config {
   if (!config.owner) {
     throw new Error('owner is not set')
   }
-  if (!config.name) {
-    throw new Error('name is not set')
+  if (!config.package) {
+    throw new Error('package is not set')
+  }
+  if (!config.repository) {
+    throw new Error('repository is not set')
   }
   return config
 }

@@ -32726,8 +32726,8 @@ const github_1 = __nccwpck_require__(5438);
 class Config {
     owner;
     isPrivateRepo = false;
-    repoName;
-    name;
+    repository;
+    package;
     tags;
     excludeTags;
     validate;
@@ -32741,7 +32741,7 @@ class Config {
         this.octokit = (0, github_1.getOctokit)(token);
     }
     async getOwnerType() {
-        const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repoName}`);
+        const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
         this.isPrivateRepo = result.data.private;
         return result.data.owner.type;
     }
@@ -32758,10 +32758,10 @@ function getConfig() {
             if (!config.owner) {
                 config.owner = parts[0];
             }
-            if (!config.name) {
-                config.name = parts[1];
+            if (!config.package) {
+                config.package = parts[1];
             }
-            config.repoName = parts[1];
+            config.repository = parts[1];
         }
         else {
             throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`);
@@ -32809,8 +32809,11 @@ function getConfig() {
     if (!config.owner) {
         throw new Error('owner is not set');
     }
-    if (!config.name) {
-        throw new Error('name is not set');
+    if (!config.package) {
+        throw new Error('package is not set');
+    }
+    if (!config.repository) {
+        throw new Error('repository is not set');
     }
     return config;
 }
@@ -32869,7 +32872,7 @@ class GithubPackageRepo {
                     .getAllPackageVersionsForPackageOwnedByUser;
             getParams = {
                 package_type: 'container',
-                package_name: this.config.name,
+                package_name: this.config.package,
                 username: this.config.owner,
                 state: 'active',
                 per_page: 100
@@ -32878,7 +32881,7 @@ class GithubPackageRepo {
         else {
             getParams = {
                 package_type: 'container',
-                package_name: this.config.name,
+                package_name: this.config.package,
                 org: this.config.owner,
                 state: 'active',
                 per_page: 100
@@ -32902,7 +32905,7 @@ class GithubPackageRepo {
             if (this.repoType === 'User') {
                 await this.config.octokit.rest.packages.deletePackageVersionForUser({
                     package_type: 'container',
-                    package_name: this.config.name,
+                    package_name: this.config.package,
                     username: this.config.owner,
                     package_version_id: id
                 });
@@ -32910,7 +32913,7 @@ class GithubPackageRepo {
             else {
                 await this.config.octokit.rest.packages.deletePackageVersionForOrg({
                     package_type: 'container',
-                    package_name: this.config.name,
+                    package_name: this.config.package,
                     org: this.config.owner,
                     package_version_id: id
                 });
@@ -32921,7 +32924,7 @@ class GithubPackageRepo {
         if (this.repoType === 'User') {
             return await this.config.octokit.rest.packages.getPackageVersionForUser({
                 package_type: 'container',
-                package_name: this.config.name,
+                package_name: this.config.package,
                 package_version_id: id,
                 username: this.config.owner
             });
@@ -32929,7 +32932,7 @@ class GithubPackageRepo {
         else {
             return await this.config.octokit.rest.packages.getPackageVersionForOrganization({
                 package_type: 'container',
-                package_name: this.config.name,
+                package_name: this.config.package,
                 package_version_id: id,
                 org: this.config.owner
             });
@@ -33424,7 +33427,7 @@ class Registry {
     async login() {
         try {
             // get token
-            await this.axios.get(`/v2/${this.config.owner}/${this.config.name}/tags/list`);
+            await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/tags/list`);
         }
         catch (error) {
             if ((0, axios_1.isAxiosError)(error) && error.response) {
@@ -33460,7 +33463,7 @@ class Registry {
     }
     async getTags(link) {
         let tags = [];
-        let url = `/v2/${this.config.owner}/${this.config.name}/tags/list?n=100`;
+        let url = `/v2/${this.config.owner}/${this.config.package}/tags/list?n=100`;
         if (link) {
             url = link;
         }
@@ -33485,7 +33488,7 @@ class Registry {
             return this.manifestCache.get(digest);
         }
         else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.name}/manifests/${digest}`, {
+            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${digest}`, {
                 transformResponse: [
                     data => {
                         return data;
@@ -33514,7 +33517,7 @@ class Registry {
             return this.manifestCache.get(this.digestByTagCache.get(tag));
         }
         else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`, {
+            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, {
                 transformResponse: [
                     data => {
                         return data;
@@ -33559,7 +33562,7 @@ class Registry {
             let putToken;
             const auth = axios_1.default.create();
             try {
-                await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`, manifest, config);
+                await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, config);
             }
             catch (error) {
                 if ((0, axios_1.isAxiosError)(error) && error.response) {
@@ -33587,7 +33590,7 @@ class Registry {
             }
             if (putToken) {
                 // now put the updated manifest
-                await this.axios.put(`/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`, manifest, {
+                await this.axios.put(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, {
                     headers: {
                         'content-type': contentType,
                         Authorization: `Bearer ${putToken}`

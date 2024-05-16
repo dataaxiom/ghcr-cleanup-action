@@ -29,7 +29,7 @@ export class GithubPackageRepo {
 
       getParams = {
         package_type: 'container',
-        package_name: this.config.name,
+        package_name: this.config.package,
         username: this.config.owner,
         state: 'active',
         per_page: 100
@@ -37,7 +37,7 @@ export class GithubPackageRepo {
     } else {
       getParams = {
         package_type: 'container',
-        package_name: this.config.name,
+        package_name: this.config.package,
         org: this.config.owner,
         state: 'active',
         per_page: 100
@@ -68,14 +68,14 @@ export class GithubPackageRepo {
       if (this.repoType === 'User') {
         await this.config.octokit.rest.packages.deletePackageVersionForUser({
           package_type: 'container',
-          package_name: this.config.name,
+          package_name: this.config.package,
           username: this.config.owner,
           package_version_id: id
         })
       } else {
         await this.config.octokit.rest.packages.deletePackageVersionForOrg({
           package_type: 'container',
-          package_name: this.config.name,
+          package_name: this.config.package,
           org: this.config.owner,
           package_version_id: id
         })
@@ -87,7 +87,7 @@ export class GithubPackageRepo {
     if (this.repoType === 'User') {
       return await this.config.octokit.rest.packages.getPackageVersionForUser({
         package_type: 'container',
-        package_name: this.config.name,
+        package_name: this.config.package,
         package_version_id: id,
         username: this.config.owner
       })
@@ -95,7 +95,7 @@ export class GithubPackageRepo {
       return await this.config.octokit.rest.packages.getPackageVersionForOrganization(
         {
           package_type: 'container',
-          package_name: this.config.name,
+          package_name: this.config.package,
           package_version_id: id,
           org: this.config.owner
         }

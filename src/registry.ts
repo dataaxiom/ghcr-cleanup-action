@@ -23,7 +23,7 @@ export class Registry {
     try {
       // get token
       await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.name}/tags/list`
+        `/v2/${this.config.owner}/${this.config.package}/tags/list`
       )
     } catch (error) {
       if (isAxiosError(error) && error.response) {
@@ -60,7 +60,7 @@ export class Registry {
 
   async getTags(link?: string): Promise<string[]> {
     let tags = []
-    let url = `/v2/${this.config.owner}/${this.config.name}/tags/list?n=100`
+    let url = `/v2/${this.config.owner}/${this.config.package}/tags/list?n=100`
     if (link) {
       url = link
     }
@@ -86,7 +86,7 @@ export class Registry {
       return this.manifestCache.get(digest)!
     } else {
       const response = await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.name}/manifests/${digest}`,
+        `/v2/${this.config.owner}/${this.config.package}/manifests/${digest}`,
         {
           transformResponse: [
             data => {
@@ -120,7 +120,7 @@ export class Registry {
       return this.manifestCache.get(this.digestByTagCache.get(tag)!)
     } else {
       const response = await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
+        `/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`,
         {
           transformResponse: [
             data => {
@@ -174,7 +174,7 @@ export class Registry {
       const auth = axios.create()
       try {
         await auth.put(
-          `https://ghcr.io/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
+          `https://ghcr.io/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`,
           manifest,
           config
         )
@@ -207,7 +207,7 @@ export class Registry {
       if (putToken) {
         // now put the updated manifest
         await this.axios.put(
-          `/v2/${this.config.owner}/${this.config.name}/manifests/${tag}`,
+          `/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`,
           manifest,
           {
             headers: {
