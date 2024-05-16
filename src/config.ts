@@ -4,6 +4,7 @@ import { getOctokit } from '@actions/github'
 export class Config {
   owner?: string
   isPrivateRepo = false
+  repoName?: string
   name?: string
   tags?: string
   excludeTags?: string
@@ -21,7 +22,7 @@ export class Config {
 
   async getOwnerType(): Promise<string> {
     const result = await this.octokit.request(
-      `GET /repos/${this.owner}/${this.name}`
+      `GET /repos/${this.owner}/${this.repoName}`
     )
     this.isPrivateRepo = result.data.private
     return result.data.owner.type
@@ -33,19 +34,22 @@ export function getConfig(): Config {
   const config = new Config(token)
 
   // auto populate
-  if (!config.owner || !config.name) {
-    const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY']
-    if (GITHUB_REPOSITORY) {
-      const parts = GITHUB_REPOSITORY.split('/')
-      if (parts.length === 2) {
-        if (!config.owner) {
-          config.owner = parts[0]
-        }
-        if (!config.name) {
-          config.name = parts[1]
-        }
+  const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY']
+  if (GITHUB_REPOSITORY) {
+    const parts = GITHUB_REPOSITORY.split('/')
+    if (parts.length === 2) {
+      if (!config.owner) {
+        config.owner = parts[0]
       }
+      if (!config.name) {
+        config.name = parts[1]
+      }
+      config.repoName = parts[1]
+    } else {
+      throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`)
     }
+  } else {
+    throw Error('GITHUB_REPOSITORY is not set')
   }
 
   config.tags = core.getInput('tags')

@@ -32726,6 +32726,7 @@ const github_1 = __nccwpck_require__(5438);
 class Config {
     owner;
     isPrivateRepo = false;
+    repoName;
     name;
     tags;
     excludeTags;
@@ -32740,7 +32741,7 @@ class Config {
         this.octokit = (0, github_1.getOctokit)(token);
     }
     async getOwnerType() {
-        const result = await this.octokit.request(`GET /repos/${this.owner}/${this.name}`);
+        const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repoName}`);
         this.isPrivateRepo = result.data.private;
         return result.data.owner.type;
     }
@@ -32750,19 +32751,24 @@ function getConfig() {
     const token = core.getInput('token', { required: true });
     const config = new Config(token);
     // auto populate
-    if (!config.owner || !config.name) {
-        const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
-        if (GITHUB_REPOSITORY) {
-            const parts = GITHUB_REPOSITORY.split('/');
-            if (parts.length === 2) {
-                if (!config.owner) {
-                    config.owner = parts[0];
-                }
-                if (!config.name) {
-                    config.name = parts[1];
-                }
+    const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
+    if (GITHUB_REPOSITORY) {
+        const parts = GITHUB_REPOSITORY.split('/');
+        if (parts.length === 2) {
+            if (!config.owner) {
+                config.owner = parts[0];
             }
+            if (!config.name) {
+                config.name = parts[1];
+            }
+            config.repoName = parts[1];
         }
+        else {
+            throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`);
+        }
+    }
+    else {
+        throw Error('GITHUB_REPOSITORY is not set');
     }
     config.tags = core.getInput('tags');
     config.excludeTags = core.getInput('exclude-tags');
