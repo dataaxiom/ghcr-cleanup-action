@@ -42,17 +42,17 @@ ensure it's permissions have been setup correctly, either by:
 
 ### Action Options
 
-| Option          | Required | Description                                                                    |
-| --------------- | :------: | ------------------------------------------------------------------------------ |
-| token           |   yes    | Token used to connect with ghcr.io and the package API                         |
-| tags            |    no    | Comma separated list of tags to delete (supports wildcard syntax)              |
-| exclude-tags    |    no    | Comma separated list of tags to exclude (supports wildcard syntax)             |
-| keep-n-untagged |    no    | Number of untagged images to keep, sorted by date                              |
-| keep-n-tagged   |    no    | Number of tagged images to keep, sorted by date                                |
-| dry-run         |    no    | Simulate cleanup action, does not make changes (true/false, defaults to false) |
-| validate        |    no    | Validate all multi architecture images in the registry after cleanup           |
-| owner           |    no    | The repository owner, can be organization or user type                         |
-| name            |    no    | The repo/package name                                                          |
+| Option          | Required | Defaults         | Description                                                          |
+| --------------- | :------: | ---------------- | -------------------------------------------------------------------- |
+| token           |   yes    |                  | Token used to connect with ghcr.io and the package API               |
+| tags            |    no    |                  | Comma separated list of tags to delete (supports wildcard syntax)    |
+| exclude-tags    |    no    |                  | Comma separated list of tags to exclude (supports wildcard syntax)   |
+| keep-n-untagged |    no    |                  | Number of untagged images to keep, sorted by date                    |
+| keep-n-tagged   |    no    |                  | Number of tagged images to keep, sorted by date                      |
+| dry-run         |    no    | false            | Simulate cleanup action, does not make changes (true/false)          |
+| validate        |    no    | false            | Validate all multi architecture images in the registry after cleanup |
+| owner           |    no    | project owner    | The repository owner, can be organization or user type               |
+| name            |    no    | respository name | The package name                                                     |
 
 If the tags, keep_n_untagged or keep_n_tagged options are not set then all
 untagged images will be deleted.
