@@ -17,7 +17,7 @@ It includes the following features:
 - Keeping a number of untagged images
 - Keeping a number of tagged images
 - Supports wildcard syntax for tag/exclude tag options
-- Validate multi architecture images have all platform packages
+- Multi architecture image validation mode
 
 ## Setup
 
