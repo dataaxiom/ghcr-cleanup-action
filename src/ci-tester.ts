@@ -152,7 +152,6 @@ export async function run(): Promise<void> {
 
   const packageIdByDigest = new Map<string, string>()
   const packagesById = new Map<string, any>()
-  await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
 
   const dummyDigest =
     'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f'
@@ -165,6 +164,8 @@ export async function run(): Promise<void> {
       undefined,
       args.token
     )
+    // load after dummy to make sure the package exists on first clone/setup
+    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
 
     // remove all the existing images - except for the dummy image
     const digests = await registry.getAllTagDigests()
@@ -190,6 +191,7 @@ export async function run(): Promise<void> {
     // make any deletions
   } else if (args.mode === 'validate') {
     // test the repo after the test
+    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
 
     let error = false
 
