@@ -32,6 +32,8 @@ export class Config {
 export function getConfig(): Config {
   const token: string = core.getInput('token', { required: true })
   const config = new Config(token)
+  config.repository = core.getInput('repository')
+  config.package = core.getInput('package')
 
   // auto populate
   const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY']
@@ -44,7 +46,9 @@ export function getConfig(): Config {
       if (!config.package) {
         config.package = parts[1]
       }
-      config.repository = parts[1]
+      if (!config.repository) {
+        config.repository = parts[1]
+      }
     } else {
       throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`)
     }

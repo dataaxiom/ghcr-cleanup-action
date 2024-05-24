@@ -23,8 +23,9 @@ inputs:
 
   name:
     description: >
-      Name of the package
+      Not used, use package instead.
     required: false
+    deprecationMessage: Input `name` is no longer used. Use `package` instead!
 
   keep-n-untagged:
     description: >
@@ -54,6 +55,18 @@ inputs:
   dry-run:
     description: >
       Simulate action - does not remove any packages
+    required: false
+
+  repository:
+    description: >
+      The github repository where the package is stored. Defaults to repository
+      name.
+    required: false
+
+  package:
+    description: >
+      The package name, replaces the `name` input. Defaults to the repository
+      name.
     required: false
 
 runs:
