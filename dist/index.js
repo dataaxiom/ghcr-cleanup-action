@@ -32750,6 +32750,8 @@ exports.Config = Config;
 function getConfig() {
     const token = core.getInput('token', { required: true });
     const config = new Config(token);
+    config.repository = core.getInput('repository');
+    config.package = core.getInput('package');
     // auto populate
     const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
     if (GITHUB_REPOSITORY) {
@@ -32765,6 +32767,12 @@ function getConfig() {
                 config.repository = parts[1];
             }
         }
+        else {
+            throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`);
+        }
+    }
+    else {
+        throw Error('GITHUB_REPOSITORY is not set');
     }
     config.tags = core.getInput('tags');
     config.excludeTags = core.getInput('exclude-tags');
