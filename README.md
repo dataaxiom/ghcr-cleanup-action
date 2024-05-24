@@ -250,12 +250,12 @@ the workflow log where the ghcr-cleanup-action is run.
 
 Multi architecture images which have no underlying platform packages are
 automatically removed for the keep-n-untagged and keep-n-tagged modes and not
-include in their count. Partially corrupt images are not removed by default, use
+included in their count. Partially corrupt images are not removed by default, use
 the validate option to be able to identify and then fix them.
 
 ### Validate Option
 
 Set the validate option to true to enable a full scan of the image repository at
-the end of the exectuion to check that all multi architecture images have no
+the end of the execution to check that all multi architecture images have no
 missing platform images. Warnings will be outputted if there are missing
 packages.
