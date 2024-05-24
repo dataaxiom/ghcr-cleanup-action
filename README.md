@@ -250,8 +250,8 @@ the workflow log where the ghcr-cleanup-action is run.
 
 Multi architecture images which have no underlying platform packages are
 automatically removed for the keep-n-untagged and keep-n-tagged modes and not
-included in their count. Partially corrupt images are not removed by default, use
-the validate option to be able to identify and then fix them.
+included in their count. Partially corrupt images are not removed by default,
+use the validate option to be able to identify and then fix them.
 
 ### Validate Option
 
