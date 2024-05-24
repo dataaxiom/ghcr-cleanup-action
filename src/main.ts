@@ -141,11 +141,12 @@ class CleanupAction {
             )
             // if the image only has one tag - delete it
             if (ghPackage.data.metadata.container.tags.length === 1) {
-              await this.githubPackageRepo.deletePackage(
+              await this.githubPackageRepo.deletePackageVersion(
                 ghPackageId!,
                 manifestDigest,
                 ghPackage.data.metadata.container.tags
               )
+              this.numberImagesDeleted += 1
               if (manifest.manifests) {
                 // a multiarch image
                 this.numberMultiImagesDeleted += 1
@@ -153,7 +154,7 @@ class CleanupAction {
                   const imageDigest = imageManifest.digest
                   const id = this.packageIdByDigest.get(imageDigest)
                   if (id) {
-                    await this.githubPackageRepo.deletePackage(
+                    await this.githubPackageRepo.deletePackageVersion(
                       id,
                       imageDigest,
                       [`architecture ${imageManifest.platform.architecture}`]
@@ -199,9 +200,11 @@ class CleanupAction {
               const untaggedDigest = await this.registry.getTagDigest(tag)
               const id = reloadPackageByDigest.get(untaggedDigest)
               if (id) {
-                await this.githubPackageRepo.deletePackage(id, untaggedDigest, [
-                  tag
-                ])
+                await this.githubPackageRepo.deletePackageVersion(
+                  id,
+                  untaggedDigest,
+                  [tag]
+                )
                 this.numberImagesDeleted += 1
               } else {
                 core.info(
@@ -283,7 +286,7 @@ class CleanupAction {
             const manifest = await this.registry.getManifestByDigest(
               untaggedPackage.name
             )
-            await this.githubPackageRepo.deletePackage(
+            await this.githubPackageRepo.deletePackageVersion(
               untaggedPackage.id,
               untaggedPackage.name,
               ghPackage.metadata.container.tags
@@ -297,7 +300,7 @@ class CleanupAction {
                   imageManifest.digest
                 )
                 if (trimmedPackage) {
-                  await this.githubPackageRepo.deletePackage(
+                  await this.githubPackageRepo.deletePackageVersion(
                     trimmedPackage.id,
                     trimmedPackage.name,
                     [`architecture ${imageManifest.platform.architecture}`]
@@ -322,7 +325,7 @@ class CleanupAction {
           untaggedPackage.name
         )
         if (manifest.manifests) {
-          await this.githubPackageRepo.deletePackage(
+          await this.githubPackageRepo.deletePackageVersion(
             untaggedPackage.id,
             untaggedPackage.name,
             untaggedPackage.metadata.container.tags
@@ -337,7 +340,7 @@ class CleanupAction {
             if (packageId) {
               const ghPackage = this.packagesById.get(packageId)
               if (ghPackage) {
-                await this.githubPackageRepo.deletePackage(
+                await this.githubPackageRepo.deletePackageVersion(
                   ghPackage.id,
                   ghPackage.name,
                   [`architecture ${imageManifest.platform.architecture}`]
@@ -357,12 +360,13 @@ class CleanupAction {
     // now process the remainder
     for (const untaggedPackage of this.packagesById.values()) {
       if (!deleted.has(untaggedPackage.name)) {
-        await this.githubPackageRepo.deletePackage(
+        await this.githubPackageRepo.deletePackageVersion(
           untaggedPackage.id,
           untaggedPackage.name,
           untaggedPackage.metadata.container.tags
         )
         deleted.add(untaggedPackage.name)
+        this.numberImagesDeleted += 1
       }
     }
   }

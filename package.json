@@ -1,7 +1,7 @@
 {
   "name": "ghcr-cleanup-action",
-  "description": "Remove images from ghcr.io",
-  "version": "0.0.1",
+  "description": "GitHub Container Registry Cleanup Action",
+  "version": "1.0.4",
   "author": "Dataaxiom Inc",
   "homepage": "https://github.com/dataaxiom/ghcr-cleanup-action",
   "repository": {
@@ -12,9 +12,8 @@
     "url": "https://github.com/dataaxiom/ghcr-cleanup-action/issues"
   },
   "keywords": [
-    "actions",
-    "node",
-    "setup"
+    "ci",
+    "ghcr.io"
   ],
   "exports": {
     ".": "./dist/index.js"
@@ -23,13 +22,14 @@
     "node": ">=20"
   },
   "scripts": {
-    "bundle": "npm run format:write && npm run package",
-    "ci-test": "npx jest",
+    "bundle": "npm run format:write && npm run package && npm run ci-tester",
+    "ci-test": "npx jest --passWithNoTests",
     "coverage": "npx make-coverage-badge --output-path ./badges/coverage.svg",
     "format:write": "npx prettier --write .",
     "format:check": "npx prettier --check .",
     "lint": "npx eslint . -c ./.github/linters/.eslintrc.yml",
     "package": "npx ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "ci-tester": "npx ncc build src/ci-tester.ts -o citester --source-map",
     "package:watch": "npm run package -- --watch",
     "test": "npx jest",
     "all": "npm run format:write && npm run lint && npm run test && npm run coverage && npm run package"
@@ -67,7 +67,10 @@
   "dependencies": {
     "@actions/core": "^1.10.1",
     "@actions/github": "^6.0.0",
+    "@octokit/plugin-request-log": "^5.2.0",
+    "@octokit/request-error": "^6.1.1",
     "axios": "^1.6.8",
+    "stdio": "^2.1.3",
     "wildcard-match": "^5.1.3"
   },
   "devDependencies": {
