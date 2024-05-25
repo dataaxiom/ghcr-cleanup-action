@@ -14,10 +14,11 @@ It includes the following features:
 - Automatic GitHub user/organization repository support
 - Removing by tags, including untagging multi tagged images
 - Multi architecture image support
+- Referrer/Attestation support (OCIv1 tag approach)
 - Keeping a number of untagged images
 - Keeping a number of tagged images
 - Supports wildcard syntax for tag/exclude tag options
-- Multi architecture image validation mode
+- Multi architecture & Referrer image validation mode
 
 ## Setup
 

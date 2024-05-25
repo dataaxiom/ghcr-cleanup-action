@@ -1,0 +1,5 @@
+FROM busybox:1.36.1-uclibc
+
+ENV DUMMY=VALUE
+USER user
+HEALTHCHECK CMD ls

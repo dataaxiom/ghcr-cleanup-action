@@ -1,12 +1,6 @@
 name: Lint Codebase
 
-on:
-  pull_request:
-    branches:
-      - main
-  push:
-    branches:
-      - main
+on: [pull_request, push]
 
 permissions:
   contents: read
@@ -47,3 +41,5 @@ jobs:
           VALIDATE_ALL_CODEBASE: true
           VALIDATE_JAVASCRIPT_STANDARD: false
           VALIDATE_JSCPD: false
+          # attestations not supoprted in actionlint until v1.7.0 version
+          VALIDATE_GITHUB_ACTIONS: false

@@ -57,12 +57,15 @@ export class GithubPackageRepo {
   async deletePackageVersion(
     id: string,
     digest: string,
-    tags: string[]
+    tags?: string[],
+    label?: string
   ): Promise<void> {
-    if (tags.length > 0) {
-      core.info(` deleting package id: ${id} digest:${digest} tag:${tags}`)
+    if (tags && tags.length > 0) {
+      core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`)
+    } else if (label) {
+      core.info(` deleting package id: ${id} digest: ${digest} ${label}`)
     } else {
-      core.info(` deleting package id: ${id} digest:${digest}`)
+      core.info(` deleting package id: ${id} digest: ${digest}`)
     }
     if (!this.config.dryRun) {
       if (this.repoType === 'User') {
