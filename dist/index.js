@@ -32904,8 +32904,15 @@ class GithubPackageRepo {
         }
         else if (label) {
             core.info(` deleting package id: ${id} digest: ${digest} ${label}`);
+    async deletePackageVersion(id, digest, tags, label) {
+        if (tags && tags.length > 0) {
+            core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
+        }
+        else if (label) {
+            core.info(` deleting package id: ${id} digest: ${digest} ${label}`);
         }
         else {
+            core.info(` deleting package id: ${id} digest: ${digest}`);
             core.info(` deleting package id: ${id} digest: ${digest}`);
         }
         if (!this.config.dryRun) {
@@ -33013,6 +33020,9 @@ class CleanupAction {
     childInUsePackages = new Map(); // by id
     tagsInUse = new Set();
     deleted = new Set();
+    childInUsePackages = new Map(); // by id
+    tagsInUse = new Set();
+    deleted = new Set();
     numberMultiImagesDeleted = 0;
     numberImagesDeleted = 0;
     constructor() {
@@ -33028,19 +33038,19 @@ class CleanupAction {
         this.packageIdByDigest = new Map();
         this.packagesById = new Map();
         this.childInUsePackages = new Map();
-        this.tagsInUse = new Set();
-        this.deleted = new Set();
         // get list of all the current packages
         await this.githubPackageRepo.loadPackages(this.packageIdByDigest, this.packagesById);
         // extract tags
         for (const ghPackage of this.packagesById.values()) {
             for (const tag of ghPackage.metadata.container.tags) {
                 this.tagsInUse.add(tag);
+                this.tagsInUse.add(tag);
             }
         }
         // find exclude tags using matcher
         if (this.config.excludeTags) {
             const isTagMatch = (0, wildcard_match_1.default)(this.config.excludeTags.split(','));
+            for (const tag of this.tagsInUse) {
             for (const tag of this.tagsInUse) {
                 if (isTagMatch(tag)) {
                     this.excludeTags.push(tag);
@@ -33058,6 +33068,9 @@ class CleanupAction {
                 // now remove it
                 this.packagesById.delete(id);
             }
+        }
+        else {
+            throw Error(`digest: ${digest} not found in package list`);
         }
     }
     // move 'child' packages from main package list to the separate child list
@@ -33091,12 +33104,13 @@ class CleanupAction {
     }
     // validate manifests list packages
     async validate() {
-        core.info('validating multi-architecture/referrers images:');
+        core.info('validating multi-architecture/referrer images:');
         // copy the loaded packages
         const digests = new Map(this.packageIdByDigest);
         const packages = new Map(this.packagesById);
         // cycle thru digests checking them
         let error = false;
+        const processedManifests = new Set();
         const processedManifests = new Set();
         for (const digest of digests.keys()) {
             // is the digest a multi arch image?
@@ -33125,7 +33139,6 @@ class CleanupAction {
             if (tag.startsWith('sha256-')) {
                 const digest = tag.replace('sha256-', 'sha256:');
                 if (!this.packageIdByDigest.get(digest)) {
-                    error = true;
                     core.warning(`parent image for referrer tag ${tag} not found in repository`);
                 }
             }
@@ -33179,7 +33192,7 @@ class CleanupAction {
                         }
                     }
                     else {
-                        core.info(` image digest ${imageManifest.digest} not found in repository, skipping`);
+                        core.info(`image digest ${imageManifest.digest} not found in repository, skipping`);
                     }
                 }
             }
@@ -33213,6 +33226,7 @@ class CleanupAction {
             const isTagMatch = (0, wildcard_match_1.default)(this.config.tags.split(','));
             const matchTags = [];
             for (const tag of this.tagsInUse) {
+            for (const tag of this.tagsInUse) {
                 if (isTagMatch(tag)) {
                     matchTags.push(tag);
                 }
@@ -33224,7 +33238,12 @@ class CleanupAction {
                         const manifest = await this.registry.getManifestByTag(tag);
                         const manifestDigest = await this.registry.getTagDigest(tag);
                         const ghPackage = this.getPackageByDigest(manifestDigest);
+                        const ghPackage = this.getPackageByDigest(manifestDigest);
                         // if the image only has one tag - delete it
+                        if (ghPackage.metadata.container.tags.length === 1) {
+                            // deleteImage function works from child list so trim first
+                            await this.trimChildPackages(manifestDigest);
+                            await this.deleteImage(ghPackage);
                         if (ghPackage.metadata.container.tags.length === 1) {
                             // deleteImage function works from child list so trim first
                             await this.trimChildPackages(manifestDigest);
@@ -33297,6 +33316,7 @@ class CleanupAction {
                 const id = this.packageIdByDigest.get(digest);
                 if (id) {
                     await this.trimChildPackages(digest);
+                    await this.trimChildPackages(digest);
                     this.packagesById.delete(id);
                     this.packageIdByDigest.delete(digest);
                 }
@@ -33304,12 +33324,15 @@ class CleanupAction {
             // now remove the untagged images left in the packages list
             if (this.packageIdByDigest.size > 0) {
                 // remove multi/referrer images - only count the manifest list image
+                // remove multi/referrer images - only count the manifest list image
                 // and trim manifests which have no children
                 const ghostImages = [];
                 for (const digest of this.packageIdByDigest.keys()) {
                     await this.trimChildPackages(digest);
+                    await this.trimChildPackages(digest);
                     if (await this.isGhostImage(digest)) {
                         // save it to add back
+                        ghostImages.push(this.getPackageByDigest(digest));
                         ghostImages.push(this.getPackageByDigest(digest));
                         // remove it from later untaggedPackages sort
                         this.packagesById.delete(this.packageIdByDigest.get(digest));
@@ -33339,12 +33362,28 @@ class CleanupAction {
         for (const ghPackage of this.packagesById.values()) {
             if (!this.deleted.has(ghPackage.name)) {
                 const manifest = await this.registry.getManifestByDigest(ghPackage.name);
+                        await this.deleteImage(ghPackage);
+                    }
+                }
+            }
+        }
+    }
+    async deleteRemainingPackages() {
+        // process deletion in 2 iterations
+        // delete manifest list images first
+        for (const ghPackage of this.packagesById.values()) {
+            if (!this.deleted.has(ghPackage.name)) {
+                const manifest = await this.registry.getManifestByDigest(ghPackage.name);
                 if (manifest.manifests) {
+                    await this.deleteImage(ghPackage);
                     await this.deleteImage(ghPackage);
                 }
             }
         }
         // now process the remainder
+        for (const ghPackage of this.packagesById.values()) {
+            if (!this.deleted.has(ghPackage.name)) {
+                await this.deleteImage(ghPackage);
         for (const ghPackage of this.packagesById.values()) {
             if (!this.deleted.has(ghPackage.name)) {
                 await this.deleteImage(ghPackage);
@@ -33358,6 +33397,7 @@ class CleanupAction {
             for (const excludedTag of this.excludeTags) {
                 const imageDigest = await this.registry.getTagDigest(excludedTag);
                 await this.trimChildPackages(imageDigest);
+                await this.trimChildPackages(imageDigest);
                 const id = this.packageIdByDigest.get(imageDigest);
                 if (id) {
                     this.packagesById.delete(id);
@@ -33370,7 +33410,13 @@ class CleanupAction {
             // create an array to sort by date
             let packagesToKeep = [];
             // trim all the child packages
+            // trim all the child packages
             for (const digest of this.packageIdByDigest.keys()) {
+                await this.trimChildPackages(digest);
+            }
+            // only copy images with tags and not ghost images
+            for (const ghPackage of this.packagesById.values()) {
+                if (!(await this.isGhostImage(ghPackage.name))) {
                 await this.trimChildPackages(digest);
             }
             // only copy images with tags and not ghost images
@@ -33394,6 +33440,7 @@ class CleanupAction {
                 this.packagesById.delete(ghPackage.id);
             }
         }
+        await this.deleteRemainingPackages();
         await this.deleteRemainingPackages();
     }
     async run() {
@@ -33421,12 +33468,18 @@ class CleanupAction {
                     const id = this.packageIdByDigest.get(digest);
                     if (id) {
                         await this.trimChildPackages(digest);
+                        await this.trimChildPackages(digest);
                         this.packagesById.delete(id);
                     }
                     else {
                         core.info(`couldn't find image digest ${digest} in repository, skipping`);
                     }
                 }
+                // now trim child packages from the remaining untagged images
+                for (const ghPackage of this.packagesById.values()) {
+                    await this.trimChildPackages(ghPackage.name);
+                }
+                await this.deleteRemainingPackages();
                 // now trim child packages from the remaining untagged images
                 for (const ghPackage of this.packagesById.values()) {
                     await this.trimChildPackages(ghPackage.name);
@@ -33494,6 +33547,8 @@ class Registry {
     manifestCache = new Map();
     // map of tag digests
     digestByTagCache = new Map();
+    // map of referrer manifests
+    referrersCache = new Map();
     // map of referrer manifests
     referrersCache = new Map();
     constructor(config) {
@@ -33612,10 +33667,26 @@ class Registry {
         }
     }
     // ignores referrers tags
+    // ignores referrers tags
     async getAllTagDigests() {
+        const digests = [];
         const digests = [];
         const tags = await this.getTags();
         for (const tag of tags) {
+            // skip over referrer tags
+            if (!tag.startsWith('sha256-')) {
+                const manifest = await this.getManifestByTag(tag);
+                const digest = await this.getTagDigest(tag);
+                digests.push(digest);
+                // if manifest image add to the digests
+                if (manifest.manifests) {
+                    for (const imageManifest of manifest.manifests) {
+                        digests.push(imageManifest.digest);
+                    }
+                }
+            }
+        }
+        return digests;
             // skip over referrer tags
             if (!tag.startsWith('sha256-')) {
                 const manifest = await this.getManifestByTag(tag);
@@ -33684,6 +33755,25 @@ class Registry {
             else {
                 throw new Error('no token set to upload manifest');
             }
+        }
+    }
+    // ghcr.io not yet supporting referrers api?
+    async getReferrersManifest(digest) {
+        if (this.referrersCache.has(digest)) {
+            return this.referrersCache.get(digest);
+        }
+        else {
+            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/referrers/${digest}`, {
+                transformResponse: [
+                    data => {
+                        return data;
+                    }
+                ]
+            });
+            const obj = JSON.parse(response?.data);
+            // save it for later use
+            this.referrersCache.set(digest, obj);
+            return obj;
         }
     }
     // ghcr.io not yet supporting referrers api?
