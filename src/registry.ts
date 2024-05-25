@@ -9,6 +9,8 @@ export class Registry {
   manifestCache = new Map<string, any>()
   // map of tag digests
   digestByTagCache = new Map<string, string>()
+  // map of referrer manifests
+  referrersCache = new Map<string, any>()
 
   constructor(config: Config) {
     this.config = config
@@ -137,21 +139,25 @@ export class Registry {
     }
   }
 
+  // ignores referrers tags
   async getAllTagDigests(): Promise<string[]> {
-    const images = []
+    const digests = []
     const tags = await this.getTags()
     for (const tag of tags) {
-      const manifest = await this.getManifestByTag(tag)
-      const digest = await this.getTagDigest(tag)
-      images.push(digest)
-      // if manifest image add the images to
-      if (manifest.manifests) {
-        for (const imageManifest of manifest.manifests) {
-          images.push(imageManifest.digest)
+      // skip over referrer tags
+      if (!tag.startsWith('sha256-')) {
+        const manifest = await this.getManifestByTag(tag)
+        const digest = await this.getTagDigest(tag)
+        digests.push(digest)
+        // if manifest image add to the digests
+        if (manifest.manifests) {
+          for (const imageManifest of manifest.manifests) {
+            digests.push(imageManifest.digest)
+          }
         }
       }
     }
-    return images
+    return digests
   }
 
   async putManifest(
@@ -219,6 +225,28 @@ export class Registry {
       } else {
         throw new Error('no token set to upload manifest')
       }
+    }
+  }
+
+  // ghcr.io not yet supporting referrers api?
+  async getReferrersManifest(digest: string): Promise<any> {
+    if (this.referrersCache.has(digest)) {
+      return this.referrersCache.get(digest)!
+    } else {
+      const response = await this.axios.get(
+        `/v2/${this.config.owner}/${this.config.package}/referrers/${digest}`,
+        {
+          transformResponse: [
+            data => {
+              return data
+            }
+          ]
+        }
+      )
+      const obj = JSON.parse(response?.data)
+      // save it for later use
+      this.referrersCache.set(digest, obj)
+      return obj
     }
   }
 }

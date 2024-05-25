@@ -95,6 +95,7 @@ export async function run(): Promise<void> {
     repository: { key: 'repository', args: 1, required: false },
     package: { key: 'package', args: 1, required: false },
     directory: { key: 'directory', args: 1, required: true },
+    tag: { key: 'tag', args: 1, required: false },
     mode: { key: 'mode', args: 1, required: true },
     delay: { key: 'delay', args: 1, required: false }
   })
@@ -125,6 +126,12 @@ export async function run(): Promise<void> {
   if (args.delay) {
     assertString(args.delay)
     delay = parseInt(args.delay)
+  }
+
+  let tag
+  if (args.tag) {
+    assertString(args.tag)
+    tag = args.tag
   }
 
   // auto populate
@@ -168,8 +175,7 @@ export async function run(): Promise<void> {
     await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
 
     // remove all the existing images - except for the dummy image
-    const digests = await registry.getAllTagDigests()
-    for (const digest of digests) {
+    for (const digest of packageIdByDigest.keys()) {
       if (digest !== dummyDigest) {
         await githubPackageRepo.deletePackageVersion(
           packageIdByDigest.get(digest)!,
@@ -257,13 +263,52 @@ export async function run(): Promise<void> {
           core.setFailed(`expected tag ${expectedTag} not found after test`)
         }
       }
-      for (const tag of regTags) {
+      for (const regTag of regTags) {
         error = true
-        core.setFailed(`extra tag found after test: ${tag}`)
+        core.setFailed(`extra tag found after test: ${regTag}`)
       }
     }
 
     if (!error) console.info('test passed!')
+  } else if (args.mode === 'save-expected') {
+    // save the expected tag dynamically
+    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+
+    const tags = new Set<string>()
+    for (const ghPackage of packagesById.values()) {
+      for (const repoTag of ghPackage.metadata.container.tags) {
+        tags.add(repoTag)
+      }
+    }
+
+    if (tag) {
+      // find the digests in use for the supplied tag
+      const digest = await registry.getTagDigest(tag)
+      fs.appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`)
+
+      // is there a refferrer digest
+      const referrerTag = digest.replace('sha256:', 'sha256-')
+      if (tags.has(tag)) {
+        fs.appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`)
+        const referrerDigest = await registry.getTagDigest(referrerTag)
+        fs.appendFileSync(
+          `${args.directory}/expected-digests`,
+          `${referrerDigest}\n`
+        )
+        const referrerManifest =
+          await registry.getManifestByDigest(referrerDigest)
+        if (referrerManifest.manifests) {
+          for (const manifest of referrerManifest.manifests) {
+            fs.appendFileSync(
+              `${args.directory}/expected-digests`,
+              `${manifest.digest}\n`
+            )
+          }
+        }
+      }
+    } else {
+      core.setFailed('no tag supplied')
+    }
   }
 }
 

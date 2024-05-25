@@ -1,25 +1,24 @@
 name: Integration Tests
 
-on:
-  pull_request:
-    branches:
-      - main
-  push:
-    branches:
-      - main
+on: [pull_request, push]
 
 jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       packages: write
+      contents: read
+      attestations: write
     concurrency:
       group: integeration-tests
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
 
     steps:
       - name: Checkout
-        id: checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -152,3 +151,118 @@ jobs:
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/multi-keep-n-tagged --mode validate
+
+      # multi keep-n-untagged test
+      - name: Prime Test - Multi Keep N Untagged
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/multi-keep-n-untagged --mode prime --delay 3000
+      - name: Run Test - Multi Keep N Untagged
+        uses: ./
+        with:
+          keep-n-untagged: 1
+          exclude-tags: dummy
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate Test Results - Multi Keep N Untagged
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/multi-keep-n-untagged --mode validate
+
+      # dry-run test
+      - name: Prime Test - Dry Run
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/dry-run --mode prime
+      - name: Run Test - Dry Run
+        uses: ./
+        with:
+          dry-run: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate Test Results - Dry Run
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/dry-run --mode validate
+
+      #
+      # referrer/attestation tests
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # attestation tagged test
+      - name: Prime Test - Attestation Tagged
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/attestation-tagged --mode prime
+      - name: Build and push image
+        id: push1
+        uses: docker/build-push-action@v5.0.0
+        with:
+          context: tests/attestation-tagged
+          file: tests/attestation-tagged/Dockerfile.image
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+      - name: Attest Image
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push1.outputs.digest }}
+          push-to-registry: true
+      - name: Run Test - Attestation Tagged
+        uses: ./
+        with:
+          tags: test
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate Test Results - Attestation Tagged
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/attestation-tagged --mode validate
+
+      # attestation untagged test
+      - name: Prime Test - Attestation UnTagged
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/attestation-untagged --mode prime
+      - name: Build and push image 1
+        id: push2
+        uses: docker/build-push-action@v5.0.0
+        with:
+          context: tests/attestation-untagged
+          file: tests/attestation-untagged/Dockerfile.image1
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+      - name: Attest Image 1
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push2.outputs.digest }}
+          push-to-registry: true
+      - name: Build and push image 2
+        id: push3
+        uses: docker/build-push-action@v5.0.0
+        with:
+          context: tests/attestation-untagged
+          file: tests/attestation-untagged/Dockerfile.image2
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+      - name: Attest Image 2
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push3.outputs.digest }}
+          push-to-registry: true
+      - name: Save Digests - Attestation UnTagged
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/attestation-untagged --mode save-expected --tag test
+      - name: Run Test - Attestation Tagged
+        uses: ./
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate Test Results - Attestation Tagged
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/attestation-untagged --mode validate
