@@ -84,8 +84,6 @@ class CleanupAction {
         // now remove it
         this.packagesById.delete(id)
       }
-    } else {
-      throw Error(`digest: ${digest} not found in package list`)
     }
   }
 
@@ -236,7 +234,7 @@ class CleanupAction {
             }
           } else {
             core.info(
-              `image digest ${imageManifest.digest} not found in repository, skipping`
+              ` image digest ${imageManifest.digest} not found in repository, skipping`
             )
           }
         }

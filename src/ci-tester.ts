@@ -220,6 +220,15 @@ export async function run(): Promise<void> {
       packagesById = new Map<string, any>()
       await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
 
+    if (fs.existsSync(`${args.directory}/prime-delete`)) {
+      // reload
+      packageIdByDigest = new Map<string, string>()
+      packagesById = new Map<string, any>()
+      await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+
+      // make any deletions
+      deleteDigests(args.directory, packageIdByDigest, githubPackageRepo)
+    }
       // make any deletions
       deleteDigests(args.directory, packageIdByDigest, githubPackageRepo)
     }
