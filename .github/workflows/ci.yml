@@ -50,9 +50,10 @@ jobs:
 
       # untagged test
       - name: Prime Test - Untagged
+        description: "Test purpose: Removes all untagged images (single arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/untagged --mode prime
+          tests/single-untagged --mode prime
       - name: Run Test - Untagged
         uses: ./
         with:
@@ -60,13 +61,14 @@ jobs:
       - name: Validate Test Results - Untagged
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/untagged --mode validate
+          tests/single-untagged --mode validate
 
       # tagged test
       - name: Prime Test - Tagged
+        description: "Test purpose: Removes images with specific tag (single arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/tagged --mode prime
+          tests/single-tagged --mode prime
       - name: Run Test - Tagged
         uses: ./
         with:
@@ -75,13 +77,14 @@ jobs:
       - name: Validate Test Results - Tagged
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/tagged --mode validate
+          tests/single-tagged --mode validate
 
       # keep-n-tagged test
       - name: Prime Test - Keep N Tagged
+        description: "Test purpose: Removes all but the newest 2 tagged images (single arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-tagged --mode prime --delay 3000
+          tests/single-keep-n-tagged --mode prime --delay 3000
       - name: Run Test - Keep N Tagged
         uses: ./
         with:
@@ -91,13 +94,14 @@ jobs:
       - name: Validate Test Results - Keep N Tagged
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-tagged --mode validate
+          tests/single-keep-n-tagged --mode validate
 
       # keep-n-untagged test
       - name: Prime Test - Keep N Untagged
+        description: "Test purpose: Removes all but the newest 2 untagged images (single arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-untagged --mode prime --delay 3000
+          tests/single-keep-n-untagged --mode prime --delay 3000
       - name: Run Test - Keep N Untagged
         uses: ./
         with:
@@ -106,10 +110,11 @@ jobs:
       - name: Validate Test Results - Keep N Untagged
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-untagged --mode validate
+          tests/single-keep-n-untagged --mode validate
 
       # multi untagged test
       - name: Prime Test - Multi Untagged
+        description: "Test purpose: Removes all untagged images (multi arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/multi-untagged --mode prime
@@ -124,6 +129,7 @@ jobs:
 
       # multi tagged test
       - name: Prime Test - Multi Tagged
+        description: "Test purpose: Removes images with specific tag (multi arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/multi-tagged --mode prime
@@ -139,6 +145,7 @@ jobs:
 
       # multi keep-n-tagged test
       - name: Prime Test - Multi Keep N Tagged
+        description: "Test purpose: Removes all but the newest 2 tagged images (multi arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/multi-keep-n-tagged --mode prime --delay 3000

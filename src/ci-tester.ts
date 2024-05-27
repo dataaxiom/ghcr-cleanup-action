@@ -62,24 +62,20 @@ async function loadImages(
       }
 
       // split into parts
-      const parts = line.split('|')
-      if (parts.length === 2) {
-        pushImage(
-          parts[0],
-          `ghcr.io/${owner}/${packageName}:${parts[1]}`,
-          undefined,
-          token
-        )
-      } else if (parts.length === 3) {
-        pushImage(
-          parts[0],
-          `ghcr.io/${owner}/${packageName}:${parts[1]}`,
-          parts[2],
-          token
-        )
-      } else {
+      const parts: string[] = line.split('|').map((part: string) => part.trim());
+      if (parts.length !== 2 && parts.length !== 3)  {
         throw Error(`prime file format error: ${original}`)
       }
+      const srcImage = parts[0]
+      const tag = parts[1] ? `:${parts[1]}` : ''
+      const destImage = `ghcr.io/${owner}/${packageName}${tag}`
+      const args = (parts.length === 3) ? parts[2] : undefined
+      pushImage(
+        srcImage,
+        destImage,
+        args,
+        token
+      )
     }
     if (delay > 0) {
       // sleep to allow packages to be created in order
