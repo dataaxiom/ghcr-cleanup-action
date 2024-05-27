@@ -33028,6 +33028,8 @@ class CleanupAction {
         this.packageIdByDigest = new Map();
         this.packagesById = new Map();
         this.childInUsePackages = new Map();
+        this.tagsInUse = new Set();
+        this.deleted = new Set();
         // get list of all the current packages
         await this.githubPackageRepo.loadPackages(this.packageIdByDigest, this.packagesById);
         // extract tags
@@ -33092,7 +33094,7 @@ class CleanupAction {
     }
     // validate manifests list packages
     async validate() {
-        core.info('validating multi-architecture/referrer images:');
+        core.info('validating multi-architecture/referrers images:');
         // copy the loaded packages
         const digests = new Map(this.packageIdByDigest);
         const packages = new Map(this.packagesById);
@@ -33126,6 +33128,7 @@ class CleanupAction {
             if (tag.startsWith('sha256-')) {
                 const digest = tag.replace('sha256-', 'sha256:');
                 if (!this.packageIdByDigest.get(digest)) {
+                    error = true;
                     core.warning(`parent image for referrer tag ${tag} not found in repository`);
                 }
             }
