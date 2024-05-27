@@ -261,6 +261,7 @@ jobs:
       - name: Run Test - Attestation Tagged
         uses: ./
         with:
+          validate: true
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Validate Test Results - Attestation Tagged
         run:
