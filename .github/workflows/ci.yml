@@ -50,7 +50,7 @@ jobs:
 
       # untagged test
       - name: Prime Test - Untagged
-        description: "Test purpose: Removes all untagged images (single arch)"
+        # description: "Test purpose: Removes all untagged images (single arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/single-untagged --mode prime
@@ -65,7 +65,7 @@ jobs:
 
       # tagged test
       - name: Prime Test - Tagged
-        description: "Test purpose: Removes images with specific tag (single arch)"
+        # description: "Test purpose: Removes images with specific tag (single arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/single-tagged --mode prime
@@ -81,7 +81,7 @@ jobs:
 
       # keep-n-tagged test
       - name: Prime Test - Keep N Tagged
-        description: "Test purpose: Removes all but the newest 2 tagged images (single arch)"
+        # description: "Test purpose: Removes all but the newest 2 tagged images (single arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/single-keep-n-tagged --mode prime --delay 3000
@@ -98,7 +98,7 @@ jobs:
 
       # keep-n-untagged test
       - name: Prime Test - Keep N Untagged
-        description: "Test purpose: Removes all but the newest 2 untagged images (single arch)"
+        # description: "Test purpose: Removes all but the newest 2 untagged images (single arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/single-keep-n-untagged --mode prime --delay 3000
@@ -114,7 +114,7 @@ jobs:
 
       # multi untagged test
       - name: Prime Test - Multi Untagged
-        description: "Test purpose: Removes all untagged images (multi arch)"
+        # description: "Test purpose: Removes all untagged images (multi arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/multi-untagged --mode prime
@@ -129,7 +129,7 @@ jobs:
 
       # multi tagged test
       - name: Prime Test - Multi Tagged
-        description: "Test purpose: Removes images with specific tag (multi arch)"
+        # description: "Test purpose: Removes images with specific tag (multi arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/multi-tagged --mode prime
@@ -145,7 +145,7 @@ jobs:
 
       # multi keep-n-tagged test
       - name: Prime Test - Multi Keep N Tagged
-        description: "Test purpose: Removes all but the newest 2 tagged images (multi arch)"
+        # description: "Test purpose: Removes all but the newest 2 tagged images (multi arch)"
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/multi-keep-n-tagged --mode prime --delay 3000
