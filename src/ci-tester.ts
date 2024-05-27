@@ -135,7 +135,7 @@ export async function run(): Promise<void> {
   }
   if (args.repository) {
     assertString(args.repository)
-    config.repository = args.repository
+    config.repository = args.repository.toLowerCase()
   }
   if (args.package) {
     assertString(args.package)
