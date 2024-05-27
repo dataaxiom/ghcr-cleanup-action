@@ -9,146 +9,125 @@ on:
       - main
 
 jobs:
-  integration-tests:
-    name: Integration Tests
+  setup:
+    name: Setup
     runs-on: ubuntu-latest
-    permissions:
-      packages: write
-    concurrency:
-      group: integeration-tests
 
     steps:
       - name: Checkout
-        id: checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        id: setup-node
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           cache: npm
 
       - name: Install Dependencies
-        id: npm-ci
         run: npm ci
 
       - name: Check Format
-        id: npm-format-check
         run: npm run format:check
 
       - name: Lint
-        id: npm-lint
         run: npm run lint
 
       - name: Test
-        id: npm-ci-test
         run: npm run ci-test
 
       - name: Build Tester
         run: npm run ci-tester
 
-      # untagged test
-      - name: Prime Test - Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/untagged --mode prime
-      - name: Run Test - Untagged
-        uses: ./
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/untagged --mode validate
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
 
-      # tagged test
-      - name: Prime Test - Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/tagged --mode prime
-      - name: Run Test - Tagged
-        uses: ./
-        with:
-          tags: uclibc-1.35,uclibc-1.36
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/tagged --mode validate
+    strategy:
+      matrix:
+        tests:
+          - title: "Single-1: Untagged"
+            purpose: "Removes all untagged images (single arch)"
+            folder: "single-untagged"
 
-      # keep-n-tagged test
-      - name: Prime Test - Keep N Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-tagged --mode prime --delay 3000
-      - name: Run Test - Keep N Tagged
-        uses: ./
-        with:
-          keep-n-tagged: 2
-          exclude-tags: dummy
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Keep N Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-tagged --mode validate
+          - title: "Multi-1: Untagged"
+            purpose: "Removes all untagged images (multi arch)"
+            folder: "multi-untagged"
 
-      # keep-n-untagged test
-      - name: Prime Test - Keep N Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-untagged --mode prime --delay 3000
-      - name: Run Test - Keep N Untagged
-        uses: ./
-        with:
-          keep-n-untagged: 2
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Keep N Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-untagged --mode validate
+          - title: "Single-2: Tagged"
+            purpose: "Removes images with specific tag (single arch)"
+            folder: "single-tagged"
+            tags: "uclibc-1.35,uclibc-1.36"
 
-      # multi untagged test
-      - name: Prime Test - Multi Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-untagged --mode prime
-      - name: Run Test - Multi Untagged
-        uses: ./
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Multi Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-untagged --mode validate
+          - title: "Multi-2: Tagged"
+            purpose: "Removes images with specific tag (multi arch)"
+            folder: "multi-tagged"
+            tags: "uclibc-1.35,uclibc-1.36"
 
-      # multi tagged test
-      - name: Prime Test - Multi Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-tagged --mode prime
-      - name: Run Test - Multi Tagged
-        uses: ./
-        with:
-          tags: uclibc-1.35,uclibc-1.36
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Multi Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-tagged --mode validate
+          - title: "Single-3: Keep N Tagged"
+            purpose: "Removes all but the newest 2 tagged images (single arch)"
+            folder: "single-keep-n-tagged"
+            keep-n-tagged: 2
+            exclude-tags: dummy
 
-      # multi keep-n-tagged test
-      - name: Prime Test - Multi Keep N Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-keep-n-tagged --mode prime --delay 3000
-      - name: Run Test - Multi Keep N Tagged
+          - title: "Multi-3: Keep N Tagged"
+            purpose: "Removes all but the newest 2 tagged images (multi arch)"
+            folder: "multi-keep-n-tagged"
+            keep-n-tagged: 2
+            exclude-tags: dummy
+
+          - title: "Single-4: Keep N Untagged"
+            purpose: "Removes all but the newest 2 untagged images (single arch)"
+            folder: "single-keep-n-untagged"
+            keep-n-untagged: 2
+
+          # - title: "Multi-4: Keep N Untagged"
+          #   purpose: "Removes all but the newest 2 untagged images (multi arch)"
+          #   folder: "multi-keep-n-untagged"
+          #   keep-n-untagged: 2
+
+
+    steps:
+      - name: "Starting Test: ${{ matrix.tests.title }}"
+        description: "Purpose: ${{ matrix.tests.purpose }}"
+        run: | 
+          if [ -z "${{ matrix.tests.tags }}" ]; then
+            export TAGS=""
+          else
+            export TAGS="--tags ${matrix.tests.tags}"
+          fi
+          if [ -z "${{ matrix.tests.keep-n-tagged }}" ]; then
+            export KEEP_N_TAGGED=""
+          else
+            export KEEP_N_TAGGED="--keep-n-tagged ${matrix.tests.keep-n-tagged}"
+          fi
+          if [ -z "${{ matrix.tests.keep-n-untagged }}" ]; then
+            export KEEP_N_UNTAGGED=""
+          else
+            export KEEP_N_UNTAGGED="--keep-n-untagged ${matrix.tests.keep-n-untagged}"
+          fi
+          if [ -z "${{ matrix.tests.exclude-tags }}" ]; then
+            export EXCLUDE_TAGS=""
+          else
+            export EXCLUDE_TAGS="--exclude-tags ${matrix.tests.exclude-tags}"
+          fi
+
+      - name: " > Priming Test Environment"
+        run: |
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} \
+            --directory tests/${{ matrix.tests.folder }} \
+            --mode prime
+
+      - name: " > Running Workflow"
         uses: ./
         with:
-          keep-n-tagged: 2
-          exclude-tags: dummy
+          tags: ${{ env.TAGS }}
+          keep_n_tagged: ${{ env.KEEP_N_TAGGED }}
+          keep_n_untagged: ${{ env.KEEP_N_UNTAGGED }}
+          exclude_tags: ${{ env.EXCLUDE_TAGS }}
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Multi Keep N Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-keep-n-tagged --mode validate
+
+      - name: " > Validating Outcome"
+        run: |
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} \
+            --directory tests/${{ matrix.tests.folder }} \
+            --mode validate
