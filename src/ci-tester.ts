@@ -88,6 +88,28 @@ async function loadImages(
   }
 }
 
+async function deleteDigests(
+  directory: string,
+  packageIdByDigest: Map<string, string>,
+  githubPackageRepo: GithubPackageRepo
+) {
+  if (fs.existsSync(`${directory}/prime-delete`)) {
+    const fileContents = fs.readFileSync(`${directory}/prime-delete`, 'utf-8')
+    for (let line of fileContents.split('\n')) {
+      if (line.length > 0) {
+        if (line.includes('//')) {
+          line = line.substring(0, line.indexOf('//') - 1).trim()
+        }
+        await githubPackageRepo.deletePackageVersion(
+          packageIdByDigest.get(line)!,
+          line,
+          []
+        )
+      }
+    }
+  }
+}
+
 export async function run(): Promise<void> {
   const args = stdio.getopt({
     token: { key: 'token', args: 1, required: true },
@@ -157,8 +179,8 @@ export async function run(): Promise<void> {
   const githubPackageRepo = new GithubPackageRepo(config)
   await githubPackageRepo.init()
 
-  const packageIdByDigest = new Map<string, string>()
-  const packagesById = new Map<string, any>()
+  let packageIdByDigest = new Map<string, string>()
+  let packagesById = new Map<string, any>()
 
   const dummyDigest =
     'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f'
@@ -194,7 +216,15 @@ export async function run(): Promise<void> {
       delay
     )
 
-    // make any deletions
+    if (fs.existsSync(`${args.directory}/prime-delete`)) {
+      // reload
+      packageIdByDigest = new Map<string, string>()
+      packagesById = new Map<string, any>()
+      await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+
+      // make any deletions
+      deleteDigests(args.directory, packageIdByDigest, githubPackageRepo)
+    }
   } else if (args.mode === 'validate') {
     // test the repo after the test
     await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)

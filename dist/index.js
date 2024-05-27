@@ -33059,9 +33059,6 @@ class CleanupAction {
                 this.packagesById.delete(id);
             }
         }
-        else {
-            throw Error(`digest: ${digest} not found in package list`);
-        }
     }
     // move 'child' packages from main package list to the separate child list
     async trimChildPackages(digest) {
@@ -33182,7 +33179,7 @@ class CleanupAction {
                         }
                     }
                     else {
-                        core.info(`image digest ${imageManifest.digest} not found in repository, skipping`);
+                        core.info(` image digest ${imageManifest.digest} not found in repository, skipping`);
                     }
                 }
             }

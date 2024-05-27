@@ -7,7 +7,7 @@ description: >
 author: Dataaxiom Inc
 
 branding:
-  icon: delete
+  icon: trash-2
   color: blue
 
 inputs:
