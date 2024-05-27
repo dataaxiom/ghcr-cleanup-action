@@ -47,6 +47,8 @@ class CleanupAction {
     this.packageIdByDigest = new Map<string, string>()
     this.packagesById = new Map<string, any>()
     this.childInUsePackages = new Map<string, any>()
+    this.tagsInUse = new Set<string>()
+    this.deleted = new Set<string>()
 
     // get list of all the current packages
     await this.githubPackageRepo.loadPackages(
@@ -123,7 +125,7 @@ class CleanupAction {
   // validate manifests list packages
   // validate manifests list packages
   async validate(): Promise<void> {
-    core.info('validating multi-architecture/referrer images:')
+    core.info('validating multi-architecture/referrers images:')
     // copy the loaded packages
     const digests = new Map<string, string>(this.packageIdByDigest)
     const packages = new Map<string, any>(this.packagesById)
@@ -161,6 +163,7 @@ class CleanupAction {
       if (tag.startsWith('sha256-')) {
         const digest = tag.replace('sha256-', 'sha256:')
         if (!this.packageIdByDigest.get(digest)) {
+          error = true
           core.warning(
             `parent image for referrer tag ${tag} not found in repository`
           )
