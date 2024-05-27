@@ -183,6 +183,21 @@ jobs:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/dry-run --mode validate
 
+      # missing digests images test
+      - name: Prime Test - Missing Images
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/missing-images --mode prime
+      - name: Run Test - Missing Images
+        uses: ./
+        with:
+          tags: uclibc-1.34
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate Test Results - Missing Images
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/missing-images --mode validate
+
       #
       # referrer/attestation tests
       - name: Login to GitHub Container Registry
