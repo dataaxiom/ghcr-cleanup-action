@@ -58,28 +58,22 @@ async function loadImages(
     const original = line
     if (line.length > 0) {
       if (line.includes('//')) {
-        line = line.substring(0, line.indexOf('//')).trim()
+        line = line.substring(0, line.indexOf('//'))
       }
+      line = line.trim()
 
       // split into parts
-      const parts = line.split('|')
-      if (parts.length === 2) {
-        pushImage(
-          parts[0],
-          `ghcr.io/${owner}/${packageName}:${parts[1]}`,
-          undefined,
-          token
-        )
-      } else if (parts.length === 3) {
-        pushImage(
-          parts[0],
-          `ghcr.io/${owner}/${packageName}:${parts[1]}`,
-          parts[2],
-          token
-        )
-      } else {
+      const parts = line.split('|').map(part => part.trim())
+      if (parts.length !== 2 && parts.length !== 3) {
         throw Error(`prime file format error: ${original}`)
       }
+      const srcImage = parts[0]
+      const tag = parts[1]
+        ? `:${parts[1]}`
+        : `${parts[0].replace('busybox', '')}`
+      const destImage = `ghcr.io/${owner}/${packageName}${tag}`
+      const args = parts.length === 3 ? parts[2] : undefined
+      pushImage(srcImage, destImage, args, token)
     }
     if (delay > 0) {
       // sleep to allow packages to be created in order
@@ -98,8 +92,9 @@ async function deleteDigests(
     for (let line of fileContents.split('\n')) {
       if (line.length > 0) {
         if (line.includes('//')) {
-          line = line.substring(0, line.indexOf('//') - 1).trim()
+          line = line.substring(0, line.indexOf('//') - 1)
         }
+        line = line.trim()
         await githubPackageRepo.deletePackageVersion(
           packageIdByDigest.get(line)!,
           line,
@@ -133,6 +128,7 @@ export async function run(): Promise<void> {
     assertString(args.owner)
     config.owner = args.owner
   }
+
   if (args.repository) {
     assertString(args.repository)
     config.repository = args.repository
@@ -246,8 +242,9 @@ export async function run(): Promise<void> {
       for (let line of fileContents.split('\n')) {
         if (line.length > 0) {
           if (line.includes('//')) {
-            line = line.substring(0, line.indexOf('//') - 1).trim()
+            line = line.substring(0, line.indexOf('//') - 1)
           }
+          line = line.trim()
           digests.add(line)
         }
       }
@@ -280,8 +277,9 @@ export async function run(): Promise<void> {
       for (let line of fileContents.split('\n')) {
         if (line.length > 0) {
           if (line.includes('//')) {
-            line = line.substring(0, line.indexOf('//')).trim()
+            line = line.substring(0, line.indexOf('//'))
           }
+          line = line.trim()
           expectedTags.add(line)
         }
       }
