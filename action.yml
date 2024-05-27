@@ -1,8 +1,9 @@
-name: ghcr.io cleanup action
+name: ghcr.io Cleanup Action
 
 description: >
-  ghcr.io cleanup action - delete image tags and untagged images from github
-  container registry
+  Delete untagged/tagged images from GitHub container registry. Supports
+  user/organization repositories automatically and supports multi
+  architecture/referrer images.
 
 author: Dataaxiom Inc
 
