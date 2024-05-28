@@ -135,7 +135,7 @@ export async function run(): Promise<void> {
   }
   if (args.repository) {
     assertString(args.repository)
-    config.repository = args.repository.toLowerCase()
+    config.repository = args.repository
   }
   if (args.package) {
     assertString(args.package)
@@ -172,6 +172,8 @@ export async function run(): Promise<void> {
       }
     }
   }
+
+  config.owner = config.owner?.toLowerCase() // Ensure owner is lowercase so that the push of docker images works
 
   const registry = new Registry(config)
   await registry.login()
