@@ -15,7 +15,6 @@ jobs:
       group: integeration-tests
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
 
     steps:
       - name: Checkout
@@ -206,6 +205,9 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - id: lower-repo
+        run: |
+          echo "repository=${GITHUB_REPOSITORY@L}" >> $GITHUB_OUTPUT
 
       # attestation tagged test
       - name: Prime Test - Attestation Tagged
@@ -219,11 +221,13 @@ jobs:
           context: tests/attestation-tagged
           file: tests/attestation-tagged/Dockerfile.image
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+          tags:
+            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-name:
+            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
           subject-digest: ${{ steps.push1.outputs.digest }}
           push-to-registry: true
       - name: Run Test - Attestation Tagged
@@ -248,11 +252,13 @@ jobs:
           context: tests/attestation-untagged
           file: tests/attestation-untagged/Dockerfile.image1
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+          tags:
+            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image 1
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-name:
+            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
           subject-digest: ${{ steps.push2.outputs.digest }}
           push-to-registry: true
       - name: Build and push image 2
@@ -262,18 +268,20 @@ jobs:
           context: tests/attestation-untagged
           file: tests/attestation-untagged/Dockerfile.image2
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+          tags:
+            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image 2
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-name:
+            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
           subject-digest: ${{ steps.push3.outputs.digest }}
           push-to-registry: true
       - name: Save Digests - Attestation UnTagged
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/attestation-untagged --mode save-expected --tag test
-      - name: Run Test - Attestation Tagged
+      - name: Run Test - Attestation UnTagged
         uses: ./
         with:
           validate: true
