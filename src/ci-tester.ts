@@ -113,7 +113,6 @@ export async function run(): Promise<void> {
     package: { key: 'package', args: 1, required: false },
     directory: { key: 'directory', args: 1, required: true },
     tag: { key: 'tag', args: 1, required: false },
-    tag: { key: 'tag', args: 1, required: false },
     mode: { key: 'mode', args: 1, required: true },
     delay: { key: 'delay', args: 1, required: false }
   })
