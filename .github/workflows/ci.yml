@@ -17,9 +17,14 @@ jobs:
     name: General Tests
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       packages: write
+      contents: read
+      attestations: write
     concurrency:
       group: integeration-tests
+    env:
+      REGISTRY: ghcr.io
 
     steps:
       - name: Checkout
