@@ -26,9 +26,6 @@ class CleanupAction {
   childInUsePackages = new Map<string, any>() // by id
   tagsInUse = new Set<string>()
   deleted = new Set<string>()
-  childInUsePackages = new Map<string, any>() // by id
-  tagsInUse = new Set<string>()
-  deleted = new Set<string>()
 
   numberMultiImagesDeleted = 0
   numberImagesDeleted = 0
@@ -59,13 +56,11 @@ class CleanupAction {
     for (const ghPackage of this.packagesById.values()) {
       for (const tag of ghPackage.metadata.container.tags) {
         this.tagsInUse.add(tag)
-        this.tagsInUse.add(tag)
       }
     }
     // find exclude tags using matcher
     if (this.config.excludeTags) {
       const isTagMatch = wcmatch(this.config.excludeTags.split(','))
-      for (const tag of this.tagsInUse) {
       for (const tag of this.tagsInUse) {
         if (isTagMatch(tag)) {
           this.excludeTags.push(tag)
@@ -121,7 +116,6 @@ class CleanupAction {
   }
 
   // validate manifests list packages
-  // validate manifests list packages
   async validate(): Promise<void> {
     core.info('validating multi-architecture/referrers images:')
     // copy the loaded packages
@@ -129,7 +123,6 @@ class CleanupAction {
     const packages = new Map<string, any>(this.packagesById)
     // cycle thru digests checking them
     let error = false
-    const processedManifests = new Set<string>()
     const processedManifests = new Set<string>()
     for (const digest of digests.keys()) {
       // is the digest a multi arch image?
@@ -274,7 +267,6 @@ class CleanupAction {
       const isTagMatch = wcmatch(this.config.tags.split(','))
       const matchTags = []
       for (const tag of this.tagsInUse) {
-      for (const tag of this.tagsInUse) {
         if (isTagMatch(tag)) {
           matchTags.push(tag)
         }
@@ -286,12 +278,7 @@ class CleanupAction {
             const manifest = await this.registry.getManifestByTag(tag)
             const manifestDigest = await this.registry.getTagDigest(tag)
             const ghPackage = this.getPackageByDigest(manifestDigest)
-            const ghPackage = this.getPackageByDigest(manifestDigest)
             // if the image only has one tag - delete it
-            if (ghPackage.metadata.container.tags.length === 1) {
-              // deleteImage function works from child list so trim first
-              await this.trimChildPackages(manifestDigest)
-              await this.deleteImage(ghPackage)
             if (ghPackage.metadata.container.tags.length === 1) {
               // deleteImage function works from child list so trim first
               await this.trimChildPackages(manifestDigest)
@@ -379,7 +366,6 @@ class CleanupAction {
         const id = this.packageIdByDigest.get(digest)
         if (id) {
           await this.trimChildPackages(digest)
-          await this.trimChildPackages(digest)
           this.packagesById.delete(id)
           this.packageIdByDigest.delete(digest)
         }
@@ -387,16 +373,12 @@ class CleanupAction {
       // now remove the untagged images left in the packages list
       if (this.packageIdByDigest.size > 0) {
         // remove multi/referrer images - only count the manifest list image
-        // remove multi/referrer images - only count the manifest list image
         // and trim manifests which have no children
         const ghostImages = []
         for (const digest of this.packageIdByDigest.keys()) {
           await this.trimChildPackages(digest)
-          await this.trimChildPackages(digest)
           if (await this.isGhostImage(digest)) {
             // save it to add back
-            ghostImages.push(this.getPackageByDigest(digest))
-
             ghostImages.push(this.getPackageByDigest(digest))
 
             // remove it from later untaggedPackages sort
@@ -417,7 +399,6 @@ class CleanupAction {
           for (const untaggedPackage of untaggedPackages) {
             const ghPackage = this.packagesById.get(untaggedPackage.id)
             await this.deleteImage(ghPackage)
-            await this.deleteImage(ghPackage)
           }
         }
       }
@@ -430,22 +411,12 @@ class CleanupAction {
     for (const ghPackage of this.packagesById.values()) {
       if (!this.deleted.has(ghPackage.name)) {
         const manifest = await this.registry.getManifestByDigest(ghPackage.name)
-  async deleteRemainingPackages(): Promise<void> {
-    // process deletion in 2 iterations
-    // delete manifest list images first
-    for (const ghPackage of this.packagesById.values()) {
-      if (!this.deleted.has(ghPackage.name)) {
-        const manifest = await this.registry.getManifestByDigest(ghPackage.name)
         if (manifest.manifests) {
-          await this.deleteImage(ghPackage)
           await this.deleteImage(ghPackage)
         }
       }
     }
     // now process the remainder
-    for (const ghPackage of this.packagesById.values()) {
-      if (!this.deleted.has(ghPackage.name)) {
-        await this.deleteImage(ghPackage)
     for (const ghPackage of this.packagesById.values()) {
       if (!this.deleted.has(ghPackage.name)) {
         await this.deleteImage(ghPackage)
@@ -462,7 +433,6 @@ class CleanupAction {
       for (const excludedTag of this.excludeTags) {
         const imageDigest = await this.registry.getTagDigest(excludedTag)
         await this.trimChildPackages(imageDigest)
-        await this.trimChildPackages(imageDigest)
         const id = this.packageIdByDigest.get(imageDigest)
         if (id) {
           this.packagesById.delete(id)
@@ -477,14 +447,7 @@ class CleanupAction {
       let packagesToKeep = []
 
       // trim all the child packages
-
-      // trim all the child packages
       for (const digest of this.packageIdByDigest.keys()) {
-        await this.trimChildPackages(digest)
-      }
-      // only copy images with tags and not ghost images
-      for (const ghPackage of this.packagesById.values()) {
-        if (!(await this.isGhostImage(ghPackage.name))) {
         await this.trimChildPackages(digest)
       }
       // only copy images with tags and not ghost images
@@ -510,7 +473,6 @@ class CleanupAction {
         this.packagesById.delete(ghPackage.id)
       }
     }
-    await this.deleteRemainingPackages()
     await this.deleteRemainingPackages()
   }
 
@@ -538,7 +500,6 @@ class CleanupAction {
           const id = this.packageIdByDigest.get(digest)
           if (id) {
             await this.trimChildPackages(digest)
-            await this.trimChildPackages(digest)
             this.packagesById.delete(id)
           } else {
             core.info(
@@ -546,11 +507,6 @@ class CleanupAction {
             )
           }
         }
-        // now trim child packages from the remaining untagged images
-        for (const ghPackage of this.packagesById.values()) {
-          await this.trimChildPackages(ghPackage.name)
-        }
-        await this.deleteRemainingPackages()
         // now trim child packages from the remaining untagged images
         for (const ghPackage of this.packagesById.values()) {
           await this.trimChildPackages(ghPackage.name)
