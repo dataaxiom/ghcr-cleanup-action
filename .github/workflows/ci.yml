@@ -1,7 +1,10 @@
 name: Integration Tests
 
-on: [pull_request_target, push]
-
+on:
+  push:
+  pull_request_target:
+    types: [assigned, opened, synchronize, reopened]
+    
 permissions:
   id-token: write
   packages: write
