@@ -1,16 +1,25 @@
 name: Integration Tests
 
-on: [pull_request, push]
+on:
+  push:
+  pull_request_target:
+    types: [assigned, opened, synchronize, reopened]
+    
+permissions:
+  id-token: write
+  packages: write
+  contents: read
+  attestations: write
+
+concurrency:
+  group: overall-group
+  cancel-in-progress: true
 
 jobs:
-  integration-tests:
-    name: Integration Tests
+  general-tests:
+    name: General Tests
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      packages: write
-      contents: read
-      attestations: write
+
     concurrency:
       group: integeration-tests
     env:
@@ -43,161 +52,197 @@ jobs:
         id: npm-ci-test
         run: npm run ci-test
 
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: general-tests
+
+    strategy:
+      max-parallel: 1
+      matrix:
+        tests:
+          - title: '1a - Single: Untagged'
+            purpose: 'Removes all untagged images (single arch)'
+            folder: '1a_single-untagged'
+
+          - title: '1b - Multi: Untagged'
+            purpose: 'Removes all untagged images (multi arch)'
+            folder: '1b_multi-untagged'
+
+          - title: '2a - Single: Tagged'
+            purpose: 'Removes images with specific tag (single arch)'
+            folder: '2a_single-tagged'
+            tags: 'uclibc-1.35,uclibc-1.36'
+
+          - title: '2b - Multi: Tagged'
+            purpose: 'Removes images with specific tag (multi arch)'
+            folder: '2b_multi-tagged'
+            tags: 'uclibc-1.35,uclibc-1.36'
+
+          - title: '3a - Single: Keep N Tagged'
+            purpose: 'Removes all but the newest 2 tagged images (single arch)'
+            folder: '3a_single-keep-n-tagged'
+            keep-n-tagged: 2
+            exclude-tags: dummy
+
+          - title: '3b - Multi: Keep N Tagged'
+            purpose: 'Removes all but the newest 2 tagged images (multi arch)'
+            folder: '3b_multi-keep-n-tagged'
+            keep-n-tagged: 2
+            exclude-tags: dummy
+
+          - title: '4a - Single: Keep N Untagged'
+            purpose:
+              'Keeps all tagged images and removes all but the newest 2 untagged
+              images (single arch)'
+            folder: '4a_single-keep-n-untagged'
+            keep-n-untagged: 2
+
+          - title: '4b - Multi: Keep N Untagged'
+            purpose:
+              'Keeps all tagged images and removes all but the newest 2 untagged
+              images (multi arch)'
+            folder: '4b_multi-keep-n-untagged'
+            keep-n-untagged: 2
+
+          - title: '5 - Dry-Run'
+            purpose: 'No packages are removed'
+            folder: '5_dry-run'
+            dry-run: true
+
+          - title: '6 - Missing Digests'
+            purpose: 'Looks for missing digests'
+            folder: '6_missing-images'
+            tags: 'uclibc-1.34'
+
+    steps:
+      # Setup for test execution
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
       - name: Build Tester
         run: npm run ci-tester
 
-      # untagged test
-      - name: Prime Test - Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/untagged --mode prime
-      - name: Run Test - Untagged
+      # Execution of respective test
+      - name: 'Starting Test: ${{ matrix.tests.title }}'
+        run: |
+          echo "Purpose of test: ${{ matrix.tests.purpose }}"
+
+          TAGS=""
+          if [ ! -z "${{ matrix.tests.tags }}" ]; then
+            TAGS="${{ matrix.tests.tags }}"
+          fi
+
+          KEEP_N_TAGGED=""
+          if [ ! -z "${{ matrix.tests.keep-n-tagged }}" ]; then
+            KEEP_N_TAGGED="${{ matrix.tests.keep-n-tagged }}"
+          fi
+
+          KEEP_N_UNTAGGED=""
+          if [ ! -z "${{ matrix.tests.keep-n-untagged }}" ]; then
+            KEEP_N_UNTAGGED="${{ matrix.tests.keep-n-untagged }}"
+          fi
+
+          EXCLUDE_TAGS=""
+          if [ ! -z "${{ matrix.tests.exclude-tags }}" ]; then
+            EXCLUDE_TAGS="${{ matrix.tests.exclude-tags }}"
+          fi
+
+          DRY_RUN=""
+          if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
+            DRY_RUN="TRUE"
+          fi
+
+          DRY_RUN=""
+          if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
+            DRY_RUN="TRUE"
+          fi
+
+          DELAY="0"
+          if [ ! -z "$KEEP_N_TAGGED" ] || [ ! -z "$KEEP_N_UNTAGGED" ]; then
+            DELAY="3000"
+          fi
+
+          echo "TAGS=$TAGS" >> $GITHUB_ENV
+          echo "KEEP_N_TAGGED=$KEEP_N_TAGGED" >> $GITHUB_ENV
+          echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED" >> $GITHUB_ENV
+          echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
+          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+          echo "DELAY=$DELAY" >> $GITHUB_ENV
+
+      # - name: ' > Debug: Print Matrix Variables'
+      #   run: |
+      #     echo "tags: ${{ matrix.tests.tags }}"
+      #     echo "keep-n-tagged: ${{ matrix.tests.keep-n-tagged }}"
+      #     echo "keep-n-untagged: ${{ matrix.tests.keep-n-untagged }}"
+      #     echo "exclude-tags: ${{ matrix.tests.exclude-tags }}"
+      #     echo "dry-run: ${{ matrix.tests.dry-run }}"
+
+      # - name: ' > Debug: Print Env Variables'
+      #   run: |
+      #     echo "tags: ${{ env.TAGS }}"
+      #     echo "keep-n-tagged: ${{ env.KEEP_N_TAGGED }}"
+      #     echo "keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}"
+      #     echo "exclude-tags: ${{ env.EXCLUDE_TAGS }}"
+      #     echo "dry-run: ${{ env.DRY_RUN }}"
+
+      - name: ' > Priming Test Environment'
+        run: |
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} \
+            --directory tests/${{ matrix.tests.folder }} \
+            --mode prime --delay ${{ env.DELAY }}
+
+      - name: ' > Running Workflow'
         uses: ./
         with:
+          tags: ${{ env.TAGS }}
+          keep-n-tagged: ${{ env.KEEP_N_TAGGED }}
+          keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}
+          exclude-tags: ${{ env.EXCLUDE_TAGS }}
+          dry-run: ${{ env.DRY_RUN }}
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/untagged --mode validate
 
-      # tagged test
-      - name: Prime Test - Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/tagged --mode prime
-      - name: Run Test - Tagged
-        uses: ./
+      - name: ' > Validating Outcome'
+        run: |
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} \
+            --directory tests/${{ matrix.tests.folder }} \
+            --mode validate
+
+  attestation-tests:
+    name: Attestation Tests
+    runs-on: ubuntu-latest
+    concurrency:
+      group: attestation-tests-group
+    env:
+      REGISTRY: ghcr.io
+    needs: integration-tests
+
+    steps:
+      # Setup for test execution
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          tags: uclibc-1.35,uclibc-1.36
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/tagged --mode validate
+          node-version-file: .node-version
+          cache: npm
 
-      # keep-n-tagged test
-      - name: Prime Test - Keep N Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-tagged --mode prime --delay 3000
-      - name: Run Test - Keep N Tagged
-        uses: ./
-        with:
-          keep-n-tagged: 2
-          exclude-tags: dummy
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Keep N Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-tagged --mode validate
+      - name: Install Dependencies
+        run: npm ci
 
-      # keep-n-untagged test
-      - name: Prime Test - Keep N Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-untagged --mode prime --delay 3000
-      - name: Run Test - Keep N Untagged
-        uses: ./
-        with:
-          keep-n-untagged: 2
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Keep N Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/keep-n-untagged --mode validate
+      - name: Build Tester
+        run: npm run ci-tester
 
-      # multi untagged test
-      - name: Prime Test - Multi Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-untagged --mode prime
-      - name: Run Test - Multi Untagged
-        uses: ./
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Multi Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-untagged --mode validate
-
-      # multi tagged test
-      - name: Prime Test - Multi Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-tagged --mode prime
-      - name: Run Test - Multi Tagged
-        uses: ./
-        with:
-          tags: uclibc-1.35,uclibc-1.36
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Multi Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-tagged --mode validate
-
-      # multi keep-n-tagged test
-      - name: Prime Test - Multi Keep N Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-keep-n-tagged --mode prime --delay 3000
-      - name: Run Test - Multi Keep N Tagged
-        uses: ./
-        with:
-          keep-n-tagged: 2
-          exclude-tags: dummy
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Multi Keep N Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-keep-n-tagged --mode validate
-
-      # multi keep-n-untagged test
-      - name: Prime Test - Multi Keep N Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-keep-n-untagged --mode prime --delay 3000
-      - name: Run Test - Multi Keep N Untagged
-        uses: ./
-        with:
-          keep-n-untagged: 1
-          exclude-tags: dummy
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Multi Keep N Untagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/multi-keep-n-untagged --mode validate
-
-      # dry-run test
-      - name: Prime Test - Dry Run
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/dry-run --mode prime
-      - name: Run Test - Dry Run
-        uses: ./
-        with:
-          dry-run: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Dry Run
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/dry-run --mode validate
-
-      # missing digests images test
-      - name: Prime Test - Missing Images
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/missing-images --mode prime
-      - name: Run Test - Missing Images
-        uses: ./
-        with:
-          tags: uclibc-1.34
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Missing Images
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/missing-images --mode validate
-
-      #
       # referrer/attestation tests
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3

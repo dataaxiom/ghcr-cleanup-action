@@ -55,7 +55,6 @@ export function getConfig(): Config {
   } else {
     throw Error('GITHUB_REPOSITORY is not set')
   }
-
   config.tags = core.getInput('tags')
   config.excludeTags = core.getInput('exclude-tags')
   if (core.getInput('dry-run')) {
