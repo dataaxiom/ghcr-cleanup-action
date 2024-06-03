@@ -261,7 +261,7 @@ jobs:
           tests/attestation-tagged --mode prime
       - name: Build and push image
         id: push1
-        uses: docker/build-push-action@v5.0.0
+        uses: docker/build-push-action@v5.3.0
         with:
           context: tests/attestation-tagged
           file: tests/attestation-tagged/Dockerfile.image
@@ -292,7 +292,7 @@ jobs:
           tests/attestation-untagged --mode prime
       - name: Build and push image 1
         id: push2
-        uses: docker/build-push-action@v5.0.0
+        uses: docker/build-push-action@v5.3.0
         with:
           context: tests/attestation-untagged
           file: tests/attestation-untagged/Dockerfile.image1
@@ -308,7 +308,7 @@ jobs:
           push-to-registry: true
       - name: Build and push image 2
         id: push3
-        uses: docker/build-push-action@v5.0.0
+        uses: docker/build-push-action@v5.3.0
         with:
           context: tests/attestation-untagged
           file: tests/attestation-untagged/Dockerfile.image2
