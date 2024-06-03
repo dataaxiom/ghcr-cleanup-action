@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { Config } from './config'
+import { Config } from './config.js'
 
 export class GithubPackageRepo {
   config: Config

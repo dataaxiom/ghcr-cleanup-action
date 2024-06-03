@@ -5,10 +5,10 @@
 import stdio from 'stdio'
 import fs from 'fs'
 import * as core from '@actions/core'
-import { Config } from './config'
-import { GithubPackageRepo } from './github-package'
-import { Registry } from './registry'
-import { SpawnSyncOptionsWithBufferEncoding, spawnSync } from 'child_process'
+import { Config } from './config.js'
+import { GithubPackageRepo } from './github-package.js'
+import { Registry } from './registry.js'
+import { SpawnSyncOptionsWithStringEncoding, spawnSync } from 'child_process'
 
 function assertString(input: unknown): asserts input is string {
   if (typeof input !== 'string') {
@@ -18,28 +18,41 @@ function assertString(input: unknown): asserts input is string {
 
 export function processWrapper(
   command: string,
-  options: SpawnSyncOptionsWithBufferEncoding
+  args: string[],
+  options: SpawnSyncOptionsWithStringEncoding
 ) {
-  options.shell = true
-  options.stdio = 'inherit'
-  const output = spawnSync(command, options)
-  if (output.status !== null && output.status !== 0) {
-    throw new Error(`running command:  + ${command}`)
+  const output = spawnSync(command, args, options)
+  if (output.error) {
+    throw new Error(`error running command: ${output.error}`)
+  } else if (output.status !== null && output.status !== 0) {
+    throw new Error(`running command:  + ${command}, status: ${output.status}`)
   }
 }
 
 function pushImage(
   srcImage: string,
   destImage: string,
-  args: string | undefined,
+  extraArgs: string | undefined,
   token: string
 ): void {
   console.log(`copying image: ${srcImage} ${destImage}`)
-  let command = `skopeo copy docker://${srcImage}  docker://${destImage} --dest-creds=token:${token}`
-  if (args) {
-    command += ` ${args}`
+  const args = [
+    'copy',
+    `docker://${srcImage}`,
+    `docker://${destImage}`,
+    `--dest-creds=token:${token}`
+  ]
+  if (extraArgs) {
+    const parts = extraArgs.split(' ')
+    for (const part of parts) {
+      args.push(part.trim())
+    }
   }
-  processWrapper(command, {})
+  processWrapper('skopeo', args, {
+    encoding: 'utf-8',
+    shell: false,
+    stdio: 'inherit'
+  })
 }
 
 async function loadImages(
@@ -63,14 +76,27 @@ async function loadImages(
       line = line.trim()
 
       // split into parts
-      const parts = line.split('|').map(part => part.trim())
+      const parts = line.split('|')
       if (parts.length !== 2 && parts.length !== 3) {
         throw Error(`prime file format error: ${original}`)
       }
       const srcImage = parts[0]
-      const tag = parts[1]
-        ? `:${parts[1]}`
-        : `${parts[0].replace('busybox', '')}`
+      let tag
+      if (parts[1]) {
+        if (parts[1].includes('@')) {
+          tag = parts[1]
+        } else {
+          tag = `:${parts[1]}`
+        }
+      } else {
+        if (parts[0].includes('@')) {
+          tag = `${parts[0].substring(parts[0].indexOf('@'))}`
+        } else if (parts[0].includes(':')) {
+          tag = `:${parts[0].substring(parts[0].indexOf(':'))}`
+        } else {
+          throw Error(`no tag specified in ${parts[0]}`)
+        }
+      }
       const destImage = `ghcr.io/${owner}/${packageName}${tag}`
       const args = parts.length === 3 ? parts[2] : undefined
       pushImage(srcImage, destImage, args, token)
@@ -221,7 +247,7 @@ export async function run(): Promise<void> {
       await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
 
       // make any deletions
-      deleteDigests(args.directory, packageIdByDigest, githubPackageRepo)
+      await deleteDigests(args.directory, packageIdByDigest, githubPackageRepo)
     }
   } else if (args.mode === 'validate') {
     // test the repo after the test
@@ -343,4 +369,4 @@ export async function run(): Promise<void> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
-run()
+await run()

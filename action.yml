@@ -1,9 +1,8 @@
-name: ghcr.io Cleanup Action
+name: Ghcr.io Cleanup Action
 
 description: >
-  Delete untagged/tagged images from GitHub container registry. Supports
-  user/organization repositories automatically and supports multi
-  architecture/referrer images.
+  Delete untagged/tagged images from the GitHub Container Registry. Supports
+  multi architecture and attestation images.
 
 author: Dataaxiom Inc
 
@@ -12,21 +11,32 @@ branding:
   color: blue
 
 inputs:
-  token:
-    description: >
-      Token to delete package versions.
-    required: true
-
   owner:
     description: >
       Owner of the package (user or organization)
     required: false
 
-  name:
+  repository:
     description: >
-      Not used, use package instead.
+      The GitHub repository where the package is stored. Defaults to repository
+      name.
     required: false
-    deprecationMessage: Input `name` is no longer used. Use `package` instead!
+
+  package:
+    description: >
+      The package name, replaces the `name` input. Defaults to the repository
+      name.
+    required: false
+
+  token:
+    description: >
+      Token to delete package versions.
+    required: true
+
+  tags:
+    description: >
+      Tags to delete (comma seperated)
+    required: false
 
   keep-n-untagged:
     description: >
@@ -36,11 +46,6 @@ inputs:
   keep-n-tagged:
     description: >
       Number of tagged images to keep (sorted by date)
-    required: false
-
-  tags:
-    description: >
-      Tags to delete (comma seperated)
     required: false
 
   exclude-tags:
@@ -58,17 +63,10 @@ inputs:
       Simulate action - does not remove any packages
     required: false
 
-  repository:
+  log-level:
     description: >
-      The github repository where the package is stored. Defaults to repository
-      name.
-    required: false
-
-  package:
-    description: >
-      The package name, replaces the `name` input. Defaults to the repository
-      name.
-    required: false
+      Log level (error/warn/info/debug)
+    default: warn
 
 runs:
   using: node20

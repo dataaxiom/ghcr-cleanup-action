@@ -35,14 +35,14 @@ jobs:
         id: install
         run: npm ci
 
-      - name: Build dist/ Directory
+      - name: Build
         id: build
         run: npm run bundle
 
       # This will fail the workflow if the `dist/` directory is different than
       # expected.
-      - name: Compare Directories
-        id: diff
+      - name: Compare dist Directories
+        id: diff-dist
         run: |
           if [ ! -d dist/ ]; then
             echo "Expected dist/ directory does not exist.  See status below:"
@@ -59,8 +59,33 @@ jobs:
       # workflow artifact.
       - if: ${{ failure() && steps.diff.outcome == 'failure' }}
         name: Upload Artifact
-        id: upload
+        id: upload-dist
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
+
+      # This will fail the workflow if the `citester/` directory is different than
+      # expected.
+      - name: Compare citester Directories
+        id: diff-citester
+        run: |
+          if [ ! -d citester/ ]; then
+            echo "Expected citester/ directory does not exist.  See status below:"
+            ls -la ./
+            exit 1
+          fi
+          if [ "$(git diff --ignore-space-at-eol --text citester/ | wc -l)" -gt "0" ]; then
+            echo "Detected uncommitted changes after build. See status below:"
+            git diff --ignore-space-at-eol --text citester/
+            exit 1
+          fi
+      # If `citester/` was different than expected, upload the expected version as a
+      # workflow artifact.
+      - if: ${{ failure() && steps.diff.outcome == 'failure' }}
+        name: Upload Artifact
+        id: upload-citester
+        uses: actions/upload-artifact@v4
+        with:
+          name: citester
+          path: citester/

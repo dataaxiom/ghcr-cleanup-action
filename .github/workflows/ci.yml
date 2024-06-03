@@ -12,18 +12,13 @@ permissions:
   attestations: write
 
 concurrency:
-  group: overall-group
+  group: ci-tests
   cancel-in-progress: true
 
 jobs:
   general-tests:
     name: General Tests
     runs-on: ubuntu-latest
-
-    concurrency:
-      group: integeration-tests
-    env:
-      REGISTRY: ghcr.io
 
     steps:
       - name: Checkout
@@ -53,7 +48,7 @@ jobs:
         run: npm run ci-test
 
   integration-tests:
-    name: Integration Tests
+    name: Test
     runs-on: ubuntu-latest
     needs: general-tests
 
@@ -125,12 +120,6 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Build Tester
-        run: npm run ci-tester
 
       # Execution of respective test
       - name: 'Starting Test: ${{ matrix.tests.title }}'
@@ -237,12 +226,6 @@ jobs:
           node-version-file: .node-version
           cache: npm
 
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Build Tester
-        run: npm run ci-tester
-
       # referrer/attestation tests
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -261,7 +244,7 @@ jobs:
           tests/attestation-tagged --mode prime
       - name: Build and push image
         id: push1
-        uses: docker/build-push-action@v5.3.0
+        uses: docker/build-push-action@v5.0.0
         with:
           context: tests/attestation-tagged
           file: tests/attestation-tagged/Dockerfile.image
@@ -292,7 +275,7 @@ jobs:
           tests/attestation-untagged --mode prime
       - name: Build and push image 1
         id: push2
-        uses: docker/build-push-action@v5.3.0
+        uses: docker/build-push-action@v5.0.0
         with:
           context: tests/attestation-untagged
           file: tests/attestation-untagged/Dockerfile.image1
@@ -308,7 +291,7 @@ jobs:
           push-to-registry: true
       - name: Build and push image 2
         id: push3
-        uses: docker/build-push-action@v5.3.0
+        uses: docker/build-push-action@v5.0.0
         with:
           context: tests/attestation-untagged
           file: tests/attestation-untagged/Dockerfile.image2

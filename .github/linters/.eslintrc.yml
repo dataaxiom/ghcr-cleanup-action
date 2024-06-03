@@ -7,10 +7,17 @@ globals:
   Atomics: readonly
   SharedArrayBuffer: readonly
 
+settings:
+  import/resolver:
+    typescript:
+      alwaysTryTypes: true
+      project: './.github/linters/tsconfig.json'
+
 ignorePatterns:
   - '!.*'
   - '**/node_modules/.*'
   - '**/dist/.*'
+  - '**/citester/.*'
   - '**/coverage/.*'
   - '*.json'
 
@@ -80,5 +87,7 @@ rules:
     '@typescript-eslint/semi': ['error', 'never'],
     '@typescript-eslint/space-before-function-paren': 'off',
     '@typescript-eslint/type-annotation-spacing': 'error',
-    '@typescript-eslint/unbound-method': 'error'
+    '@typescript-eslint/unbound-method': 'error',
+    'no-shadow': 'off',
+    '@typescript-eslint/no-shadow': ['error']
   }

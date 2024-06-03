@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
-import { Config, getConfig } from './config'
-import { Registry } from './registry'
-import { GithubPackageRepo } from './github-package'
+import { Config, getConfig } from './config.js'
+import { Registry } from './registry.js'
+import { GithubPackageRepo } from './github-package.js'
 import wcmatch from 'wildcard-match'
 
 export async function run(): Promise<void> {

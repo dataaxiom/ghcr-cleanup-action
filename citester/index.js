@@ -10734,6 +10734,611 @@ exports.j = getProxyForUrl;
 
 /***/ }),
 
+/***/ 8:
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const DEFAULT_TERMINAL_WIDTH = process.stdout.columns || 70;
+function formatTime(msec) {
+    const dd = Math.floor(msec / 1000 / 60 / 60 / 24);
+    msec -= dd * 1000 * 60 * 60 * 24;
+    const hh = Math.floor(msec / 1000 / 60 / 60);
+    msec -= hh * 1000 * 60 * 60;
+    const mm = Math.floor(msec / 1000 / 60);
+    msec -= mm * 1000 * 60;
+    const ss = Math.floor(msec / 1000);
+    msec -= ss * 1000;
+    const str = [`0${hh}`.slice(-2), `0${mm}`.slice(-2), `0${ss}`.slice(-2)].join(':');
+    return dd ? `${dd} días` : str;
+}
+function getStateInfo(size, value, ellapsedTime, remainingTime) {
+    const ellapsed = formatTime(ellapsedTime);
+    const percent = Math.floor((value * 100) / size);
+    const eta = formatTime(value >= size ? 0 : remainingTime);
+    return {
+        prefix: ellapsed + ' ' + percent + '% [',
+        suffix: '] ETA ' + eta,
+        percent,
+    };
+}
+function getBar(barWidth, percent) {
+    const ticks = [];
+    for (let i = 0, len = barWidth; i < len; i++) {
+        if ((i * 100) / len <= percent) {
+            ticks.push('#');
+        }
+        else {
+            ticks.push('·');
+        }
+    }
+    return ticks.join('');
+}
+class ProgressBar {
+    constructor(size = 100, { tickSize = 1, silent = false, terminalWidth = DEFAULT_TERMINAL_WIDTH } = {}) {
+        this.size = size;
+        this.tickSize = tickSize;
+        this.value = 0;
+        this.startTime = Date.now();
+        this.lastRemainingTimes = [];
+        this.silent = silent;
+        this.terminalWidth = terminalWidth;
+        this.callback = () => { };
+    }
+    getEllapsed() {
+        return Date.now() - this.startTime;
+    }
+    getRemaining() {
+        const secondsPerTick = this.getEllapsed() / this.value;
+        const remaining = Math.floor((this.size - this.value) * secondsPerTick);
+        this.lastRemainingTimes.push(remaining);
+        if (this.lastRemainingTimes.length > 5)
+            this.lastRemainingTimes.shift();
+        const sum = this.lastRemainingTimes.reduce((accum, num) => accum + num, 0);
+        return Math.floor(sum / this.lastRemainingTimes.length);
+    }
+    setValue(value) {
+        this.value = Math.min(value, this.size);
+        const str = this.print();
+        if (this.value === this.size) {
+            this.write('\n');
+            if (this.callback)
+                this.callback();
+            this.callback = () => { };
+        }
+        return str;
+    }
+    tick() {
+        return this.setValue(this.value + this.tickSize);
+    }
+    onFinish(callback) {
+        this.callback = callback;
+    }
+    write(text) {
+        if (this.silent)
+            return;
+        process.stdout.write(text);
+    }
+    print() {
+        const { prefix, suffix, percent } = getStateInfo(this.size, this.value, this.getEllapsed(), this.getRemaining());
+        const barWidth = this.terminalWidth - suffix.length - prefix.length;
+        const bar = getBar(barWidth, percent);
+        this.write('\r');
+        const str = prefix + bar + suffix;
+        this.write(str);
+        return str;
+    }
+}
+exports["default"] = ProgressBar;
+
+
+/***/ }),
+
+/***/ 8541:
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const DEFAULT_MAX_RETRIES = 3;
+function getInputStream(config) {
+    return config.inputStream || process.stdin;
+}
+function print(text, config) {
+    const inputStream = getInputStream(config);
+    if (inputStream !== process.stdin)
+        return;
+    const { options } = config;
+    if (options)
+        text += ' [' + options.join('/') + ']';
+    text += ': ';
+    process.stdout.write(text);
+}
+function getOnError(question, config, callback) {
+    const inputStream = getInputStream(config);
+    return (listener, tries) => {
+        if (inputStream === process.stdin)
+            console.log('Unexpected answer. %d retries left.', tries);
+        if (!tries) {
+            inputStream.removeListener('data', listener);
+            inputStream.pause();
+            callback('Retries spent');
+        }
+        else {
+            print(question, config);
+        }
+    };
+}
+function getListener(question, config, callback) {
+    const inputStream = getInputStream(config);
+    let tries = config.maxRetries || DEFAULT_MAX_RETRIES;
+    const onError = getOnError(question, config, callback);
+    function listener(data) {
+        const answer = data.toString().trim();
+        if (config.options && !config.options.includes(answer))
+            return onError(listener, --tries);
+        inputStream.removeListener('data', listener);
+        inputStream.pause();
+        callback('', answer);
+    }
+    return listener;
+}
+function ask(question, config = {}) {
+    return new Promise((resolve, reject) => {
+        const callback = (error, value) => (error ? reject(new Error(error)) : resolve(value));
+        const inputStream = getInputStream(config);
+        inputStream.resume();
+        const listener = getListener(question, config, callback);
+        inputStream.addListener('data', listener);
+        print(question, config);
+    });
+}
+exports["default"] = ask;
+
+
+/***/ }),
+
+/***/ 9091:
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const FAILURE = 1;
+const POSITIONAL_ARGS_KEY = 'args';
+const ERROR_PREFFIX = 'ERROR#GETOPT: ';
+function throwError(message) {
+    throw new Error(ERROR_PREFFIX + message);
+}
+function getShorteners(options) {
+    const initialValue = {};
+    return Object.entries(options).reduce((accum, [key, value]) => {
+        if (typeof value === 'object' && value.key)
+            accum[value.key] = key;
+        return accum;
+    }, initialValue);
+}
+function parseOption(config, arg) {
+    if (!/^--?[a-zA-Z]/.test(arg))
+        return null;
+    if (arg.startsWith('--')) {
+        return [arg.replace(/^--/, '')];
+    }
+    const shorteners = getShorteners(config);
+    return arg
+        .replace(/^-/, '')
+        .split('')
+        .map(letter => shorteners[letter] || letter);
+}
+function getStateAndReset(state) {
+    const partial = { [state.activeOption]: state.optionArgs };
+    Object.assign(state, {
+        activeOption: '',
+        remainingArgs: 0,
+        optionArgs: [],
+        isMultiple: false,
+    });
+    return partial;
+}
+function postprocess(input) {
+    const initialValue = {};
+    return Object.entries(input).reduce((accum, [key, value]) => {
+        if (Array.isArray(value) && value.length === 1 && key !== POSITIONAL_ARGS_KEY)
+            accum[key] = value[0];
+        else
+            accum[key] = [...value];
+        return accum;
+    }, initialValue);
+}
+function checkRequiredParams(config, input) {
+    if (config._meta_ && typeof config._meta_ === 'object') {
+        const { args = 0, minArgs = 0, maxArgs = 0 } = config._meta_;
+        let providedArgs = 0;
+        let error = null;
+        if (Array.isArray(input[POSITIONAL_ARGS_KEY]) && input[POSITIONAL_ARGS_KEY].length > 0) {
+            providedArgs = input[POSITIONAL_ARGS_KEY].length;
+        }
+        if (args && providedArgs !== args) {
+            error = `${args} positional arguments are required, but ${providedArgs} were provided`;
+        }
+        if (minArgs && providedArgs < minArgs) {
+            error = `At least ${minArgs} positional arguments are required, but ${providedArgs} were provided`;
+        }
+        if (maxArgs && providedArgs > maxArgs) {
+            error = `Max allowed positional arguments is ${maxArgs}, but ${providedArgs} were provided`;
+        }
+        if (error)
+            throwError(error);
+    }
+    Object.entries(config).forEach(([key, value]) => {
+        if (!value || typeof value !== 'object')
+            return;
+        if (!input[key] && !value.mandatory && !value.required)
+            return;
+        if ((value.mandatory || value.required) && !input[key]) {
+            throwError(`Missing option: "--${key}"`);
+        }
+        if (value.args && value.args !== '*') {
+            const expectedArgsCount = parseInt(String(value.args));
+            const argsCount = input[key] ? input[key].length : 0;
+            if (expectedArgsCount > 0 && expectedArgsCount !== argsCount) {
+                throwError(`Option "--${key}" requires ${expectedArgsCount} arguments, but ${argsCount} were provided`);
+            }
+        }
+    });
+}
+function applyDefaults(config, result) {
+    Object.entries(config).forEach(([key, value]) => {
+        if (!value || typeof value !== 'object')
+            return;
+        if ('default' in value && !(key in result)) {
+            const values = Array.isArray(value.default) ? value.default : [value.default];
+            result[key] = values.map(v => (typeof v === 'boolean' ? v : String(v)));
+        }
+    });
+}
+function getopt(config = {}, command) {
+    const rawArgs = command.slice(2);
+    const result = {};
+    const args = [];
+    const state = {
+        activeOption: '',
+        remainingArgs: 0,
+        optionArgs: [],
+        isMultiple: false,
+    };
+    rawArgs.forEach(arg => {
+        const parsedOption = parseOption(config, arg);
+        if (!parsedOption) {
+            if (state.activeOption) {
+                state.optionArgs.push(arg);
+                state.remainingArgs--;
+                if (!state.remainingArgs || state.isMultiple) {
+                    const isMultiple = state.isMultiple;
+                    const partial = getStateAndReset(state);
+                    Object.entries(partial).forEach(([key, value]) => {
+                        if (isMultiple && result[key])
+                            partial[key] = result[key].concat(value);
+                    });
+                    Object.assign(result, partial);
+                }
+                else {
+                    result[state.activeOption] = state.optionArgs;
+                }
+            }
+            else {
+                args.push(arg);
+            }
+            return;
+        }
+        parsedOption.forEach(option => {
+            if (['h', 'help'].includes(option))
+                throwError('');
+            let subconfig = config[option];
+            if (!subconfig) {
+                throwError(`Unknown option: "${arg}"`);
+                return;
+            }
+            if (typeof subconfig === 'boolean')
+                subconfig = {};
+            const isMultiple = !!subconfig.multiple;
+            if (result[option] && !isMultiple)
+                throwError(`Option "--${option}" provided many times`);
+            let expectedArgsCount = subconfig.args;
+            if (expectedArgsCount === '*')
+                expectedArgsCount = Infinity;
+            if (state.activeOption) {
+                const partial = getStateAndReset(state);
+                Object.entries(partial).forEach(([key, value]) => {
+                    if (!result[key])
+                        return;
+                    if (isMultiple)
+                        partial[key] = result[key].concat(value);
+                });
+                Object.assign(result, partial);
+            }
+            if (!expectedArgsCount && !isMultiple) {
+                result[option] = [true];
+                return;
+            }
+            Object.assign(state, {
+                activeOption: option,
+                remainingArgs: expectedArgsCount || 0,
+                optionArgs: [],
+                isMultiple,
+            });
+            if (!isMultiple)
+                result[option] = [true];
+        });
+    });
+    if (args.length)
+        result[POSITIONAL_ARGS_KEY] = args;
+    applyDefaults(config, result);
+    checkRequiredParams(config, result);
+    return postprocess(result);
+}
+function getHelpMessage(config, programName) {
+    const strLines = [
+        'USAGE: node ' + programName + ' [OPTION1] [OPTION2]... arg1 arg2...',
+        'The following options are supported:',
+    ];
+    const lines = [];
+    Object.entries(config).forEach(([key, value]) => {
+        if (key === '_meta_')
+            return;
+        if (typeof value !== 'object' || !value) {
+            lines.push(['  --' + key, '']);
+            return;
+        }
+        let ops = ' ';
+        if (value.multiple)
+            value.args = 1;
+        const argsCount = value.args || 0;
+        if (value.args === '*') {
+            ops += '<ARG1>...<ARGN>';
+        }
+        else {
+            for (let i = 0; i < argsCount; i++) {
+                ops += '<ARG' + (i + 1) + '> ';
+            }
+        }
+        lines.push([
+            '  ' + (value.key ? '-' + value.key + ', --' : '--') + key + ops,
+            (value.description || '') +
+                (value.mandatory || value.required ? ' (required)' : '') +
+                (value.multiple ? ' (multiple)' : '') +
+                (value.default ? ' ("' + value.default + '" by default)' : ''),
+        ]);
+    });
+    const maxLength = lines.reduce((prev, current) => Math.max(current[0].length, prev), 0);
+    const plainLines = lines.map(line => {
+        const key = line[0];
+        const message = line[1];
+        const padding = new Array(maxLength - key.length + 1).join(' ');
+        return (key + padding + '\t' + message).trimRight();
+    });
+    return strLines.concat(plainLines).join('\n');
+}
+function preprocessCommand(command) {
+    const parsed = [];
+    command.forEach(item => {
+        if (/^--?[a-zA-Z]+=/.test(item)) {
+            const part1 = item.split('=')[0];
+            const part2 = item.replace(part1 + '=', '');
+            parsed.push(part1);
+            parsed.push(part2);
+        }
+        else {
+            parsed.push(item);
+        }
+    });
+    return parsed;
+}
+function checkConfig(config) {
+    if (config.help)
+        throw new Error('"--help" option is reserved and cannot be declared in a getopt() call');
+    Object.values(config).forEach(value => {
+        if (!value || typeof value !== 'object') {
+            console.warn('Boolean description of getopt() options is deprecated and will be ' +
+                'removed in a future "stdio" release. Please, use an object definitions instead.');
+            return;
+        }
+        if (value.key === 'h')
+            throw new Error('"-h" option is reserved and cannot be declared in a getopt() call');
+        if (value.mandatory)
+            console.warn('"mandatory" option is deprecated and will be removed in a ' +
+                'future "stdio" release. Please, use "required" instead.');
+    });
+}
+exports["default"] = (config, command = process.argv, options) => {
+    const { exitOnFailure = true, throwOnFailure = false, printOnFailure = true } = options || {};
+    try {
+        checkConfig(config);
+        return getopt(config, preprocessCommand(command));
+    }
+    catch (error) {
+        if (!error.message.startsWith(ERROR_PREFFIX)) {
+            throw error;
+        }
+        const programName = command[1].split('/').pop() || 'program';
+        const message = (error.message.replace(ERROR_PREFFIX, '') + '\n' + getHelpMessage(config, programName)).trim();
+        if (printOnFailure)
+            console.warn(message);
+        if (exitOnFailure)
+            process.exit(FAILURE);
+        if (throwOnFailure)
+            throw new Error(message);
+        return null;
+    }
+};
+
+
+/***/ }),
+
+/***/ 4863:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+var __webpack_unused_export__;
+
+__webpack_unused_export__ = ({ value: true });
+const getopt_1 = __nccwpck_require__(9091);
+__webpack_unused_export__ = getopt_1.default;
+const read_1 = __nccwpck_require__(3543);
+__webpack_unused_export__ = read_1.default;
+const readLine_1 = __nccwpck_require__(1435);
+__webpack_unused_export__ = readLine_1.default;
+const ProgressBar_1 = __nccwpck_require__(8);
+__webpack_unused_export__ = ProgressBar_1.default;
+const ask_1 = __nccwpck_require__(8541);
+__webpack_unused_export__ = ask_1.default;
+const stdio = {
+    getopt: getopt_1.default,
+    read: read_1.default,
+    readLine: readLine_1.default,
+    ask: ask_1.default,
+    ProgressBar: ProgressBar_1.default,
+};
+exports.ZP = stdio;
+
+
+/***/ }),
+
+/***/ 3543:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const readline_1 = __nccwpck_require__(4521);
+const NOW = () => new Date().getTime();
+function compileStats(stats) {
+    const timeSum = stats.times.reduce((accum, time) => accum + time, 0);
+    stats.timeAverage = timeSum / stats.times.length;
+    return stats;
+}
+function getSuccessCallback(state, startTime, callback) {
+    const { buffer, isOpen, stats, reader, resolve } = state;
+    return () => {
+        stats.times.push(NOW() - startTime);
+        if (!isOpen && !buffer.length) {
+            resolve(compileStats(stats));
+            return;
+        }
+        if (!buffer.length) {
+            reader.resume();
+        }
+        setImmediate(callback);
+    };
+}
+function getErrorCallback(reader, reject) {
+    return (error) => {
+        reader.close();
+        reject(error);
+    };
+}
+function processNextLine(state) {
+    const { buffer, reader, reject, lineHandler } = state;
+    const line = buffer.shift();
+    if (typeof line !== 'string') {
+        setImmediate(() => processNextLine(state));
+        return;
+    }
+    const onSuccess = getSuccessCallback(state, NOW(), () => processNextLine(state));
+    const onError = getErrorCallback(reader, reject);
+    lineHandler(line, state.index++)
+        .then(onSuccess)
+        .catch(onError);
+}
+exports["default"] = (lineHandler, input = process.stdin) => new Promise((resolve, reject) => {
+    const reader = readline_1.createInterface({ input });
+    const state = {
+        buffer: [],
+        index: 0,
+        isOpen: true,
+        lineHandler,
+        reader,
+        reject,
+        resolve,
+        stats: { length: 0, times: [], timeAverage: 0 },
+    };
+    reader.on('close', () => {
+        state.isOpen = false;
+    });
+    reader.on('line', (line) => {
+        state.stats.length++;
+        reader.pause();
+        state.buffer.push(line);
+    });
+    setImmediate(() => processNextLine(state));
+});
+
+
+/***/ }),
+
+/***/ 1435:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const readline_1 = __nccwpck_require__(4521);
+class InputStream {
+    constructor(input = process.stdin) {
+        this.reader = readline_1.createInterface({ input });
+        this.buffer = [];
+        this.handlers = [];
+        this.reader.on('line', (line) => {
+            if (this.handlers.length > 0) {
+                const resolver = this.handlers.shift();
+                if (resolver)
+                    resolver(line);
+            }
+            else {
+                this.buffer.push(line);
+            }
+        });
+        this.reader.on('close', () => {
+            if (this.handlers.length > 0) {
+                const resolver = this.handlers.shift();
+                if (resolver)
+                    resolver(null);
+            }
+        });
+    }
+    getLine() {
+        return __awaiter(this, void 0, void 0, function* () {
+            return new Promise(resolve => {
+                if (this.buffer.length > 0) {
+                    this.reader.pause();
+                    return resolve(this.buffer.shift());
+                }
+                this.reader.resume();
+                this.handlers.push(resolve);
+            });
+        });
+    }
+    close() {
+        this.reader.close();
+    }
+}
+let input = null;
+function default_1(options = {}) {
+    input = input || new InputStream(options.stream);
+    const line = input.getLine();
+    if (options.close)
+        input.close();
+    return line;
+}
+exports["default"] = default_1;
+
+
+/***/ }),
+
 /***/ 9318:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -33914,44 +34519,340 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
-/***/ 6144:
-/***/ ((module, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
+/***/ 9041:
+/***/ ((module, __webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6022);
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   "K": () => (/* binding */ run),
+/* harmony export */   "O": () => (/* binding */ processWrapper)
+/* harmony export */ });
+/* harmony import */ var stdio__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(4863);
+/* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(7147);
+/* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(fs__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(2186);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_2__);
+/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(1583);
+/* harmony import */ var _github_package_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(1693);
+/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(4645);
+/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(2081);
+/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_6__);
 /**
- * The entrypoint for the action.
+ * A utility to prime, setup and test CI use cases
  */
 
+
+
+
+
+
+
+function assertString(input) {
+    if (typeof input !== 'string') {
+        throw new Error('Input is not a string.');
+    }
+}
+function processWrapper(command, args, options) {
+    const output = (0,child_process__WEBPACK_IMPORTED_MODULE_6__.spawnSync)(command, args, options);
+    if (output.error) {
+        throw new Error(`error running command: ${output.error}`);
+    }
+    else if (output.status !== null && output.status !== 0) {
+        throw new Error(`running command:  + ${command}, status: ${output.status}`);
+    }
+}
+function pushImage(srcImage, destImage, extraArgs, token) {
+    console.log(`copying image: ${srcImage} ${destImage}`);
+    const args = [
+        'copy',
+        `docker://${srcImage}`,
+        `docker://${destImage}`,
+        `--dest-creds=token:${token}`
+    ];
+    if (extraArgs) {
+        const parts = extraArgs.split(' ');
+        for (const part of parts) {
+            args.push(part.trim());
+        }
+    }
+    processWrapper('skopeo', args, {
+        encoding: 'utf-8',
+        shell: false,
+        stdio: 'inherit'
+    });
+}
+async function loadImages(directory, owner, packageName, token, delay) {
+    if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${directory}/prime`)) {
+        throw Error(`file: ${directory}/prime doesn't exist`);
+    }
+    const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${directory}/prime`, 'utf-8');
+    for (let line of fileContents.split('\n')) {
+        const original = line;
+        if (line.length > 0) {
+            if (line.includes('//')) {
+                line = line.substring(0, line.indexOf('//'));
+            }
+            line = line.trim();
+            // split into parts
+            const parts = line.split('|');
+            if (parts.length !== 2 && parts.length !== 3) {
+                throw Error(`prime file format error: ${original}`);
+            }
+            const srcImage = parts[0];
+            let tag;
+            if (parts[1]) {
+                if (parts[1].includes('@')) {
+                    tag = parts[1];
+                }
+                else {
+                    tag = `:${parts[1]}`;
+                }
+            }
+            else {
+                if (parts[0].includes('@')) {
+                    tag = `${parts[0].substring(parts[0].indexOf('@'))}`;
+                }
+                else if (parts[0].includes(':')) {
+                    tag = `:${parts[0].substring(parts[0].indexOf(':'))}`;
+                }
+                else {
+                    throw Error(`no tag specified in ${parts[0]}`);
+                }
+            }
+            const destImage = `ghcr.io/${owner}/${packageName}${tag}`;
+            const args = parts.length === 3 ? parts[2] : undefined;
+            pushImage(srcImage, destImage, args, token);
+        }
+        if (delay > 0) {
+            // sleep to allow packages to be created in order
+            await new Promise(f => setTimeout(f, delay));
+        }
+    }
+}
+async function deleteDigests(directory, packageIdByDigest, githubPackageRepo) {
+    if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${directory}/prime-delete`)) {
+        const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${directory}/prime-delete`, 'utf-8');
+        for (let line of fileContents.split('\n')) {
+            if (line.length > 0) {
+                if (line.includes('//')) {
+                    line = line.substring(0, line.indexOf('//') - 1);
+                }
+                line = line.trim();
+                await githubPackageRepo.deletePackageVersion(packageIdByDigest.get(line), line, []);
+            }
+        }
+    }
+}
+async function run() {
+    const args = stdio__WEBPACK_IMPORTED_MODULE_0__/* ["default"].getopt */ .ZP.getopt({
+        token: { key: 'token', args: 1, required: true },
+        owner: { key: 'owner', args: 1, required: false },
+        repository: { key: 'repository', args: 1, required: false },
+        package: { key: 'package', args: 1, required: false },
+        directory: { key: 'directory', args: 1, required: true },
+        tag: { key: 'tag', args: 1, required: false },
+        mode: { key: 'mode', args: 1, required: true },
+        delay: { key: 'delay', args: 1, required: false }
+    });
+    if (!args) {
+        throw Error('args is not setup');
+    }
+    assertString(args.token);
+    const config = new _config_js__WEBPACK_IMPORTED_MODULE_3__/* .Config */ .D(args.token);
+    if (args.owner) {
+        assertString(args.owner);
+        config.owner = args.owner;
+    }
+    if (args.repository) {
+        assertString(args.repository);
+        config.repository = args.repository;
+    }
+    if (args.package) {
+        assertString(args.package);
+        config.package = args.package;
+    }
+    assertString(args.directory);
+    assertString(args.mode);
+    let delay = 0;
+    if (args.delay) {
+        assertString(args.delay);
+        delay = parseInt(args.delay);
+    }
+    let tag;
+    if (args.tag) {
+        assertString(args.tag);
+        tag = args.tag;
+    }
+    // auto populate
+    const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
+    if (GITHUB_REPOSITORY) {
+        const parts = GITHUB_REPOSITORY.split('/');
+        if (parts.length === 2) {
+            if (!config.owner) {
+                config.owner = parts[0];
+            }
+            if (!config.package) {
+                config.package = parts[1];
+            }
+            if (!config.repository) {
+                config.repository = parts[1];
+            }
+        }
+    }
+    config.owner = config.owner?.toLowerCase();
+    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_5__/* .Registry */ .B(config);
+    await registry.login();
+    const githubPackageRepo = new _github_package_js__WEBPACK_IMPORTED_MODULE_4__/* .GithubPackageRepo */ .l(config);
+    await githubPackageRepo.init();
+    let packageIdByDigest = new Map();
+    let packagesById = new Map();
+    const dummyDigest = 'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f';
+    if (args.mode === 'prime') {
+        // push dummy image - repo once it's created and has an iamge it requires atleast one image
+        pushImage(`busybox@${dummyDigest}`, // 1.31
+        `ghcr.io/${config.owner}/${config.package}:dummy`, undefined, args.token);
+        // load after dummy to make sure the package exists on first clone/setup
+        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        // remove all the existing images - except for the dummy image
+        for (const digest of packageIdByDigest.keys()) {
+            if (digest !== dummyDigest) {
+                await githubPackageRepo.deletePackageVersion(packageIdByDigest.get(digest), digest, []);
+            }
+        }
+        // prime the test images
+        await loadImages(args.directory, config.owner, config.package, config.token, delay);
+        if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/prime-delete`)) {
+            // reload
+            packageIdByDigest = new Map();
+            packagesById = new Map();
+            await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+            // make any deletions
+            await deleteDigests(args.directory, packageIdByDigest, githubPackageRepo);
+        }
+    }
+    else if (args.mode === 'validate') {
+        // test the repo after the test
+        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        let error = false;
+        // load the expected digests
+        if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/expected-digests`)) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`file: ${args.directory}/expected-digests doesn't exist`);
+            error = true;
+        }
+        else {
+            const digests = new Set();
+            const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${args.directory}/expected-digests`, 'utf-8');
+            for (let line of fileContents.split('\n')) {
+                if (line.length > 0) {
+                    if (line.includes('//')) {
+                        line = line.substring(0, line.indexOf('//') - 1);
+                    }
+                    line = line.trim();
+                    digests.add(line);
+                }
+            }
+            for (const digest of digests) {
+                if (packageIdByDigest.has(digest)) {
+                    packageIdByDigest.delete(digest);
+                }
+                else {
+                    error = true;
+                    _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`expected digest not found after test: ${digest}`);
+                }
+            }
+            for (const digest of packageIdByDigest.keys()) {
+                error = true;
+                _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`extra digest found after test: ${digest}`);
+            }
+        }
+        // load the expected tags
+        if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/expected-tags`)) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`file: ${args.directory}/expected-tags doesn't exist`);
+            error = true;
+        }
+        else {
+            const expectedTags = new Set();
+            const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${args.directory}/expected-tags`, 'utf-8');
+            for (let line of fileContents.split('\n')) {
+                if (line.length > 0) {
+                    if (line.includes('//')) {
+                        line = line.substring(0, line.indexOf('//'));
+                    }
+                    line = line.trim();
+                    expectedTags.add(line);
+                }
+            }
+            const regTags = new Set(await registry.getTags());
+            for (const expectedTag of expectedTags) {
+                if (regTags.has(expectedTag)) {
+                    regTags.delete(expectedTag);
+                }
+                else {
+                    error = true;
+                    _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`expected tag ${expectedTag} not found after test`);
+                }
+            }
+            for (const regTag of regTags) {
+                error = true;
+                _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`extra tag found after test: ${regTag}`);
+            }
+        }
+        if (!error)
+            console.info('test passed!');
+    }
+    else if (args.mode === 'save-expected') {
+        // save the expected tag dynamically
+        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        const tags = new Set();
+        for (const ghPackage of packagesById.values()) {
+            for (const repoTag of ghPackage.metadata.container.tags) {
+                tags.add(repoTag);
+            }
+        }
+        if (tag) {
+            // find the digests in use for the supplied tag
+            const digest = await registry.getTagDigest(tag);
+            fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`);
+            // is there a refferrer digest
+            const referrerTag = digest.replace('sha256:', 'sha256-');
+            if (tags.has(tag)) {
+                fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`);
+                const referrerDigest = await registry.getTagDigest(referrerTag);
+                fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${referrerDigest}\n`);
+                const referrerManifest = await registry.getManifestByDigest(referrerDigest);
+                if (referrerManifest.manifests) {
+                    for (const manifest of referrerManifest.manifests) {
+                        fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifest.digest}\n`);
+                    }
+                }
+            }
+        }
+        else {
+            _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed('no tag supplied');
+        }
+    }
+}
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
-await (0,_main_js__WEBPACK_IMPORTED_MODULE_0__/* .run */ .K)();
+await run();
 
 __webpack_async_result__();
 } catch(e) { __webpack_async_result__(e); } }, 1);
 
 /***/ }),
 
-/***/ 6022:
+/***/ 1583:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
-  "K": () => (/* binding */ run)
+  "D": () => (/* binding */ Config)
 });
 
-// NAMESPACE OBJECT: ./node_modules/axios/lib/platform/common/utils.js
-var common_utils_namespaceObject = {};
-__nccwpck_require__.r(common_utils_namespaceObject);
-__nccwpck_require__.d(common_utils_namespaceObject, {
-  "hasBrowserEnv": () => (hasBrowserEnv),
-  "hasStandardBrowserEnv": () => (hasStandardBrowserEnv),
-  "hasStandardBrowserWebWorkerEnv": () => (hasStandardBrowserWebWorkerEnv),
-  "origin": () => (origin)
-});
+// UNUSED EXPORTS: getConfig
 
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
-var core = __nccwpck_require__(2186);
+var lib_core = __nccwpck_require__(2186);
 // EXTERNAL MODULE: ./node_modules/@octokit/rest/dist-node/index.js
 var dist_node = __nccwpck_require__(5375);
 // EXTERNAL MODULE: ./node_modules/bottleneck/light.js
@@ -34484,6 +35385,130 @@ function getConfig() {
     }
     return config;
 }
+
+
+/***/ }),
+
+/***/ 1693:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   "l": () => (/* binding */ GithubPackageRepo)
+/* harmony export */ });
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
+
+class GithubPackageRepo {
+    config;
+    repoType = 'Organization';
+    constructor(config) {
+        this.config = config;
+    }
+    async init() {
+        this.repoType = await this.config.getOwnerType();
+    }
+    async loadPackages(byDigest, packages) {
+        let getFunc = this.config.octokit.rest.packages
+            .getAllPackageVersionsForPackageOwnedByOrg;
+        let getParams = {};
+        if (this.repoType === 'User') {
+            getFunc =
+                this.config.octokit.rest.packages
+                    .getAllPackageVersionsForPackageOwnedByUser;
+            getParams = {
+                package_type: 'container',
+                package_name: this.config.package,
+                username: this.config.owner,
+                state: 'active',
+                per_page: 100
+            };
+        }
+        else {
+            getParams = {
+                package_type: 'container',
+                package_name: this.config.package,
+                org: this.config.owner,
+                state: 'active',
+                per_page: 100
+            };
+        }
+        for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
+            for (const packageVersion of response.data) {
+                byDigest.set(packageVersion.name, packageVersion.id);
+                packages.set(packageVersion.id, packageVersion);
+            }
+        }
+    }
+    async deletePackageVersion(id, digest, tags, label) {
+        if (tags && tags.length > 0) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
+        }
+        else if (label) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest} ${label}`);
+        }
+        else {
+            _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest}`);
+        }
+        if (!this.config.dryRun) {
+            if (this.repoType === 'User') {
+                await this.config.octokit.rest.packages.deletePackageVersionForUser({
+                    package_type: 'container',
+                    package_name: this.config.package,
+                    username: this.config.owner,
+                    package_version_id: id
+                });
+            }
+            else {
+                await this.config.octokit.rest.packages.deletePackageVersionForOrg({
+                    package_type: 'container',
+                    package_name: this.config.package,
+                    org: this.config.owner,
+                    package_version_id: id
+                });
+            }
+        }
+    }
+    async getPackage(id) {
+        if (this.repoType === 'User') {
+            return await this.config.octokit.rest.packages.getPackageVersionForUser({
+                package_type: 'container',
+                package_name: this.config.package,
+                package_version_id: id,
+                username: this.config.owner
+            });
+        }
+        else {
+            return await this.config.octokit.rest.packages.getPackageVersionForOrganization({
+                package_type: 'container',
+                package_name: this.config.package,
+                package_version_id: id,
+                org: this.config.owner
+            });
+        }
+    }
+}
+
+
+/***/ }),
+
+/***/ 4645:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  "B": () => (/* binding */ Registry)
+});
+
+// NAMESPACE OBJECT: ./node_modules/axios/lib/platform/common/utils.js
+var common_utils_namespaceObject = {};
+__nccwpck_require__.r(common_utils_namespaceObject);
+__nccwpck_require__.d(common_utils_namespaceObject, {
+  "hasBrowserEnv": () => (hasBrowserEnv),
+  "hasStandardBrowserEnv": () => (hasStandardBrowserEnv),
+  "hasStandardBrowserWebWorkerEnv": () => (hasStandardBrowserWebWorkerEnv),
+  "origin": () => (origin)
+});
 
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/bind.js
 
@@ -35093,7 +36118,7 @@ const toObjectSet = (arrayOrString, delimiter) => {
   return obj;
 }
 
-const utils_noop = () => {}
+const noop = () => {}
 
 const toFiniteNumber = (value, defaultValue) => {
   return value != null && Number.isFinite(value = +value) ? value : defaultValue;
@@ -35211,7 +36236,7 @@ const isThenable = (thing) =>
   freezeMethods,
   toObjectSet,
   toCamelCase,
-  noop: utils_noop,
+  noop,
   toFiniteNumber,
   findKey,
   global: _global,
@@ -36643,7 +37668,7 @@ var follow_redirects = __nccwpck_require__(7707);
 // EXTERNAL MODULE: external "zlib"
 var external_zlib_ = __nccwpck_require__(9796);
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/env/data.js
-const data_VERSION = "1.7.2";
+const VERSION = "1.7.2";
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/parseProtocol.js
 
 
@@ -37456,7 +38481,7 @@ const buildAddressEntry = (address, family) => resolveFamily(utils.isObject(addr
     // See https://github.com/axios/axios/issues/69
     // User-Agent is specified; handle case where no UA header is desired
     // Only set header if it hasn't been set in config
-    headers.set('User-Agent', 'axios/' + data_VERSION, false);
+    headers.set('User-Agent', 'axios/' + VERSION, false);
 
     const onDownloadProgress = config.onDownloadProgress;
     const onUploadProgress = config.onUploadProgress;
@@ -37471,7 +38496,7 @@ const buildAddressEntry = (address, family) => resolveFamily(utils.isObject(addr
       data = helpers_formDataToStream(data, (formHeaders) => {
         headers.set(formHeaders);
       }, {
-        tag: `axios-${data_VERSION}-boundary`,
+        tag: `axios-${VERSION}-boundary`,
         boundary: userBoundary && userBoundary[1] || undefined
       });
       // support for https://www.npmjs.com/package/form-data api
@@ -38896,7 +39921,7 @@ const deprecatedWarnings = {};
  */
 validators.transitional = function transitional(validator, version, message) {
   function formatMessage(opt, desc) {
-    return '[Axios v' + data_VERSION + '] Transitional option \'' + opt + '\'' + desc + (message ? '. ' + message : '');
+    return '[Axios v' + VERSION + '] Transitional option \'' + opt + '\'' + desc + (message ? '. ' + message : '');
   }
 
   // eslint-disable-next-line func-names
@@ -39489,7 +40514,7 @@ axios.Axios = core_Axios;
 axios.CanceledError = cancel_CanceledError;
 axios.CancelToken = cancel_CancelToken;
 axios.isCancel = isCancel;
-axios.VERSION = data_VERSION;
+axios.VERSION = VERSION;
 axios.toFormData = helpers_toFormData;
 
 // Expose AxiosError class
@@ -39807,732 +40832,6 @@ class Registry {
     }
 }
 
-;// CONCATENATED MODULE: ./src/github-package.ts
-
-class GithubPackageRepo {
-    config;
-    repoType = 'Organization';
-    constructor(config) {
-        this.config = config;
-    }
-    async init() {
-        this.repoType = await this.config.getOwnerType();
-    }
-    async loadPackages(byDigest, packages) {
-        let getFunc = this.config.octokit.rest.packages
-            .getAllPackageVersionsForPackageOwnedByOrg;
-        let getParams = {};
-        if (this.repoType === 'User') {
-            getFunc =
-                this.config.octokit.rest.packages
-                    .getAllPackageVersionsForPackageOwnedByUser;
-            getParams = {
-                package_type: 'container',
-                package_name: this.config.package,
-                username: this.config.owner,
-                state: 'active',
-                per_page: 100
-            };
-        }
-        else {
-            getParams = {
-                package_type: 'container',
-                package_name: this.config.package,
-                org: this.config.owner,
-                state: 'active',
-                per_page: 100
-            };
-        }
-        for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
-            for (const packageVersion of response.data) {
-                byDigest.set(packageVersion.name, packageVersion.id);
-                packages.set(packageVersion.id, packageVersion);
-            }
-        }
-    }
-    async deletePackageVersion(id, digest, tags, label) {
-        if (tags && tags.length > 0) {
-            core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
-        }
-        else if (label) {
-            core.info(` deleting package id: ${id} digest: ${digest} ${label}`);
-        }
-        else {
-            core.info(` deleting package id: ${id} digest: ${digest}`);
-        }
-        if (!this.config.dryRun) {
-            if (this.repoType === 'User') {
-                await this.config.octokit.rest.packages.deletePackageVersionForUser({
-                    package_type: 'container',
-                    package_name: this.config.package,
-                    username: this.config.owner,
-                    package_version_id: id
-                });
-            }
-            else {
-                await this.config.octokit.rest.packages.deletePackageVersionForOrg({
-                    package_type: 'container',
-                    package_name: this.config.package,
-                    org: this.config.owner,
-                    package_version_id: id
-                });
-            }
-        }
-    }
-    async getPackage(id) {
-        if (this.repoType === 'User') {
-            return await this.config.octokit.rest.packages.getPackageVersionForUser({
-                package_type: 'container',
-                package_name: this.config.package,
-                package_version_id: id,
-                username: this.config.owner
-            });
-        }
-        else {
-            return await this.config.octokit.rest.packages.getPackageVersionForOrganization({
-                package_type: 'container',
-                package_name: this.config.package,
-                package_version_id: id,
-                org: this.config.owner
-            });
-        }
-    }
-}
-
-;// CONCATENATED MODULE: ./node_modules/wildcard-match/build/index.es.mjs
-/**
- * Escapes a character if it has a special meaning in regular expressions
- * and returns the character as is if it doesn't
- */
-function escapeRegExpChar(char) {
-    if (char === '-' ||
-        char === '^' ||
-        char === '$' ||
-        char === '+' ||
-        char === '.' ||
-        char === '(' ||
-        char === ')' ||
-        char === '|' ||
-        char === '[' ||
-        char === ']' ||
-        char === '{' ||
-        char === '}' ||
-        char === '*' ||
-        char === '?' ||
-        char === '\\') {
-        return "\\".concat(char);
-    }
-    else {
-        return char;
-    }
-}
-/**
- * Escapes all characters in a given string that have a special meaning in regular expressions
- */
-function escapeRegExpString(str) {
-    var result = '';
-    for (var i = 0; i < str.length; i++) {
-        result += escapeRegExpChar(str[i]);
-    }
-    return result;
-}
-/**
- * Transforms one or more glob patterns into a RegExp pattern
- */
-function transform(pattern, separator) {
-    if (separator === void 0) { separator = true; }
-    if (Array.isArray(pattern)) {
-        var regExpPatterns = pattern.map(function (p) { return "^".concat(transform(p, separator), "$"); });
-        return "(?:".concat(regExpPatterns.join('|'), ")");
-    }
-    var separatorSplitter = '';
-    var separatorMatcher = '';
-    var wildcard = '.';
-    if (separator === true) {
-        separatorSplitter = '/';
-        separatorMatcher = '[/\\\\]';
-        wildcard = '[^/\\\\]';
-    }
-    else if (separator) {
-        separatorSplitter = separator;
-        separatorMatcher = escapeRegExpString(separatorSplitter);
-        if (separatorMatcher.length > 1) {
-            separatorMatcher = "(?:".concat(separatorMatcher, ")");
-            wildcard = "((?!".concat(separatorMatcher, ").)");
-        }
-        else {
-            wildcard = "[^".concat(separatorMatcher, "]");
-        }
-    }
-    var requiredSeparator = separator ? "".concat(separatorMatcher, "+?") : '';
-    var optionalSeparator = separator ? "".concat(separatorMatcher, "*?") : '';
-    var segments = separator ? pattern.split(separatorSplitter) : [pattern];
-    var result = '';
-    for (var s = 0; s < segments.length; s++) {
-        var segment = segments[s];
-        var nextSegment = segments[s + 1];
-        var currentSeparator = '';
-        if (!segment && s > 0) {
-            continue;
-        }
-        if (separator) {
-            if (s === segments.length - 1) {
-                currentSeparator = optionalSeparator;
-            }
-            else if (nextSegment !== '**') {
-                currentSeparator = requiredSeparator;
-            }
-            else {
-                currentSeparator = '';
-            }
-        }
-        if (separator && segment === '**') {
-            if (currentSeparator) {
-                result += s === 0 ? '' : currentSeparator;
-                result += "(?:".concat(wildcard, "*?").concat(currentSeparator, ")*?");
-            }
-            continue;
-        }
-        for (var c = 0; c < segment.length; c++) {
-            var char = segment[c];
-            if (char === '\\') {
-                if (c < segment.length - 1) {
-                    result += escapeRegExpChar(segment[c + 1]);
-                    c++;
-                }
-            }
-            else if (char === '?') {
-                result += wildcard;
-            }
-            else if (char === '*') {
-                result += "".concat(wildcard, "*?");
-            }
-            else {
-                result += escapeRegExpChar(char);
-            }
-        }
-        result += currentSeparator;
-    }
-    return result;
-}
-
-function isMatch(regexp, sample) {
-    if (typeof sample !== 'string') {
-        throw new TypeError("Sample must be a string, but ".concat(typeof sample, " given"));
-    }
-    return regexp.test(sample);
-}
-/**
- * Compiles one or more glob patterns into a RegExp and returns an isMatch function.
- * The isMatch function takes a sample string as its only argument and returns `true`
- * if the string matches the pattern(s).
- *
- * ```js
- * wildcardMatch('src/*.js')('src/index.js') //=> true
- * ```
- *
- * ```js
- * const isMatch = wildcardMatch('*.example.com', '.')
- * isMatch('foo.example.com') //=> true
- * isMatch('foo.bar.com') //=> false
- * ```
- */
-function wildcardMatch(pattern, options) {
-    if (typeof pattern !== 'string' && !Array.isArray(pattern)) {
-        throw new TypeError("The first argument must be a single pattern string or an array of patterns, but ".concat(typeof pattern, " given"));
-    }
-    if (typeof options === 'string' || typeof options === 'boolean') {
-        options = { separator: options };
-    }
-    if (arguments.length === 2 &&
-        !(typeof options === 'undefined' ||
-            (typeof options === 'object' && options !== null && !Array.isArray(options)))) {
-        throw new TypeError("The second argument must be an options object or a string/boolean separator, but ".concat(typeof options, " given"));
-    }
-    options = options || {};
-    if (options.separator === '\\') {
-        throw new Error('\\ is not a valid separator because it is used for escaping. Try setting the separator to `true` instead');
-    }
-    var regexpPattern = transform(pattern, options.separator);
-    var regexp = new RegExp("^".concat(regexpPattern, "$"), options.flags);
-    var fn = isMatch.bind(null, regexp);
-    fn.options = options;
-    fn.pattern = pattern;
-    fn.regexp = regexp;
-    return fn;
-}
-
-
-//# sourceMappingURL=index.es.mjs.map
-
-;// CONCATENATED MODULE: ./src/main.ts
-
-
-
-
-
-async function run() {
-    try {
-        const action = new CleanupAction();
-        await action.init();
-        await action.reload();
-        await action.run();
-    }
-    catch (error) {
-        // Fail the workflow run if an error occurs
-        if (error instanceof Error)
-            core.setFailed(error.message);
-    }
-}
-class CleanupAction {
-    config;
-    excludeTags = [];
-    registry;
-    githubPackageRepo;
-    packageIdByDigest = new Map();
-    packagesById = new Map();
-    childInUsePackages = new Map(); // by id
-    tagsInUse = new Set();
-    deleted = new Set();
-    numberMultiImagesDeleted = 0;
-    numberImagesDeleted = 0;
-    constructor() {
-        this.config = getConfig();
-        this.registry = new Registry(this.config);
-        this.githubPackageRepo = new GithubPackageRepo(this.config);
-    }
-    async init() {
-        await this.registry.login();
-        await this.githubPackageRepo.init();
-    }
-    async reload() {
-        this.packageIdByDigest = new Map();
-        this.packagesById = new Map();
-        this.childInUsePackages = new Map();
-        this.tagsInUse = new Set();
-        this.deleted = new Set();
-        // get list of all the current packages
-        await this.githubPackageRepo.loadPackages(this.packageIdByDigest, this.packagesById);
-        // extract tags
-        for (const ghPackage of this.packagesById.values()) {
-            for (const tag of ghPackage.metadata.container.tags) {
-                this.tagsInUse.add(tag);
-            }
-        }
-        // find exclude tags using matcher
-        if (this.config.excludeTags) {
-            const isTagMatch = wildcardMatch(this.config.excludeTags.split(','));
-            for (const tag of this.tagsInUse) {
-                if (isTagMatch(tag)) {
-                    this.excludeTags.push(tag);
-                }
-            }
-        }
-    }
-    movePackageToChildList(digest) {
-        // get the id and trim it as it's in use
-        const id = this.packageIdByDigest.get(digest);
-        if (id) {
-            // save it as a child
-            if (this.packagesById.get(id)) {
-                this.childInUsePackages.set(id, this.packagesById.get(id));
-                // now remove it
-                this.packagesById.delete(id);
-            }
-        }
-    }
-    // move 'child' packages from main package list to the separate child list
-    async trimChildPackages(digest) {
-        // only process digests not already moved
-        const packageId = this.packageIdByDigest.get(digest);
-        if (packageId && !this.childInUsePackages.has(packageId)) {
-            const manifest = await this.registry.getManifestByDigest(digest);
-            if (manifest.manifests) {
-                for (const imageManifest of manifest.manifests) {
-                    // get the id and trim it as it's in use
-                    this.movePackageToChildList(imageManifest.digest);
-                }
-            }
-            // process any referrers - OCI v1 via tag currently
-            const referrerTag = digest.replace('sha256:', 'sha256-');
-            if (this.tagsInUse.has(referrerTag) &&
-                !this.excludeTags.includes(referrerTag)) {
-                // find the package and move it and it's children to the childInUsePackages
-                const referrerDigest = await this.registry.getTagDigest(referrerTag);
-                this.movePackageToChildList(referrerDigest);
-                const referrerManifest = await this.registry.getManifestByTag(referrerTag);
-                if (referrerManifest.manifests) {
-                    for (const manifestEntry of referrerManifest.manifests) {
-                        // get the id and trim it as it's in use
-                        this.movePackageToChildList(manifestEntry.digest);
-                    }
-                }
-            }
-        }
-    }
-    // validate manifests list packages
-    async validate() {
-        core.info('validating multi-architecture/referrers images:');
-        // copy the loaded packages
-        const digests = new Map(this.packageIdByDigest);
-        const packages = new Map(this.packagesById);
-        // cycle thru digests checking them
-        let error = false;
-        const processedManifests = new Set();
-        for (const digest of digests.keys()) {
-            // is the digest a multi arch image?
-            if (!processedManifests.has(digest)) {
-                const manifest = await this.registry.getManifestByDigest(digest);
-                const tags = packages.get(digests.get(digest)).metadata.container.tags;
-                if (manifest.manifests) {
-                    for (const childImage of manifest.manifests) {
-                        // mark it as processed
-                        processedManifests.add(childImage.digest);
-                        if (!digests.has(childImage.digest)) {
-                            error = true;
-                            if (tags.length > 0) {
-                                core.warning(`digest ${childImage.digest} not found on image ${tags}`);
-                            }
-                            else {
-                                core.warning(`digest ${childImage.digest} not found on untagged image ${digest}`);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // check for orphaned referrers tags
-        for (const tag of this.tagsInUse) {
-            if (tag.startsWith('sha256-')) {
-                const digest = tag.replace('sha256-', 'sha256:');
-                if (!this.packageIdByDigest.get(digest)) {
-                    error = true;
-                    core.warning(`parent image for referrer tag ${tag} not found in repository`);
-                }
-            }
-        }
-        if (!error) {
-            core.info(' no errors found');
-        }
-    }
-    buildLabel(imageManifest) {
-        // build the 'label'
-        let label = '';
-        if (imageManifest.platform) {
-            if (imageManifest.platform.architecture) {
-                label = imageManifest.platform.architecture;
-            }
-            if (imageManifest.platform.variant) {
-                label += `/${imageManifest.platform.variant}`;
-            }
-            label = `architecture: ${label}`;
-        }
-        else if (imageManifest.artifactType) {
-            // check if it's a attestation
-            if (imageManifest.artifactType.startsWith('application/vnd.dev.sigstore.bundle')) {
-                label = 'sigstore attestation';
-            }
-        }
-        return label;
-    }
-    async deleteImage(ghPackage) {
-        if (!this.deleted.has(ghPackage.name)) {
-            // get the manifest first
-            const manifest = await this.registry.getManifestByDigest(ghPackage.name);
-            // now delete it
-            await this.githubPackageRepo.deletePackageVersion(ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
-            this.deleted.add(ghPackage.name);
-            this.numberImagesDeleted += 1;
-            // if manifest list image now delete the children
-            if (manifest.manifests) {
-                this.numberMultiImagesDeleted += 1;
-                for (const imageManifest of manifest.manifests) {
-                    const packageId = this.packageIdByDigest.get(imageManifest.digest);
-                    if (packageId) {
-                        const manifestPackage = this.childInUsePackages.get(packageId);
-                        if (manifestPackage) {
-                            await this.githubPackageRepo.deletePackageVersion(manifestPackage.id, manifestPackage.name, [], this.buildLabel(imageManifest));
-                            this.deleted.add(manifestPackage.name);
-                            this.numberImagesDeleted += 1;
-                        }
-                        else {
-                            core.setFailed(`something went wrong - can't find the manifest  ${imageManifest.digest}`);
-                        }
-                    }
-                    else {
-                        core.info(` image digest ${imageManifest.digest} not found in repository, skipping`);
-                    }
-                }
-            }
-            // process any referrers manifests - using tag approach
-            const attestationTag = ghPackage.name.replace('sha256:', 'sha256-');
-            if (this.tagsInUse.has(attestationTag) &&
-                !this.excludeTags.includes(attestationTag)) {
-                // find the package
-                const manifestDigest = await this.registry.getTagDigest(attestationTag);
-                const attestationPackage = this.getPackageByDigest(manifestDigest);
-                // recursively delete it
-                await this.deleteImage(attestationPackage);
-            }
-        }
-    }
-    getPackageByDigest(digest) {
-        let ghPackage;
-        const id = this.packageIdByDigest.get(digest);
-        if (id) {
-            ghPackage = this.packagesById.get(id);
-            if (!ghPackage) {
-                ghPackage = this.childInUsePackages.get(id);
-            }
-        }
-        return ghPackage;
-    }
-    async deleteByTag() {
-        if (this.config.tags) {
-            core.info(`deleting images by tags ${this.config.tags}`);
-            // find the tags the match wildcard patterns
-            const isTagMatch = wildcardMatch(this.config.tags.split(','));
-            const matchTags = [];
-            for (const tag of this.tagsInUse) {
-                if (isTagMatch(tag)) {
-                    matchTags.push(tag);
-                }
-            }
-            if (matchTags.length > 0) {
-                for (const tag of matchTags) {
-                    if (!this.excludeTags.includes(tag)) {
-                        // get the package
-                        const manifest = await this.registry.getManifestByTag(tag);
-                        const manifestDigest = await this.registry.getTagDigest(tag);
-                        const ghPackage = this.getPackageByDigest(manifestDigest);
-                        // if the image only has one tag - delete it
-                        if (ghPackage.metadata.container.tags.length === 1) {
-                            // deleteImage function works from child list so trim first
-                            await this.trimChildPackages(manifestDigest);
-                            await this.deleteImage(ghPackage);
-                        }
-                        else {
-                            // preform a "ghcr.io" image deleltion
-                            // as the registry doesn't support manifest deletion directly
-                            // we instead assign the tag to a different manifest first
-                            // then we delete it
-                            core.info(`untagging ${tag}`);
-                            // clone the manifest
-                            const newManifest = JSON.parse(JSON.stringify(manifest));
-                            // create a fake manifest to seperate the tag
-                            if (newManifest.manifests) {
-                                // a multi architecture image
-                                newManifest.manifests = [];
-                                await this.registry.putManifest(tag, newManifest, true);
-                            }
-                            else {
-                                newManifest.layers = [];
-                                await this.registry.putManifest(tag, newManifest, false);
-                            }
-                            // the tag will have a new digest now so delete the cached version
-                            this.registry.deleteTag(tag);
-                            // reload package ids to find the new package id
-                            const reloadPackageByDigest = new Map();
-                            const githubPackages = new Map();
-                            await this.githubPackageRepo.loadPackages(reloadPackageByDigest, githubPackages);
-                            // reload the manifest
-                            const untaggedDigest = await this.registry.getTagDigest(tag);
-                            const id = reloadPackageByDigest.get(untaggedDigest);
-                            if (id) {
-                                await this.githubPackageRepo.deletePackageVersion(id, untaggedDigest, [tag]);
-                                this.numberImagesDeleted += 1;
-                            }
-                            else {
-                                core.info(`couldn't find newly created package with digest ${untaggedDigest} to delete`);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    async isGhostImage(digest) {
-        let ghostImage = false;
-        // is a ghost image if all of the child manifests dont exist
-        const manfiest = await this.registry.getManifestByDigest(digest);
-        if (manfiest.manifests) {
-            let missing = 0;
-            for (const imageManfiest of manfiest.manifests) {
-                if (!this.packageIdByDigest.get(imageManfiest.digest)) {
-                    missing += 1;
-                }
-            }
-            if (missing === manfiest.manifests.length) {
-                ghostImage = true;
-            }
-        }
-        return ghostImage;
-    }
-    async keepNuntagged() {
-        if (this.config.keepNuntagged && this.config.keepNuntagged !== 0) {
-            core.info(`deleting untagged images, keeping ${this.config.keepNuntagged} versions`);
-            // get all the tagged digests from the containter registry
-            const imageDigests = await this.registry.getAllTagDigests();
-            // remove these from the saved packages list
-            for (const digest of imageDigests) {
-                const id = this.packageIdByDigest.get(digest);
-                if (id) {
-                    await this.trimChildPackages(digest);
-                    this.packagesById.delete(id);
-                    this.packageIdByDigest.delete(digest);
-                }
-            }
-            // now remove the untagged images left in the packages list
-            if (this.packageIdByDigest.size > 0) {
-                // remove multi/referrer images - only count the manifest list image
-                // and trim manifests which have no children
-                const ghostImages = [];
-                for (const digest of this.packageIdByDigest.keys()) {
-                    await this.trimChildPackages(digest);
-                    if (await this.isGhostImage(digest)) {
-                        // save it to add back
-                        ghostImages.push(this.getPackageByDigest(digest));
-                        // remove it from later untaggedPackages sort
-                        this.packagesById.delete(this.packageIdByDigest.get(digest));
-                    }
-                }
-                // now sort the remaining packages by date
-                let untaggedPackages = [...this.packagesById.values()];
-                untaggedPackages.sort((a, b) => {
-                    return Date.parse(b.updated_at) - Date.parse(a.updated_at);
-                });
-                // add back ghost images to be deleted
-                untaggedPackages = [...ghostImages, ...untaggedPackages];
-                // now delete the remainder untagged packages/images minus the keep value
-                if (untaggedPackages.length > this.config.keepNuntagged) {
-                    untaggedPackages = untaggedPackages.splice(this.config.keepNuntagged);
-                    for (const untaggedPackage of untaggedPackages) {
-                        const ghPackage = this.packagesById.get(untaggedPackage.id);
-                        await this.deleteImage(ghPackage);
-                    }
-                }
-            }
-        }
-    }
-    async deleteRemainingPackages() {
-        // process deletion in 2 iterations
-        // delete manifest list images first
-        for (const ghPackage of this.packagesById.values()) {
-            if (!this.deleted.has(ghPackage.name)) {
-                const manifest = await this.registry.getManifestByDigest(ghPackage.name);
-                if (manifest.manifests) {
-                    await this.deleteImage(ghPackage);
-                }
-            }
-        }
-        // now process the remainder
-        for (const ghPackage of this.packagesById.values()) {
-            if (!this.deleted.has(ghPackage.name)) {
-                await this.deleteImage(ghPackage);
-            }
-        }
-    }
-    async keepNtagged() {
-        if (this.config.keepNtagged != null) {
-            core.info(`deleting tagged images, keeping ${this.config.keepNtagged} versions`);
-            // remove the excluded tags
-            for (const excludedTag of this.excludeTags) {
-                const imageDigest = await this.registry.getTagDigest(excludedTag);
-                await this.trimChildPackages(imageDigest);
-                const id = this.packageIdByDigest.get(imageDigest);
-                if (id) {
-                    this.packagesById.delete(id);
-                    this.packageIdByDigest.delete(imageDigest);
-                }
-                else {
-                    core.info(`image digest ${imageDigest} not found in repository, skipping`);
-                }
-            }
-            // create an array to sort by date
-            let packagesToKeep = [];
-            // trim all the child packages
-            for (const digest of this.packageIdByDigest.keys()) {
-                await this.trimChildPackages(digest);
-            }
-            // only copy images with tags and not ghost images
-            for (const ghPackage of this.packagesById.values()) {
-                if (!(await this.isGhostImage(ghPackage.name))) {
-                    if (ghPackage.metadata.container.tags.length > 0) {
-                        packagesToKeep.push(ghPackage);
-                    }
-                }
-            }
-            // sort them by date
-            packagesToKeep.sort((a, b) => {
-                return Date.parse(a.updated_at) - Date.parse(b.updated_at);
-            });
-            // trim to size
-            if (packagesToKeep.length > this.config.keepNtagged) {
-                packagesToKeep = packagesToKeep.splice(packagesToKeep.length - this.config.keepNtagged);
-            }
-            // now strip these from the package list
-            for (const ghPackage of packagesToKeep) {
-                this.packagesById.delete(ghPackage.id);
-            }
-        }
-        await this.deleteRemainingPackages();
-    }
-    async run() {
-        try {
-            if (this.config.tags) {
-                await this.deleteByTag();
-                await this.reload();
-            }
-            // value 0 will be treated as boolean
-            if (this.config.keepNuntagged) {
-                // we are in the cleanup untagged images mode
-                await this.keepNuntagged();
-            }
-            else if (this.config.keepNtagged != null) {
-                // we are in the cleanup tagged images mode
-                await this.keepNtagged();
-            }
-            else if (!this.config.tags) {
-                // in deleting all untagged images
-                core.info('deleting all untagged images');
-                // get all the tagged digests from the containter registry
-                const inUseDigests = await this.registry.getAllTagDigests();
-                // remove these from the saved packages list
-                for (const digest of inUseDigests) {
-                    const id = this.packageIdByDigest.get(digest);
-                    if (id) {
-                        await this.trimChildPackages(digest);
-                        this.packagesById.delete(id);
-                    }
-                    else {
-                        core.info(`couldn't find image digest ${digest} in repository, skipping`);
-                    }
-                }
-                // now trim child packages from the remaining untagged images
-                for (const ghPackage of this.packagesById.values()) {
-                    await this.trimChildPackages(ghPackage.name);
-                }
-                await this.deleteRemainingPackages();
-            }
-            if (this.config.validate) {
-                await this.reload();
-                await this.validate();
-            }
-            core.info('cleanup statistics:');
-            // print stats
-            if (this.numberMultiImagesDeleted > 0) {
-                core.info(` multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
-            }
-            core.info(` total images deleted = ${this.numberImagesDeleted}`);
-        }
-        catch (error) {
-            // Fail the workflow run if an error occurs
-            if (error instanceof Error)
-                core.setFailed(error.message);
-        }
-    }
-}
-
 
 /***/ }),
 
@@ -40554,6 +40853,13 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("async_hooks"
 /***/ ((module) => {
 
 module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("buffer");
+
+/***/ }),
+
+/***/ 2081:
+/***/ ((module) => {
+
+module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("child_process");
 
 /***/ }),
 
@@ -40666,6 +40972,13 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("perf_hooks")
 /***/ ((module) => {
 
 module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("querystring");
+
+/***/ }),
+
+/***/ 4521:
+/***/ ((module) => {
+
+module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("readline");
 
 /***/ }),
 
@@ -42461,6 +42774,18 @@ module.exports = JSON.parse('{"application/1d-interleaved-parityfec":{"source":"
 /******/ 	};
 /******/ })();
 /******/ 
+/******/ /* webpack/runtime/compat get default export */
+/******/ (() => {
+/******/ 	// getDefaultExport function for compatibility with non-harmony modules
+/******/ 	__nccwpck_require__.n = (module) => {
+/******/ 		var getter = module && module.__esModule ?
+/******/ 			() => (module['default']) :
+/******/ 			() => (module);
+/******/ 		__nccwpck_require__.d(getter, { a: getter });
+/******/ 		return getter;
+/******/ 	};
+/******/ })();
+/******/ 
 /******/ /* webpack/runtime/define property getters */
 /******/ (() => {
 /******/ 	// define getter functions for harmony exports
@@ -42498,8 +42823,11 @@ module.exports = JSON.parse('{"application/1d-interleaved-parityfec":{"source":"
 /******/ // startup
 /******/ // Load entry module and return exports
 /******/ // This entry module used 'module' so it can't be inlined
-/******/ var __webpack_exports__ = __nccwpck_require__(6144);
+/******/ var __webpack_exports__ = __nccwpck_require__(9041);
 /******/ __webpack_exports__ = await __webpack_exports__;
+/******/ var __webpack_exports__processWrapper = __webpack_exports__.O;
+/******/ var __webpack_exports__run = __webpack_exports__.K;
+/******/ export { __webpack_exports__processWrapper as processWrapper, __webpack_exports__run as run };
 /******/ 
 
 //# sourceMappingURL=index.js.map

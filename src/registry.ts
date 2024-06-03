@@ -1,6 +1,6 @@
-import { Config } from './config'
+import { Config } from './config.js'
 import axios, { AxiosInstance, isAxiosError } from 'axios'
-import { calcDigest, isValidChallenge, parseChallenge } from './utils'
+import { calcDigest, isValidChallenge, parseChallenge } from './utils.js'
 
 export class Registry {
   config: Config

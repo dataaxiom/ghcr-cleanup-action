@@ -1,5 +1,19 @@
 import * as core from '@actions/core'
-import { getOctokit } from '@actions/github'
+import { Octokit } from '@octokit/rest'
+import { throttling } from '@octokit/plugin-throttling'
+import { retry } from '@octokit/plugin-retry'
+import { requestLog } from '@octokit/plugin-request-log'
+import type { EndpointDefaults } from '@octokit/types'
+
+// @ts-expect-error: esm errror
+const MyOctokit = Octokit.plugin(requestLog, throttling, retry)
+
+enum LogLevel {
+  ERROR = 1,
+  WARN,
+  INFO,
+  DEBUG
+}
 
 export class Config {
   owner?: string
@@ -9,6 +23,7 @@ export class Config {
   tags?: string
   excludeTags?: string
   validate?: boolean
+  logLevel: LogLevel
   keepNuntagged?: number
   keepNtagged?: number
   dryRun?: boolean
@@ -17,7 +32,61 @@ export class Config {
 
   constructor(token: string) {
     this.token = token
-    this.octokit = getOctokit(token)
+    this.logLevel = LogLevel.WARN
+
+    this.octokit = new MyOctokit({
+      auth: token,
+      throttle: {
+        onRateLimit: (
+          retryAfter: number,
+          options: EndpointDefaults,
+          octokit: Octokit,
+          retryCount: number
+        ) => {
+          octokit.log.warn(
+            `Request quota exhausted for request ${options.method} ${options.url}`
+          )
+
+          if (retryCount < 1) {
+            // only retries once
+            octokit.log.info(`Retrying after ${retryAfter} seconds!`)
+            return true
+          }
+        },
+        onSecondaryRateLimit: (
+          retryAfter: number,
+          options: EndpointDefaults,
+          octokit: Octokit
+        ) => {
+          // does not retry, only logs a warning
+          octokit.log.warn(
+            `SecondaryRateLimit detected for request ${options.method} ${options.url}`
+          )
+        }
+      },
+      log: {
+        debug: (message: string) => {
+          if (this.logLevel >= LogLevel.DEBUG) {
+            console.log(`[DEBUG] ${message}`)
+          }
+        },
+        info: (message: string) => {
+          if (this.logLevel >= LogLevel.INFO) {
+            console.log(`[INFO] ${message}`)
+          }
+        },
+        warn: (message: string) => {
+          if (this.logLevel >= LogLevel.WARN) {
+            console.log(`[WARN] ${message}`)
+          }
+        },
+        error: (message: string) => {
+          if (this.logLevel >= LogLevel.INFO) {
+            console.log(`[INFO] ${message}`)
+          }
+        }
+      }
+    })
   }
 
   async getOwnerType(): Promise<string> {
@@ -100,6 +169,18 @@ export function getConfig(): Config {
   }
   if (!config.repository) {
     throw new Error('repository is not set')
+  }
+  if (core.getInput('log-level')) {
+    const level = core.getInput('log-level').toLowerCase()
+    if (level === 'error') {
+      config.logLevel = LogLevel.ERROR
+    } else if (level === 'warn') {
+      config.logLevel = LogLevel.WARN
+    } else if (level === 'info') {
+      config.logLevel = LogLevel.INFO
+    } else if (level === 'debug') {
+      config.logLevel = LogLevel.DEBUG
+    }
   }
   return config
 }
