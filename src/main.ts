@@ -69,7 +69,7 @@ class CleanupAction {
     }
   }
 
-  movePackageToChildList(digest: string) {
+  movePackageToChildList(digest: string): void {
     // get the id and trim it as it's in use
     const id = this.packageIdByDigest.get(digest)
     if (id) {
@@ -119,33 +119,38 @@ class CleanupAction {
   async validate(): Promise<void> {
     core.info('validating multi-architecture/referrers images:')
     // copy the loaded packages
-    const digests = new Map<string, string>(this.packageIdByDigest)
-    const packages = new Map<string, any>(this.packagesById)
+    const packageIdByDigest = new Map<string, string>(this.packageIdByDigest)
+    const packagesById = new Map<string, any>(this.packagesById)
     // cycle thru digests checking them
     let error = false
     const processedManifests = new Set<string>()
-    for (const digest of digests.keys()) {
+    for (const digest of packageIdByDigest.keys()) {
       // is the digest a multi arch image?
       if (!processedManifests.has(digest)) {
         const manifest = await this.registry.getManifestByDigest(digest)
-        const tags = packages.get(digests.get(digest)!).metadata.container.tags
-        if (manifest.manifests) {
-          for (const childImage of manifest.manifests) {
-            // mark it as processed
-            processedManifests.add(childImage.digest)
-            if (!digests.has(childImage.digest)) {
-              error = true
-              if (tags.length > 0) {
-                core.warning(
-                  `digest ${childImage.digest} not found on image ${tags}`
-                )
-              } else {
-                core.warning(
-                  `digest ${childImage.digest} not found on untagged image ${digest}`
-                )
+        const id = packageIdByDigest.get(digest)
+        if (id) {
+          const tags = packagesById.get(id).metadata.container.tags
+          if (manifest.manifests) {
+            for (const childImage of manifest.manifests) {
+              // mark it as processed
+              processedManifests.add(childImage.digest)
+              if (!packageIdByDigest.has(childImage.digest)) {
+                error = true
+                if (tags.length > 0) {
+                  core.warning(
+                    `digest ${childImage.digest} not found on image ${tags}`
+                  )
+                } else {
+                  core.warning(
+                    `digest ${childImage.digest} not found on untagged image ${digest}`
+                  )
+                }
               }
             }
           }
+        } else {
+          throw new Error("couln't find package for digest")
         }
       }
     }
@@ -382,7 +387,10 @@ class CleanupAction {
             ghostImages.push(this.getPackageByDigest(digest))
 
             // remove it from later untaggedPackages sort
-            this.packagesById.delete(this.packageIdByDigest.get(digest)!)
+            const id = this.packageIdByDigest.get(digest)
+            if (id) {
+              this.packagesById.delete(id)
+            }
           }
         }
         // now sort the remaining packages by date

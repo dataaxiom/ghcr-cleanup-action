@@ -88,7 +88,7 @@ export class Registry {
 
   async getManifestByDigest(digest: string): Promise<any> {
     if (this.manifestCache.has(digest)) {
-      return this.manifestCache.get(digest)!
+      return this.manifestCache.get(digest)
     } else {
       const response = await this.axios.get(
         `/v2/${this.config.owner}/${this.config.package}/manifests/${digest}`,
@@ -107,7 +107,7 @@ export class Registry {
     }
   }
 
-  deleteTag(tag: string) {
+  deleteTag(tag: string): void {
     this.digestByTagCache.delete(tag)
   }
 
@@ -116,13 +116,19 @@ export class Registry {
       // load it
       await this.getManifestByTag(tag)
     }
-    return this.digestByTagCache.get(tag)!
+    const digest = this.digestByTagCache.get(tag)
+    if (digest) {
+      return digest
+    } else {
+      throw new Error(`couln't find digest for tag ${tag}`)
+    }
   }
 
   async getManifestByTag(tag: string): Promise<any> {
-    if (this.digestByTagCache.has(tag)) {
+    const cacheDigest = this.digestByTagCache.get(tag)
+    if (cacheDigest) {
       // get the digest to look up the manifest
-      return this.manifestCache.get(this.digestByTagCache.get(tag)!)
+      return this.manifestCache.get(cacheDigest)
     } else {
       const response = await this.axios.get(
         `/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`,
@@ -234,7 +240,7 @@ export class Registry {
   // ghcr.io not yet supporting referrers api?
   async getReferrersManifest(digest: string): Promise<any> {
     if (this.referrersCache.has(digest)) {
-      return this.referrersCache.get(digest)!
+      return this.referrersCache.get(digest)
     } else {
       const response = await this.axios.get(
         `/v2/${this.config.owner}/${this.config.package}/referrers/${digest}`,

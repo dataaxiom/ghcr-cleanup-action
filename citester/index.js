@@ -34684,7 +34684,10 @@ async function deleteDigests(directory, packageIdByDigest, githubPackageRepo) {
                     line = line.substring(0, line.indexOf('//') - 1);
                 }
                 line = line.trim();
-                await githubPackageRepo.deletePackageVersion(packageIdByDigest.get(line), line, []);
+                const id = packageIdByDigest.get(line);
+                if (id) {
+                    await githubPackageRepo.deletePackageVersion(id, line, []);
+                }
             }
         }
     }
@@ -34762,7 +34765,10 @@ async function run() {
         // remove all the existing images - except for the dummy image
         for (const digest of packageIdByDigest.keys()) {
             if (digest !== dummyDigest) {
-                await githubPackageRepo.deletePackageVersion(packageIdByDigest.get(digest), digest, []);
+                const id = packageIdByDigest.get(digest);
+                if (id) {
+                    await githubPackageRepo.deletePackageVersion(id, digest, []);
+                }
             }
         }
         // prime the test images
@@ -35280,10 +35286,10 @@ var LogLevel;
     LogLevel[LogLevel["DEBUG"] = 4] = "DEBUG";
 })(LogLevel || (LogLevel = {}));
 class Config {
-    owner;
     isPrivateRepo = false;
-    repository;
-    package;
+    owner = '';
+    repository = '';
+    package = '';
     tags;
     excludeTags;
     validate;
@@ -35369,7 +35375,15 @@ function getConfig() {
     else {
         throw Error('GITHUB_REPOSITORY is not set');
     }
-    config.tags = core.getInput('tags');
+    if (core.getInput('tags') && core.getInput('delete-tags')) {
+        throw Error('tags and delete-tags cant be used at the same time, use either one');
+    }
+    if (core.getInput('tags')) {
+        config.tags = core.getInput('tags');
+    }
+    else if (core.getInput('delete-tags')) {
+        config.tags = core.getInput('delete-tags');
+    }
     config.excludeTags = core.getInput('exclude-tags');
     if (core.getInput('dry-run')) {
         config.dryRun = core.getBooleanInput('dry-run');
@@ -40940,12 +40954,19 @@ class Registry {
             // load it
             await this.getManifestByTag(tag);
         }
-        return this.digestByTagCache.get(tag);
+        const digest = this.digestByTagCache.get(tag);
+        if (digest) {
+            return digest;
+        }
+        else {
+            throw new Error(`couln't find digest for tag ${tag}`);
+        }
     }
     async getManifestByTag(tag) {
-        if (this.digestByTagCache.has(tag)) {
+        const cacheDigest = this.digestByTagCache.get(tag);
+        if (cacheDigest) {
             // get the digest to look up the manifest
-            return this.manifestCache.get(this.digestByTagCache.get(tag));
+            return this.manifestCache.get(cacheDigest);
         }
         else {
             const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, {

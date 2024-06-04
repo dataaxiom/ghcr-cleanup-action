@@ -86,7 +86,7 @@ export class GithubPackageRepo {
     }
   }
 
-  async getPackage(id: string) {
+  async getPackage(id: string): Promise<any> {
     if (this.repoType === 'User') {
       return await this.config.octokit.rest.packages.getPackageVersionForUser({
         package_type: 'container',

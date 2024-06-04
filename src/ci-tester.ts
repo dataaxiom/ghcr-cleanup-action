@@ -20,7 +20,7 @@ export function processWrapper(
   command: string,
   args: string[],
   options: SpawnSyncOptionsWithStringEncoding
-) {
+): void {
   const output = spawnSync(command, args, options)
   if (output.error) {
     throw new Error(`error running command: ${output.error}`)
@@ -61,7 +61,7 @@ async function loadImages(
   packageName: string,
   token: string,
   delay: number
-) {
+): Promise<void> {
   if (!fs.existsSync(`${directory}/prime`)) {
     throw Error(`file: ${directory}/prime doesn't exist`)
   }
@@ -112,7 +112,7 @@ async function deleteDigests(
   directory: string,
   packageIdByDigest: Map<string, string>,
   githubPackageRepo: GithubPackageRepo
-) {
+): Promise<void> {
   if (fs.existsSync(`${directory}/prime-delete`)) {
     const fileContents = fs.readFileSync(`${directory}/prime-delete`, 'utf-8')
     for (let line of fileContents.split('\n')) {
@@ -121,11 +121,10 @@ async function deleteDigests(
           line = line.substring(0, line.indexOf('//') - 1)
         }
         line = line.trim()
-        await githubPackageRepo.deletePackageVersion(
-          packageIdByDigest.get(line)!,
-          line,
-          []
-        )
+        const id = packageIdByDigest.get(line)
+        if (id) {
+          await githubPackageRepo.deletePackageVersion(id, line, [])
+        }
       }
     }
   }
@@ -223,19 +222,18 @@ export async function run(): Promise<void> {
     // remove all the existing images - except for the dummy image
     for (const digest of packageIdByDigest.keys()) {
       if (digest !== dummyDigest) {
-        await githubPackageRepo.deletePackageVersion(
-          packageIdByDigest.get(digest)!,
-          digest,
-          []
-        )
+        const id = packageIdByDigest.get(digest)
+        if (id) {
+          await githubPackageRepo.deletePackageVersion(id, digest, [])
+        }
       }
     }
 
     // prime the test images
     await loadImages(
       args.directory,
-      config.owner!,
-      config.package!,
+      config.owner,
+      config.package,
       config.token,
       delay
     )

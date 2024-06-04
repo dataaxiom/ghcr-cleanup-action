@@ -16,10 +16,10 @@ enum LogLevel {
 }
 
 export class Config {
-  owner?: string
   isPrivateRepo = false
-  repository?: string
-  package?: string
+  owner = ''
+  repository = ''
+  package = ''
   tags?: string
   excludeTags?: string
   validate?: boolean
@@ -124,7 +124,18 @@ export function getConfig(): Config {
   } else {
     throw Error('GITHUB_REPOSITORY is not set')
   }
-  config.tags = core.getInput('tags')
+
+  if (core.getInput('tags') && core.getInput('delete-tags')) {
+    throw Error(
+      'tags and delete-tags cant be used at the same time, use either one'
+    )
+  }
+  if (core.getInput('tags')) {
+    config.tags = core.getInput('tags')
+  } else if (core.getInput('delete-tags')) {
+    config.tags = core.getInput('delete-tags')
+  }
+
   config.excludeTags = core.getInput('exclude-tags')
   if (core.getInput('dry-run')) {
     config.dryRun = core.getBooleanInput('dry-run')
