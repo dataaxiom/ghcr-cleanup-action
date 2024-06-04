@@ -10187,6 +10187,52 @@ module.exports = (flag, argv = process.argv) => {
 
 /***/ }),
 
+/***/ 841:
+/***/ ((module) => {
+
+
+
+const denyList = new Set([
+	'ENOTFOUND',
+	'ENETUNREACH',
+
+	// SSL errors from https://github.com/nodejs/node/blob/fc8e3e2cdc521978351de257030db0076d79e0ab/src/crypto/crypto_common.cc#L301-L328
+	'UNABLE_TO_GET_ISSUER_CERT',
+	'UNABLE_TO_GET_CRL',
+	'UNABLE_TO_DECRYPT_CERT_SIGNATURE',
+	'UNABLE_TO_DECRYPT_CRL_SIGNATURE',
+	'UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY',
+	'CERT_SIGNATURE_FAILURE',
+	'CRL_SIGNATURE_FAILURE',
+	'CERT_NOT_YET_VALID',
+	'CERT_HAS_EXPIRED',
+	'CRL_NOT_YET_VALID',
+	'CRL_HAS_EXPIRED',
+	'ERROR_IN_CERT_NOT_BEFORE_FIELD',
+	'ERROR_IN_CERT_NOT_AFTER_FIELD',
+	'ERROR_IN_CRL_LAST_UPDATE_FIELD',
+	'ERROR_IN_CRL_NEXT_UPDATE_FIELD',
+	'OUT_OF_MEM',
+	'DEPTH_ZERO_SELF_SIGNED_CERT',
+	'SELF_SIGNED_CERT_IN_CHAIN',
+	'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+	'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+	'CERT_CHAIN_TOO_LONG',
+	'CERT_REVOKED',
+	'INVALID_CA',
+	'PATH_LENGTH_EXCEEDED',
+	'INVALID_PURPOSE',
+	'CERT_UNTRUSTED',
+	'CERT_REJECTED',
+	'HOSTNAME_MISMATCH'
+]);
+
+// TODO: Use `error?.code` when targeting Node.js 14
+module.exports = error => !denyList.has(error && error.code);
+
+
+/***/ }),
+
 /***/ 7426:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -34534,7 +34580,7 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_2__);
 /* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(1583);
 /* harmony import */ var _github_package_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(1693);
-/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(4645);
+/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(5719);
 /* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(2081);
 /* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_6__);
 /**
@@ -35491,7 +35537,7 @@ class GithubPackageRepo {
 
 /***/ }),
 
-/***/ 4645:
+/***/ 5719:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -40576,6 +40622,183 @@ const {
 
 
 
+// EXTERNAL MODULE: ./node_modules/is-retry-allowed/index.js
+var is_retry_allowed = __nccwpck_require__(841);
+;// CONCATENATED MODULE: ./node_modules/axios-retry/dist/esm/index.js
+
+const namespace = 'axios-retry';
+function isNetworkError(error) {
+    const CODE_EXCLUDE_LIST = ['ERR_CANCELED', 'ECONNABORTED'];
+    if (error.response) {
+        return false;
+    }
+    if (!error.code) {
+        return false;
+    }
+    // Prevents retrying timed out & cancelled requests
+    if (CODE_EXCLUDE_LIST.includes(error.code)) {
+        return false;
+    }
+    // Prevents retrying unsafe errors
+    return is_retry_allowed(error);
+}
+const SAFE_HTTP_METHODS = ['get', 'head', 'options'];
+const IDEMPOTENT_HTTP_METHODS = SAFE_HTTP_METHODS.concat(['put', 'delete']);
+function isRetryableError(error) {
+    return (error.code !== 'ECONNABORTED' &&
+        (!error.response ||
+            error.response.status === 429 ||
+            (error.response.status >= 500 && error.response.status <= 599)));
+}
+function isSafeRequestError(error) {
+    if (!error.config?.method) {
+        // Cannot determine if the request can be retried
+        return false;
+    }
+    return isRetryableError(error) && SAFE_HTTP_METHODS.indexOf(error.config.method) !== -1;
+}
+function isIdempotentRequestError(error) {
+    if (!error.config?.method) {
+        // Cannot determine if the request can be retried
+        return false;
+    }
+    return isRetryableError(error) && IDEMPOTENT_HTTP_METHODS.indexOf(error.config.method) !== -1;
+}
+function isNetworkOrIdempotentRequestError(error) {
+    return isNetworkError(error) || isIdempotentRequestError(error);
+}
+function retryAfter(error = undefined) {
+    const retryAfterHeader = error?.response?.headers['retry-after'];
+    if (!retryAfterHeader) {
+        return 0;
+    }
+    // if the retry after header is a number, convert it to milliseconds
+    let retryAfterMs = (Number(retryAfterHeader) || 0) * 1000;
+    // If the retry after header is a date, get the number of milliseconds until that date
+    if (retryAfterMs === 0) {
+        retryAfterMs = (new Date(retryAfterHeader).valueOf() || 0) - Date.now();
+    }
+    return Math.max(0, retryAfterMs);
+}
+function noDelay(_retryNumber = 0, error = undefined) {
+    return Math.max(0, retryAfter(error));
+}
+function exponentialDelay(retryNumber = 0, error = undefined, delayFactor = 100) {
+    const calculatedDelay = 2 ** retryNumber * delayFactor;
+    const delay = Math.max(calculatedDelay, retryAfter(error));
+    const randomSum = delay * 0.2 * Math.random(); // 0-20% of the delay
+    return delay + randomSum;
+}
+const DEFAULT_OPTIONS = {
+    retries: 3,
+    retryCondition: isNetworkOrIdempotentRequestError,
+    retryDelay: noDelay,
+    shouldResetTimeout: false,
+    onRetry: () => { },
+    onMaxRetryTimesExceeded: () => { },
+    validateResponse: null
+};
+function getRequestOptions(config, defaultOptions) {
+    return { ...DEFAULT_OPTIONS, ...defaultOptions, ...config[namespace] };
+}
+function setCurrentState(config, defaultOptions) {
+    const currentState = getRequestOptions(config, defaultOptions || {});
+    currentState.retryCount = currentState.retryCount || 0;
+    currentState.lastRequestTime = currentState.lastRequestTime || Date.now();
+    config[namespace] = currentState;
+    return currentState;
+}
+function fixConfig(axiosInstance, config) {
+    // @ts-ignore
+    if (axiosInstance.defaults.agent === config.agent) {
+        // @ts-ignore
+        delete config.agent;
+    }
+    if (axiosInstance.defaults.httpAgent === config.httpAgent) {
+        delete config.httpAgent;
+    }
+    if (axiosInstance.defaults.httpsAgent === config.httpsAgent) {
+        delete config.httpsAgent;
+    }
+}
+async function shouldRetry(currentState, error) {
+    const { retries, retryCondition } = currentState;
+    const shouldRetryOrPromise = (currentState.retryCount || 0) < retries && retryCondition(error);
+    // This could be a promise
+    if (typeof shouldRetryOrPromise === 'object') {
+        try {
+            const shouldRetryPromiseResult = await shouldRetryOrPromise;
+            // keep return true unless shouldRetryPromiseResult return false for compatibility
+            return shouldRetryPromiseResult !== false;
+        }
+        catch (_err) {
+            return false;
+        }
+    }
+    return shouldRetryOrPromise;
+}
+async function handleRetry(axiosInstance, currentState, error, config) {
+    currentState.retryCount += 1;
+    const { retryDelay, shouldResetTimeout, onRetry } = currentState;
+    const delay = retryDelay(currentState.retryCount, error);
+    // Axios fails merging this configuration to the default configuration because it has an issue
+    // with circular structures: https://github.com/mzabriskie/axios/issues/370
+    fixConfig(axiosInstance, config);
+    if (!shouldResetTimeout && config.timeout && currentState.lastRequestTime) {
+        const lastRequestDuration = Date.now() - currentState.lastRequestTime;
+        const timeout = config.timeout - lastRequestDuration - delay;
+        if (timeout <= 0) {
+            return Promise.reject(error);
+        }
+        config.timeout = timeout;
+    }
+    config.transformRequest = [(data) => data];
+    await onRetry(currentState.retryCount, error, config);
+    return new Promise((resolve) => {
+        setTimeout(() => resolve(axiosInstance(config)), delay);
+    });
+}
+async function handleMaxRetryTimesExceeded(currentState, error) {
+    if (currentState.retryCount >= currentState.retries)
+        await currentState.onMaxRetryTimesExceeded(error, currentState.retryCount);
+}
+const axiosRetry = (axiosInstance, defaultOptions) => {
+    const requestInterceptorId = axiosInstance.interceptors.request.use((config) => {
+        setCurrentState(config, defaultOptions);
+        if (config[namespace]?.validateResponse) {
+            // by setting this, all HTTP responses will be go through the error interceptor first
+            config.validateStatus = () => false;
+        }
+        return config;
+    });
+    const responseInterceptorId = axiosInstance.interceptors.response.use(null, async (error) => {
+        const { config } = error;
+        // If we have no information to retry the request
+        if (!config) {
+            return Promise.reject(error);
+        }
+        const currentState = setCurrentState(config, defaultOptions);
+        if (error.response && currentState.validateResponse?.(error.response)) {
+            // no issue with response
+            return error.response;
+        }
+        if (await shouldRetry(currentState, error)) {
+            return handleRetry(axiosInstance, currentState, error, config);
+        }
+        await handleMaxRetryTimesExceeded(currentState, error);
+        return Promise.reject(error);
+    });
+    return { requestInterceptorId, responseInterceptorId };
+};
+// Compatibility with CommonJS
+axiosRetry.isNetworkError = isNetworkError;
+axiosRetry.isSafeRequestError = isSafeRequestError;
+axiosRetry.isIdempotentRequestError = isIdempotentRequestError;
+axiosRetry.isNetworkOrIdempotentRequestError = isNetworkOrIdempotentRequestError;
+axiosRetry.exponentialDelay = exponentialDelay;
+axiosRetry.isRetryableError = isRetryableError;
+/* harmony default export */ const esm = (axiosRetry);
+
 // EXTERNAL MODULE: external "crypto"
 var external_crypto_ = __nccwpck_require__(6113);
 ;// CONCATENATED MODULE: ./src/utils.ts
@@ -40612,6 +40835,7 @@ function isValidChallenge(attributes) {
 ;// CONCATENATED MODULE: ./src/registry.ts
 
 
+
 class Registry {
     config;
     axios;
@@ -40626,6 +40850,7 @@ class Registry {
         this.axios = lib_axios.create({
             baseURL: 'https://ghcr.io/'
         });
+        esm(this.axios, { retries: 3 });
         this.axios.defaults.headers.common['Accept'] =
             'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json';
     }
@@ -40641,6 +40866,7 @@ class Registry {
                     const attributes = parseChallenge(challenge);
                     if (isValidChallenge(attributes)) {
                         const auth = lib_axios.create();
+                        esm(auth, { retries: 3 });
                         const tokenResponse = await auth.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
                             auth: {
                                 username: 'token',

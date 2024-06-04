@@ -1,5 +1,6 @@
 import { Config } from './config.js'
 import axios, { AxiosInstance, isAxiosError } from 'axios'
+import axiosRetry from 'axios-retry'
 import { calcDigest, isValidChallenge, parseChallenge } from './utils.js'
 
 export class Registry {
@@ -17,6 +18,7 @@ export class Registry {
     this.axios = axios.create({
       baseURL: 'https://ghcr.io/'
     })
+    axiosRetry(this.axios, { retries: 3 })
     this.axios.defaults.headers.common['Accept'] =
       'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json'
   }
@@ -34,6 +36,7 @@ export class Registry {
           const attributes = parseChallenge(challenge)
           if (isValidChallenge(attributes)) {
             const auth = axios.create()
+            axiosRetry(auth, { retries: 3 })
             const tokenResponse = await auth.get(
               `${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`,
               {
