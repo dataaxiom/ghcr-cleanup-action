@@ -24,18 +24,27 @@ inputs:
 
   package:
     description: >
-      The package name, replaces the `name` input. Defaults to the repository
-      name.
+      The package name. Defaults to the repository name.
     required: false
 
   token:
     description: >
-      Token to delete package versions.
+      Token to authenticate with the ghcr.io registry and the GitHub API
     required: true
 
   tags:
     description: >
+      Tags to delete (comma seperated) - Short form of delete-tags input option
+    required: false
+
+  delete-tags:
+    description: >
       Tags to delete (comma seperated)
+    required: false
+
+  delete-untagged:
+    description: >
+      Delete untagged images (true/false)
     required: false
 
   keep-n-untagged:

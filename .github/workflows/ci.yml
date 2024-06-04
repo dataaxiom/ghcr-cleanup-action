@@ -193,7 +193,7 @@ jobs:
       - name: ' > Running Workflow'
         uses: ./
         with:
-          tags: ${{ env.TAGS }}
+          delete-tags: ${{ env.TAGS }}
           keep-n-tagged: ${{ env.KEEP_N_TAGGED }}
           keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}
           exclude-tags: ${{ env.EXCLUDE_TAGS }}
