@@ -71,20 +71,22 @@ export class GithubPackageRepo {
     }
     if (!this.config.dryRun) {
       if (this.repoType === 'User') {
-        ;(await this.config.isPrivateRepo)
-          ? this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser(
-              {
-                package_type: 'container',
-                package_name: this.config.package,
-                package_version_id: id
-              }
-            )
-          : this.config.octokit.rest.packages.deletePackageVersionForUser({
+        if (this.config.isPrivateRepo) {
+          await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser(
+            {
               package_type: 'container',
               package_name: this.config.package,
-              username: this.config.owner,
               package_version_id: id
-            })
+            }
+          )
+        } else {
+          await this.config.octokit.rest.packages.deletePackageVersionForUser({
+            package_type: 'container',
+            package_name: this.config.package,
+            username: this.config.owner,
+            package_version_id: id
+          })
+        }
       } else {
         await this.config.octokit.rest.packages.deletePackageVersionForOrg({
           package_type: 'container',
