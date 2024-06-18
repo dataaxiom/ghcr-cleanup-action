@@ -265,6 +265,26 @@ class CleanupAction {
     return ghPackage
   }
 
+  // ignores referrers tags
+  async getAllTagDigests(): Promise<string[]> {
+    const digests = []
+    for (const tag of this.tagsInUse) {
+      // skip over referrer tags
+      if (!tag.startsWith('sha256-')) {
+        const manifest = await this.registry.getManifestByTag(tag)
+        const digest = await this.registry.getTagDigest(tag)
+        digests.push(digest)
+        // if manifest image add to the digests
+        if (manifest.manifests) {
+          for (const imageManifest of manifest.manifests) {
+            digests.push(imageManifest.digest)
+          }
+        }
+      }
+    }
+    return digests
+  }
+
   async deleteByTag(): Promise<void> {
     if (this.config.tags) {
       core.info(`deleting images by tags ${this.config.tags}`)
@@ -363,8 +383,8 @@ class CleanupAction {
         `deleting untagged images, keeping ${this.config.keepNuntagged} versions`
       )
 
-      // get all the tagged digests from the containter registry
-      const imageDigests = await this.registry.getAllTagDigests()
+      // get all the tagged digests (ignores referrers tags)
+      const imageDigests = await this.getAllTagDigests()
 
       // remove these from the saved packages list
       for (const digest of imageDigests) {
@@ -484,6 +504,32 @@ class CleanupAction {
     await this.deleteRemainingPackages()
   }
 
+  async deleteUntagged(): Promise<void> {
+    core.info('deleting all untagged images')
+
+    // get all the tagged digests from the containter registry
+    const inUseDigests = await this.getAllTagDigests()
+
+    // cycle through the inUseTags and remove them
+    for (const digest of inUseDigests) {
+      const id = this.packageIdByDigest.get(digest)
+      if (id) {
+        await this.trimChildPackages(digest)
+        this.packagesById.delete(id)
+      } else {
+        throw new Error(
+          `couldn't find package id ${id} in repository, skipping`
+        )
+      }
+    }
+    // now trim child packages from the remaining untagged images
+    // the delete method will then delete the child packages
+    for (const ghPackage of this.packagesById.values()) {
+      await this.trimChildPackages(ghPackage.name)
+    }
+    await this.deleteRemainingPackages()
+  }
+
   async run(): Promise<void> {
     try {
       if (this.config.tags) {
@@ -499,27 +545,8 @@ class CleanupAction {
         // we are in the cleanup tagged images mode
         await this.keepNtagged()
       } else if (!this.config.tags) {
-        // in deleting all untagged images
-        core.info('deleting all untagged images')
-        // get all the tagged digests from the containter registry
-        const inUseDigests = await this.registry.getAllTagDigests()
-        // remove these from the saved packages list
-        for (const digest of inUseDigests) {
-          const id = this.packageIdByDigest.get(digest)
-          if (id) {
-            await this.trimChildPackages(digest)
-            this.packagesById.delete(id)
-          } else {
-            core.info(
-              `couldn't find image digest ${digest} in repository, skipping`
-            )
-          }
-        }
-        // now trim child packages from the remaining untagged images
-        for (const ghPackage of this.packagesById.values()) {
-          await this.trimChildPackages(ghPackage.name)
-        }
-        await this.deleteRemainingPackages()
+        // delete all untagged images
+        await this.deleteUntagged()
       }
 
       if (this.config.validate) {

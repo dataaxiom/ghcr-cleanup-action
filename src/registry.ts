@@ -148,27 +148,6 @@ export class Registry {
     }
   }
 
-  // ignores referrers tags
-  async getAllTagDigests(): Promise<string[]> {
-    const digests = []
-    const tags = await this.getTags()
-    for (const tag of tags) {
-      // skip over referrer tags
-      if (!tag.startsWith('sha256-')) {
-        const manifest = await this.getManifestByTag(tag)
-        const digest = await this.getTagDigest(tag)
-        digests.push(digest)
-        // if manifest image add to the digests
-        if (manifest.manifests) {
-          for (const imageManifest of manifest.manifests) {
-            digests.push(imageManifest.digest)
-          }
-        }
-      }
-    }
-    return digests
-  }
-
   async putManifest(
     tag: string,
     manifest: any,
