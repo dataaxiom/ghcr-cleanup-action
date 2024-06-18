@@ -35470,10 +35470,12 @@ class GithubPackageRepo {
     async loadPackages(byDigest, packages) {
         let getFunc = this.config.octokit.rest.packages
             .getAllPackageVersionsForPackageOwnedByOrg;
-        let getParams = {};
+        let getParams;
         if (this.repoType === 'User') {
-            getFunc =
-                this.config.octokit.rest.packages
+            getFunc = this.config.isPrivateRepo
+                ? this.config.octokit.rest.packages
+                    .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
+                : this.config.octokit.rest.packages
                     .getAllPackageVersionsForPackageOwnedByUser;
             getParams = {
                 package_type: 'container',
@@ -35511,12 +35513,19 @@ class GithubPackageRepo {
         }
         if (!this.config.dryRun) {
             if (this.repoType === 'User') {
-                await this.config.octokit.rest.packages.deletePackageVersionForUser({
-                    package_type: 'container',
-                    package_name: this.config.package,
-                    username: this.config.owner,
-                    package_version_id: id
-                });
+                ;
+                (await this.config.isPrivateRepo)
+                    ? this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
+                        package_type: 'container',
+                        package_name: this.config.package,
+                        package_version_id: id
+                    })
+                    : this.config.octokit.rest.packages.deletePackageVersionForUser({
+                        package_type: 'container',
+                        package_name: this.config.package,
+                        username: this.config.owner,
+                        package_version_id: id
+                    });
             }
             else {
                 await this.config.octokit.rest.packages.deletePackageVersionForOrg({
@@ -35526,24 +35535,6 @@ class GithubPackageRepo {
                     package_version_id: id
                 });
             }
-        }
-    }
-    async getPackage(id) {
-        if (this.repoType === 'User') {
-            return await this.config.octokit.rest.packages.getPackageVersionForUser({
-                package_type: 'container',
-                package_name: this.config.package,
-                package_version_id: id,
-                username: this.config.owner
-            });
-        }
-        else {
-            return await this.config.octokit.rest.packages.getPackageVersionForOrganization({
-                package_type: 'container',
-                package_name: this.config.package,
-                package_version_id: id,
-                org: this.config.owner
-            });
         }
     }
 }

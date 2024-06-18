@@ -40064,10 +40064,11 @@ class GithubPackageRepo {
             .getAllPackageVersionsForPackageOwnedByOrg;
         let getParams;
         if (this.repoType === 'User') {
-            getFunc =
-                this.config.isPrivateRepo
-                    ? this.config.octokit.rest.packages.getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-                    : this.config.octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser;
+            getFunc = this.config.isPrivateRepo
+                ? this.config.octokit.rest.packages
+                    .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
+                : this.config.octokit.rest.packages
+                    .getAllPackageVersionsForPackageOwnedByUser;
             getParams = {
                 package_type: 'container',
                 package_name: this.config.package,
@@ -40102,10 +40103,10 @@ class GithubPackageRepo {
         else {
             core.info(` deleting package id: ${id} digest: ${digest}`);
         }
-        console.log(this.config.isPrivateRepo);
         if (!this.config.dryRun) {
             if (this.repoType === 'User') {
-                await this.config.isPrivateRepo
+                ;
+                (await this.config.isPrivateRepo)
                     ? this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                         package_type: 'container',
                         package_name: this.config.package,
