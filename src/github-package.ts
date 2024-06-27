@@ -69,6 +69,7 @@ export class GithubPackageRepo {
     } else {
       core.info(` deleting package id: ${id} digest: ${digest}`)
     }
+    core.info(` dryRun: ${this.config.dryRun} repoType: ${this.repoType} isPrivateRepo: ${this.config.isPrivateRepo}`)
     if (!this.config.dryRun) {
       if (this.repoType === 'User') {
         if (this.config.isPrivateRepo) {
@@ -80,6 +81,7 @@ export class GithubPackageRepo {
             }
           )
         } else {
+          core.info(`package_type: container package_name: ${this.config.package} username: ${this.config.owner} package_version_id: ${id}`)
           await this.config.octokit.rest.packages.deletePackageVersionForUser({
             package_type: 'container',
             package_name: this.config.package,
