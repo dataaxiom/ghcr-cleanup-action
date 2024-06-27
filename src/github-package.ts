@@ -1,34 +1,58 @@
-import * as core from '@actions/core'
 import { Config } from './config.js'
 
+/**
+ * Provides access to a package via the GitHub Packages REST API.
+ */
 export class GithubPackageRepo {
+  // The action configuration
   config: Config
+
+  // The type of repository (User or Organization)
   repoType = 'Organization'
 
+  // Map of tags to package versions.
+  tag2version = new Map<string, any>()
+
+  // Map of digests to package versions.
+  digest2version = new Map<string, any>()
+
+  /**
+   * Constructor.
+   *
+   * @param config The action configuration
+   */
   constructor(config: Config) {
     this.config = config
   }
 
   async init(): Promise<void> {
+    // Determine the repository type (User or Organization).
     this.repoType = await this.config.getOwnerType()
   }
 
-  async loadPackages(
-    byDigest: Map<string, string>,
-    packages: Map<string, any>
-  ): Promise<void> {
-    let getFunc =
-      this.config.octokit.rest.packages
-        .getAllPackageVersionsForPackageOwnedByOrg
+  /**
+   * Loads all versions of the package from the GitHub Packages API and populates the internal maps.
+   */
+  async loadVersions(): Promise<void> {
+    // Clear the internal maps.
+    this.tag2version.clear()
+    this.digest2version.clear()
+
+    // Function to retrieve package versions.
+    let getFunc
+
+    // Parameters for the function call.
     let getParams
 
     if (this.repoType === 'User') {
+      // Use the appropriate function for user repos.
       getFunc = this.config.isPrivateRepo
         ? this.config.octokit.rest.packages
             .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
         : this.config.octokit.rest.packages
             .getAllPackageVersionsForPackageOwnedByUser
 
+      // Parameters for the function call.
       getParams = {
         package_type: 'container',
         package_name: this.config.package,
@@ -37,6 +61,11 @@ export class GithubPackageRepo {
         per_page: 100
       }
     } else {
+      getFunc =
+        this.config.octokit.rest.packages
+          .getAllPackageVersionsForPackageOwnedByOrg
+
+      // Parameters for the function call.
       getParams = {
         package_type: 'container',
         package_name: this.config.package,
@@ -45,31 +74,71 @@ export class GithubPackageRepo {
         per_page: 100
       }
     }
+
+    // Iterate over all package versions.
     for await (const response of this.config.octokit.paginate.iterator(
       getFunc,
       getParams
     )) {
       for (const packageVersion of response.data) {
-        byDigest.set(packageVersion.name, packageVersion.id)
-        packages.set(packageVersion.id, packageVersion)
+        // Add the digest to the internal map.
+        this.digest2version.set(packageVersion.name, packageVersion)
+
+        // Add each tag to the internal map.
+        for (const tag of packageVersion.metadata.container.tags) {
+          this.tag2version.set(tag, packageVersion)
+        }
       }
     }
   }
 
-  async deletePackageVersion(
-    id: string,
-    digest: string,
-    tags?: string[],
-    label?: string
-  ): Promise<void> {
-    if (tags && tags.length > 0) {
-      core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`)
-    } else if (label) {
-      core.info(` deleting package id: ${id} digest: ${digest} ${label}`)
-    } else {
-      core.info(` deleting package id: ${id} digest: ${digest}`)
-    }
-    core.info(` dryRun: ${this.config.dryRun} repoType: ${this.repoType} isPrivateRepo: ${this.config.isPrivateRepo}`)
+  /**
+   * Return the tags for the package.
+   * @returns The tags for the package.
+   */
+  getTags(): string[] {
+    return Array.from(this.tag2version.keys())
+  }
+
+  /**
+   * Return the package version for a tag.
+   * @param tag The tag to search for.
+   * @returns The package version for the tag.
+   */
+  getVersionForTag(tag: string): any {
+    return this.tag2version.get(tag)
+  }
+
+  /**
+   Return the digests for the package.
+   * @returns The digests for the package.
+   */
+  getDigests(): string[] {
+    return Array.from(this.digest2version.keys())
+  }
+
+  /**
+   * Return the package version for a digest.
+   * @param digest The digest to search for.
+   * @returns The package version for the digest.
+   */
+  getVersionForDigest(digest: string): any {
+    return this.digest2version.get(digest)
+  }
+
+  /**
+   * Return all versions of the package.
+   * @returns All versions of the package.
+   */
+  getVersions(): any[] {
+    return Array.from(this.digest2version.values())
+  }
+
+  /**
+   * Delete a package version.
+   * @param id The ID of the package version to delete.
+   */
+  async deletePackageVersion(id: string): Promise<void> {
     if (!this.config.dryRun) {
       if (this.repoType === 'User') {
         if (this.config.isPrivateRepo) {
@@ -81,7 +150,6 @@ export class GithubPackageRepo {
             }
           )
         } else {
-          core.info(`package_type: container package_name: ${this.config.package} username: ${this.config.owner} package_version_id: ${id}`)
           await this.config.octokit.rest.packages.deletePackageVersionForUser({
             package_type: 'container',
             package_name: this.config.package,

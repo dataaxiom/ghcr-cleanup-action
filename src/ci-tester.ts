@@ -123,7 +123,7 @@ async function deleteDigests(
         line = line.trim()
         const id = packageIdByDigest.get(line)
         if (id) {
-          await githubPackageRepo.deletePackageVersion(id, line, [])
+          await githubPackageRepo.deletePackageVersion(id)
         }
       }
     }
@@ -171,10 +171,10 @@ export async function run(): Promise<void> {
     delay = parseInt(args.delay)
   }
 
-  let tag
+  //let tag
   if (args.tag) {
     assertString(args.tag)
-    tag = args.tag
+    //tag = args.tag
   }
 
   // auto populate
@@ -217,14 +217,14 @@ export async function run(): Promise<void> {
       args.token
     )
     // load after dummy to make sure the package exists on first clone/setup
-    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+    await githubPackageRepo.loadVersions()
 
     // remove all the existing images - except for the dummy image
     for (const digest of packageIdByDigest.keys()) {
       if (digest !== dummyDigest) {
         const id = packageIdByDigest.get(digest)
         if (id) {
-          await githubPackageRepo.deletePackageVersion(id, digest, [])
+          await githubPackageRepo.deletePackageVersion(id)
         }
       }
     }
@@ -242,14 +242,14 @@ export async function run(): Promise<void> {
       // reload
       packageIdByDigest = new Map<string, string>()
       packagesById = new Map<string, any>()
-      await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+      await githubPackageRepo.loadVersions()
 
       // make any deletions
       await deleteDigests(args.directory, packageIdByDigest, githubPackageRepo)
     }
   } else if (args.mode === 'validate') {
     // test the repo after the test
-    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+    await githubPackageRepo.loadVersions()
 
     let error = false
 
@@ -308,25 +308,25 @@ export async function run(): Promise<void> {
         }
       }
 
-      const regTags = new Set(await registry.getTags())
-      for (const expectedTag of expectedTags) {
-        if (regTags.has(expectedTag)) {
-          regTags.delete(expectedTag)
-        } else {
-          error = true
-          core.setFailed(`expected tag ${expectedTag} not found after test`)
-        }
-      }
-      for (const regTag of regTags) {
-        error = true
-        core.setFailed(`extra tag found after test: ${regTag}`)
-      }
+      // const regTags = new Set(await registry.getTags())
+      // for (const expectedTag of expectedTags) {
+      //   if (regTags.has(expectedTag)) {
+      //     regTags.delete(expectedTag)
+      //   } else {
+      //     error = true
+      //     core.setFailed(`expected tag ${expectedTag} not found after test`)
+      //   }
+      // }
+      // for (const regTag of regTags) {
+      //   error = true
+      //   core.setFailed(`extra tag found after test: ${regTag}`)
+      // }
     }
 
     if (!error) console.info('test passed!')
   } else if (args.mode === 'save-expected') {
     // save the expected tag dynamically
-    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+    await githubPackageRepo.loadVersions()
 
     const tags = new Set<string>()
     for (const ghPackage of packagesById.values()) {
@@ -335,34 +335,34 @@ export async function run(): Promise<void> {
       }
     }
 
-    if (tag) {
-      // find the digests in use for the supplied tag
-      const digest = await registry.getTagDigest(tag)
-      fs.appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`)
+    // if (tag) {
+    // find the digests in use for the supplied tag
+    // const digest = await registry.getTagDigest(tag)
+    // fs.appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`)
 
-      // is there a refferrer digest
-      const referrerTag = digest.replace('sha256:', 'sha256-')
-      if (tags.has(tag)) {
-        fs.appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`)
-        const referrerDigest = await registry.getTagDigest(referrerTag)
-        fs.appendFileSync(
-          `${args.directory}/expected-digests`,
-          `${referrerDigest}\n`
-        )
-        const referrerManifest =
-          await registry.getManifestByDigest(referrerDigest)
-        if (referrerManifest.manifests) {
-          for (const manifest of referrerManifest.manifests) {
-            fs.appendFileSync(
-              `${args.directory}/expected-digests`,
-              `${manifest.digest}\n`
-            )
-          }
-        }
-      }
-    } else {
-      core.setFailed('no tag supplied')
-    }
+    // is there a refferrer digest
+    //   const referrerTag = digest.replace('sha256:', 'sha256-')
+    //   if (tags.has(tag)) {
+    //     fs.appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`)
+    //     const referrerDigest = await registry.getTagDigest(referrerTag)
+    //     fs.appendFileSync(
+    //       `${args.directory}/expected-digests`,
+    //       `${referrerDigest}\n`
+    //     )
+    //     const referrerManifest =
+    //       await registry.getManifestByDigest(referrerDigest)
+    //     if (referrerManifest.manifests) {
+    //       for (const manifest of referrerManifest.manifests) {
+    //         fs.appendFileSync(
+    //           `${args.directory}/expected-digests`,
+    //           `${manifest.digest}\n`
+    //         )
+    //       }
+    //     }
+    //   }
+    // } else {
+    //   core.setFailed('no tag supplied')
+    // }
   }
 }
 

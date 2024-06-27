@@ -8,6 +8,9 @@ import type { EndpointDefaults } from '@octokit/types'
 // @ts-expect-error: esm errror
 const MyOctokit = Octokit.plugin(requestLog, throttling, retry)
 
+/**
+ * Represents the log levels for the action.
+ */
 enum LogLevel {
   ERROR = 1,
   WARN,
@@ -20,14 +23,13 @@ export class Config {
   owner = ''
   repository = ''
   package = ''
-  tags?: string
-  excludeTags?: string
-  validate?: boolean
-  logLevel: LogLevel
-  keepNuntagged?: number
-  keepNtagged?: number
-  dryRun?: boolean
   token: string
+  includeTags?: string
+  excludeTags?: string
+  keepNtagged?: number
+  keepNuntagged?: number
+  dryRun?: boolean
+  logLevel: LogLevel
   octokit: any
 
   constructor(token: string) {
@@ -125,18 +127,9 @@ export function getConfig(): Config {
     throw Error('GITHUB_REPOSITORY is not set')
   }
 
-  if (core.getInput('tags') && core.getInput('delete-tags')) {
-    throw Error(
-      'tags and delete-tags cant be used at the same time, use either one'
-    )
-  }
-  if (core.getInput('tags')) {
-    config.tags = core.getInput('tags')
-  } else if (core.getInput('delete-tags')) {
-    config.tags = core.getInput('delete-tags')
-  }
-
+  config.includeTags = core.getInput('include-tags')
   config.excludeTags = core.getInput('exclude-tags')
+
   if (core.getInput('dry-run')) {
     config.dryRun = core.getBooleanInput('dry-run')
     if (config.dryRun) {
@@ -145,31 +138,27 @@ export function getConfig(): Config {
   } else {
     config.dryRun = false
   }
-  if (core.getInput('validate')) {
-    config.validate = core.getBooleanInput('validate')
-  } else {
-    config.validate = false
+
+  if (core.getInput('keep-n-tagged')) {
+    const n: number = parseInt(core.getInput('keep-n-tagged'))
+    if (isNaN(n)) {
+      throw new Error('keep-n-tagged is not number')
+    } else if (n < 0) {
+      throw new Error('keep-n-tagged is negative')
+    } else {
+      config.keepNtagged = n
+    }
   }
 
   if (core.getInput('keep-n-untagged')) {
-    if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
+    const n: number = parseInt(core.getInput('keep-n-untagged'))
+    if (isNaN(n)) {
       throw new Error('keep-n-untagged is not number')
+    } else if (n < 0) {
+      throw new Error('keep-n-untagged is negative')
     } else {
-      config.keepNuntagged = parseInt(core.getInput('keep-n-untagged'))
+      config.keepNuntagged = n
     }
-  }
-  if (core.getInput('keep-n-tagged')) {
-    if (isNaN(parseInt(core.getInput('keep-n-tagged')))) {
-      throw new Error('keep-n-tagged is not number')
-    } else {
-      config.keepNtagged = parseInt(core.getInput('keep-n-tagged'))
-    }
-  }
-
-  if (config.keepNuntagged && config.keepNtagged) {
-    throw Error(
-      'keep-n-untagged and keep-n-tagged options can not be set at the same time'
-    )
   }
 
   if (!config.owner) {
@@ -181,6 +170,7 @@ export function getConfig(): Config {
   if (!config.repository) {
     throw new Error('repository is not set')
   }
+
   if (core.getInput('log-level')) {
     const level = core.getInput('log-level').toLowerCase()
     if (level === 'error') {
@@ -193,5 +183,6 @@ export function getConfig(): Config {
       config.logLevel = LogLevel.DEBUG
     }
   }
+
   return config
 }

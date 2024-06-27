@@ -1,16 +1,21 @@
-name: Ghcr.io Cleanup Action
+name: ghcr.io Repository Cleanup Action
 
 description: >
-  Delete untagged/tagged images from the GitHub Container Registry. Supports
-  multi architecture and attestation images.
+  Delete obsolete images from a repository in the GitHub Container Registry
+  (ghcr.io).
 
-author: Dataaxiom Inc
+author: Jens Keiner
 
 branding:
   icon: trash-2
-  color: blue
+  color: red
 
 inputs:
+  token:
+    description: >
+      Token to authenticate with the ghcr.io registry and the GitHub API
+    required: true
+
   owner:
     description: >
       Owner of the package (user or organization)
@@ -27,49 +32,29 @@ inputs:
       The package name. Defaults to the repository name.
     required: false
 
-  token:
+  include-tags:
     description: >
-      Token to authenticate with the ghcr.io registry and the GitHub API
-    required: true
-
-  tags:
-    description: >
-      Tags to delete (comma seperated) - Short form of delete-tags input option
-    required: false
-
-  delete-tags:
-    description: >
-      Tags to delete (comma seperated)
-    required: false
-
-  delete-untagged:
-    description: >
-      Delete untagged images (true/false)
-    required: false
-
-  keep-n-untagged:
-    description: >
-      Number of untagged images to keep (sorted by date)
-    required: false
-
-  keep-n-tagged:
-    description: >
-      Number of tagged images to keep (sorted by date)
+      Regular expression that matches tags to delete
     required: false
 
   exclude-tags:
     description: >
-      Tags to exclude from deletion (comma seperated)
+      Regular expression that matches tags to keep
     required: false
 
-  validate:
+  keep-n-tagged:
     description: >
-      Validate all multi architecture images manifests by checking their digests
-      are present in the registry
+      Number of most recent tagged images to keep
+    required: false
+
+  keep-n-untagged:
+    description: >
+      Number of most recent untagged images to keep
+    required: false
 
   dry-run:
     description: >
-      Simulate action - does not remove any packages
+      Simulate action, do not actually remove any packages
     required: false
 
   log-level:

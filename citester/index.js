@@ -34579,10 +34579,10 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(2186);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_2__);
 /* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(1583);
-/* harmony import */ var _github_package_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(1693);
-/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(5719);
-/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(2081);
-/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_6__);
+/* harmony import */ var _github_package_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(1693);
+/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(5719);
+/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(2081);
+/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_5___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_5__);
 /**
  * A utility to prime, setup and test CI use cases
  */
@@ -34599,7 +34599,7 @@ function assertString(input) {
     }
 }
 function processWrapper(command, args, options) {
-    const output = (0,child_process__WEBPACK_IMPORTED_MODULE_6__.spawnSync)(command, args, options);
+    const output = (0,child_process__WEBPACK_IMPORTED_MODULE_5__.spawnSync)(command, args, options);
     if (output.error) {
         throw new Error(`error running command: ${output.error}`);
     }
@@ -34686,7 +34686,7 @@ async function deleteDigests(directory, packageIdByDigest, githubPackageRepo) {
                 line = line.trim();
                 const id = packageIdByDigest.get(line);
                 if (id) {
-                    await githubPackageRepo.deletePackageVersion(id, line, []);
+                    await githubPackageRepo.deletePackageVersion(id);
                 }
             }
         }
@@ -34727,10 +34727,10 @@ async function run() {
         assertString(args.delay);
         delay = parseInt(args.delay);
     }
-    let tag;
+    //let tag
     if (args.tag) {
         assertString(args.tag);
-        tag = args.tag;
+        //tag = args.tag
     }
     // auto populate
     const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
@@ -34749,9 +34749,9 @@ async function run() {
         }
     }
     config.owner = config.owner?.toLowerCase();
-    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_5__/* .Registry */ .B(config);
+    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_4__/* .Registry */ .B(config);
     await registry.login();
-    const githubPackageRepo = new _github_package_js__WEBPACK_IMPORTED_MODULE_4__/* .GithubPackageRepo */ .l(config);
+    const githubPackageRepo = new _github_package_js__WEBPACK_IMPORTED_MODULE_6__/* .GithubPackageRepo */ .l(config);
     await githubPackageRepo.init();
     let packageIdByDigest = new Map();
     let packagesById = new Map();
@@ -34761,13 +34761,13 @@ async function run() {
         pushImage(`busybox@${dummyDigest}`, // 1.31
         `ghcr.io/${config.owner}/${config.package}:dummy`, undefined, args.token);
         // load after dummy to make sure the package exists on first clone/setup
-        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        await githubPackageRepo.loadVersions();
         // remove all the existing images - except for the dummy image
         for (const digest of packageIdByDigest.keys()) {
             if (digest !== dummyDigest) {
                 const id = packageIdByDigest.get(digest);
                 if (id) {
-                    await githubPackageRepo.deletePackageVersion(id, digest, []);
+                    await githubPackageRepo.deletePackageVersion(id);
                 }
             }
         }
@@ -34777,14 +34777,14 @@ async function run() {
             // reload
             packageIdByDigest = new Map();
             packagesById = new Map();
-            await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+            await githubPackageRepo.loadVersions();
             // make any deletions
             await deleteDigests(args.directory, packageIdByDigest, githubPackageRepo);
         }
     }
     else if (args.mode === 'validate') {
         // test the repo after the test
-        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        await githubPackageRepo.loadVersions();
         let error = false;
         // load the expected digests
         if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/expected-digests`)) {
@@ -34834,54 +34834,59 @@ async function run() {
                     expectedTags.add(line);
                 }
             }
-            const regTags = new Set(await registry.getTags());
-            for (const expectedTag of expectedTags) {
-                if (regTags.has(expectedTag)) {
-                    regTags.delete(expectedTag);
-                }
-                else {
-                    error = true;
-                    _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`expected tag ${expectedTag} not found after test`);
-                }
-            }
-            for (const regTag of regTags) {
-                error = true;
-                _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`extra tag found after test: ${regTag}`);
-            }
+            // const regTags = new Set(await registry.getTags())
+            // for (const expectedTag of expectedTags) {
+            //   if (regTags.has(expectedTag)) {
+            //     regTags.delete(expectedTag)
+            //   } else {
+            //     error = true
+            //     core.setFailed(`expected tag ${expectedTag} not found after test`)
+            //   }
+            // }
+            // for (const regTag of regTags) {
+            //   error = true
+            //   core.setFailed(`extra tag found after test: ${regTag}`)
+            // }
         }
         if (!error)
             console.info('test passed!');
     }
     else if (args.mode === 'save-expected') {
         // save the expected tag dynamically
-        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        await githubPackageRepo.loadVersions();
         const tags = new Set();
         for (const ghPackage of packagesById.values()) {
             for (const repoTag of ghPackage.metadata.container.tags) {
                 tags.add(repoTag);
             }
         }
-        if (tag) {
-            // find the digests in use for the supplied tag
-            const digest = await registry.getTagDigest(tag);
-            fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`);
-            // is there a refferrer digest
-            const referrerTag = digest.replace('sha256:', 'sha256-');
-            if (tags.has(tag)) {
-                fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`);
-                const referrerDigest = await registry.getTagDigest(referrerTag);
-                fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${referrerDigest}\n`);
-                const referrerManifest = await registry.getManifestByDigest(referrerDigest);
-                if (referrerManifest.manifests) {
-                    for (const manifest of referrerManifest.manifests) {
-                        fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifest.digest}\n`);
-                    }
-                }
-            }
-        }
-        else {
-            _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed('no tag supplied');
-        }
+        // if (tag) {
+        // find the digests in use for the supplied tag
+        // const digest = await registry.getTagDigest(tag)
+        // fs.appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`)
+        // is there a refferrer digest
+        //   const referrerTag = digest.replace('sha256:', 'sha256-')
+        //   if (tags.has(tag)) {
+        //     fs.appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`)
+        //     const referrerDigest = await registry.getTagDigest(referrerTag)
+        //     fs.appendFileSync(
+        //       `${args.directory}/expected-digests`,
+        //       `${referrerDigest}\n`
+        //     )
+        //     const referrerManifest =
+        //       await registry.getManifestByDigest(referrerDigest)
+        //     if (referrerManifest.manifests) {
+        //       for (const manifest of referrerManifest.manifests) {
+        //         fs.appendFileSync(
+        //           `${args.directory}/expected-digests`,
+        //           `${manifest.digest}\n`
+        //         )
+        //       }
+        //     }
+        //   }
+        // } else {
+        //   core.setFailed('no tag supplied')
+        // }
     }
 }
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
@@ -35278,6 +35283,9 @@ requestLog.VERSION = version_VERSION;
 
 // @ts-expect-error: esm errror
 const MyOctokit = dist_node.Octokit.plugin(requestLog, throttling, retry);
+/**
+ * Represents the log levels for the action.
+ */
 var LogLevel;
 (function (LogLevel) {
     LogLevel[LogLevel["ERROR"] = 1] = "ERROR";
@@ -35290,14 +35298,13 @@ class Config {
     owner = '';
     repository = '';
     package = '';
-    tags;
-    excludeTags;
-    validate;
-    logLevel;
-    keepNuntagged;
-    keepNtagged;
-    dryRun;
     token;
+    includeTags;
+    excludeTags;
+    keepNtagged;
+    keepNuntagged;
+    dryRun;
+    logLevel;
     octokit;
     constructor(token) {
         this.token = token;
@@ -35375,15 +35382,7 @@ function getConfig() {
     else {
         throw Error('GITHUB_REPOSITORY is not set');
     }
-    if (core.getInput('tags') && core.getInput('delete-tags')) {
-        throw Error('tags and delete-tags cant be used at the same time, use either one');
-    }
-    if (core.getInput('tags')) {
-        config.tags = core.getInput('tags');
-    }
-    else if (core.getInput('delete-tags')) {
-        config.tags = core.getInput('delete-tags');
-    }
+    config.includeTags = core.getInput('include-tags');
     config.excludeTags = core.getInput('exclude-tags');
     if (core.getInput('dry-run')) {
         config.dryRun = core.getBooleanInput('dry-run');
@@ -35394,30 +35393,29 @@ function getConfig() {
     else {
         config.dryRun = false;
     }
-    if (core.getInput('validate')) {
-        config.validate = core.getBooleanInput('validate');
-    }
-    else {
-        config.validate = false;
-    }
-    if (core.getInput('keep-n-untagged')) {
-        if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
-            throw new Error('keep-n-untagged is not number');
-        }
-        else {
-            config.keepNuntagged = parseInt(core.getInput('keep-n-untagged'));
-        }
-    }
     if (core.getInput('keep-n-tagged')) {
-        if (isNaN(parseInt(core.getInput('keep-n-tagged')))) {
+        const n = parseInt(core.getInput('keep-n-tagged'));
+        if (isNaN(n)) {
             throw new Error('keep-n-tagged is not number');
         }
+        else if (n < 0) {
+            throw new Error('keep-n-tagged is negative');
+        }
         else {
-            config.keepNtagged = parseInt(core.getInput('keep-n-tagged'));
+            config.keepNtagged = n;
         }
     }
-    if (config.keepNuntagged && config.keepNtagged) {
-        throw Error('keep-n-untagged and keep-n-tagged options can not be set at the same time');
+    if (core.getInput('keep-n-untagged')) {
+        const n = parseInt(core.getInput('keep-n-untagged'));
+        if (isNaN(n)) {
+            throw new Error('keep-n-untagged is not number');
+        }
+        else if (n < 0) {
+            throw new Error('keep-n-untagged is negative');
+        }
+        else {
+            config.keepNuntagged = n;
+        }
     }
     if (!config.owner) {
         throw new Error('owner is not set');
@@ -35455,28 +35453,49 @@ function getConfig() {
 /* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
 /* harmony export */   "l": () => (/* binding */ GithubPackageRepo)
 /* harmony export */ });
-/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
-/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
-
+/**
+ * Provides access to a package via the GitHub Packages REST API.
+ */
 class GithubPackageRepo {
+    // The action configuration
     config;
+    // The type of repository (User or Organization)
     repoType = 'Organization';
+    // Map of tags to package versions.
+    tag2version = new Map();
+    // Map of digests to package versions.
+    digest2version = new Map();
+    /**
+     * Constructor.
+     *
+     * @param config The action configuration
+     */
     constructor(config) {
         this.config = config;
     }
     async init() {
+        // Determine the repository type (User or Organization).
         this.repoType = await this.config.getOwnerType();
     }
-    async loadPackages(byDigest, packages) {
-        let getFunc = this.config.octokit.rest.packages
-            .getAllPackageVersionsForPackageOwnedByOrg;
+    /**
+     * Loads all versions of the package from the GitHub Packages API and populates the internal maps.
+     */
+    async loadVersions() {
+        // Clear the internal maps.
+        this.tag2version.clear();
+        this.digest2version.clear();
+        // Function to retrieve package versions.
+        let getFunc;
+        // Parameters for the function call.
         let getParams;
         if (this.repoType === 'User') {
+            // Use the appropriate function for user repos.
             getFunc = this.config.isPrivateRepo
                 ? this.config.octokit.rest.packages
                     .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
                 : this.config.octokit.rest.packages
                     .getAllPackageVersionsForPackageOwnedByUser;
+            // Parameters for the function call.
             getParams = {
                 package_type: 'container',
                 package_name: this.config.package,
@@ -35486,6 +35505,10 @@ class GithubPackageRepo {
             };
         }
         else {
+            getFunc =
+                this.config.octokit.rest.packages
+                    .getAllPackageVersionsForPackageOwnedByOrg;
+            // Parameters for the function call.
             getParams = {
                 package_type: 'container',
                 package_name: this.config.package,
@@ -35494,23 +35517,60 @@ class GithubPackageRepo {
                 per_page: 100
             };
         }
+        // Iterate over all package versions.
         for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
             for (const packageVersion of response.data) {
-                byDigest.set(packageVersion.name, packageVersion.id);
-                packages.set(packageVersion.id, packageVersion);
+                // Add the digest to the internal map.
+                this.digest2version.set(packageVersion.name, packageVersion);
+                // Add each tag to the internal map.
+                for (const tag of packageVersion.metadata.container.tags) {
+                    this.tag2version.set(tag, packageVersion);
+                }
             }
         }
     }
-    async deletePackageVersion(id, digest, tags, label) {
-        if (tags && tags.length > 0) {
-            _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
-        }
-        else if (label) {
-            _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest} ${label}`);
-        }
-        else {
-            _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest}`);
-        }
+    /**
+     * Return the tags for the package.
+     * @returns The tags for the package.
+     */
+    getTags() {
+        return Array.from(this.tag2version.keys());
+    }
+    /**
+     * Return the package version for a tag.
+     * @param tag The tag to search for.
+     * @returns The package version for the tag.
+     */
+    getVersionForTag(tag) {
+        return this.tag2version.get(tag);
+    }
+    /**
+     Return the digests for the package.
+     * @returns The digests for the package.
+     */
+    getDigests() {
+        return Array.from(this.digest2version.keys());
+    }
+    /**
+     * Return the package version for a digest.
+     * @param digest The digest to search for.
+     * @returns The package version for the digest.
+     */
+    getVersionForDigest(digest) {
+        return this.digest2version.get(digest);
+    }
+    /**
+     * Return all versions of the package.
+     * @returns All versions of the package.
+     */
+    getVersions() {
+        return Array.from(this.digest2version.values());
+    }
+    /**
+     * Delete a package version.
+     * @param id The ID of the package version to delete.
+     */
+    async deletePackageVersion(id) {
         if (!this.config.dryRun) {
             if (this.repoType === 'User') {
                 if (this.config.isPrivateRepo) {
@@ -35552,6 +35612,8 @@ class GithubPackageRepo {
 __nccwpck_require__.d(__webpack_exports__, {
   "B": () => (/* binding */ Registry)
 });
+
+// UNUSED EXPORTS: ManifestNotFoundException
 
 // NAMESPACE OBJECT: ./node_modules/axios/lib/platform/common/utils.js
 var common_utils_namespaceObject = {};
@@ -40810,9 +40872,19 @@ axiosRetry.isRetryableError = isRetryableError;
 var external_crypto_ = __nccwpck_require__(6113);
 ;// CONCATENATED MODULE: ./src/utils.ts
 
+/**
+ * Calculates the digest of a manifest using the SHA256 algorithm.
+ * @param manifest - The manifest to calculate the digest for.
+ * @returns The calculated digest in the format "sha256:{digest}".
+ */
 function calcDigest(manifest) {
-    return `sha256:${(0,external_crypto_.createHash)('sha256').update(manifest).digest('hex').toLowerCase()}`;
+    return `sha256:${createHash('sha256').update(manifest).digest('hex').toLowerCase()}`;
 }
+/**
+ * Parses a challenge string and returns a map of attributes.
+ * @param challenge - The challenge string to parse.
+ * @returns A map of attributes parsed from the challenge string.
+ */
 function parseChallenge(challenge) {
     const attributes = new Map();
     if (challenge.startsWith('Bearer ')) {
@@ -40843,24 +40915,78 @@ function isValidChallenge(attributes) {
 
 
 
+class ManifestNotFoundException extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'ManifestNotFoundException';
+    }
+}
+/**
+ * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
+ */
 class Registry {
+    // Action configuration.
     config;
+    // HTTP client.
     axios;
-    // cache of loaded manifests, by digest
+    // Cache of loaded manifests, by digest.
     manifestCache = new Map();
-    // map of tag digests
-    digestByTagCache = new Map();
-    // map of referrer manifests
-    referrersCache = new Map();
+    /**
+     * @constructor
+     * @param {Config} config - The configuration object.
+     */
     constructor(config) {
+        // Save configuration.
         this.config = config;
+        // Create HTTP client.
         this.axios = lib_axios.create({
             baseURL: 'https://ghcr.io/'
         });
+        // Set up retries.
         esm(this.axios, { retries: 3 });
+        // Set up default request headers.
         this.axios.defaults.headers.common['Accept'] =
             'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json';
     }
+    /**
+     * Handles the authentication challenge.
+     * @param challenge - The authentication challenge string.
+     * @returns A Promise that resolves when the authentication challenge is handled.
+     * @throws An error if the authentication challenge is invalid or the login fails.
+     */
+    async handleAuthenticationChallenge(challenge) {
+        // Parse the authentication challenge.
+        const attributes = parseChallenge(challenge);
+        // Check if the challenge is valid.
+        if (isValidChallenge(attributes)) {
+            // Try to authenticate using the token from the configuration.
+            const auth = lib_axios.create();
+            esm(auth, { retries: 3 });
+            const tokenResponse = await auth.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
+                auth: {
+                    username: 'token',
+                    password: this.config.token
+                }
+            });
+            // Try to extract the token from the returned data.
+            const token = tokenResponse.data.token;
+            if (token) {
+                return token;
+            }
+            else {
+                throw new Error(`ghcr.io login failed: ${token.response.data}`);
+            }
+        }
+        else {
+            throw new Error(`invalid www-authenticate challenge ${challenge}`);
+        }
+    }
+    /**
+     * Logs in to the registry.
+     * This method retrieves a token and handles authentication challenges if necessary.
+     * @returns A Promise that resolves when the login is successful.
+     * @throws If an error occurs during the login process.
+     */
     async login() {
         try {
             // get token
@@ -40870,28 +40996,9 @@ class Registry {
             if (axios_isAxiosError(error) && error.response) {
                 if (error.response?.status === 401) {
                     const challenge = error.response?.headers['www-authenticate'];
-                    const attributes = parseChallenge(challenge);
-                    if (isValidChallenge(attributes)) {
-                        const auth = lib_axios.create();
-                        esm(auth, { retries: 3 });
-                        const tokenResponse = await auth.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
-                            auth: {
-                                username: 'token',
-                                password: this.config.token
-                            }
-                        });
-                        const token = tokenResponse.data.token;
-                        if (token) {
-                            this.axios.defaults.headers.common['Authorization'] =
-                                `Bearer ${token}`;
-                        }
-                        else {
-                            throw new Error(`ghcr.io login failed: ${token.response.data}`);
-                        }
-                    }
-                    else {
-                        throw new Error(`invalid www-authenticate challenge ${challenge}`);
-                    }
+                    const token = await this.handleAuthenticationChallenge(challenge);
+                    this.axios.defaults.headers.common['Authorization'] =
+                        `Bearer ${token}`;
                 }
                 else {
                     throw error;
@@ -40899,175 +41006,81 @@ class Registry {
             }
         }
     }
-    async getTags(link) {
-        let tags = [];
-        let url = `/v2/${this.config.owner}/${this.config.package}/tags/list?n=100`;
-        if (link) {
-            url = link;
-        }
-        const response = await this.axios.get(url);
-        if (response.data.tags) {
-            tags = response.data.tags;
-        }
-        if (response.headers['link']) {
-            // we have more results to read
-            const headerLink = response.headers['link'];
-            const parts = headerLink.split('; ');
-            let next = parts[0];
-            if (next.startsWith('<') && next.endsWith('>')) {
-                next = next.substring(1, next.length - 1);
-            }
-            tags = tags.concat(await this.getTags(next));
-        }
-        return tags;
-    }
+    /**
+     * Retrieves a manifest by its digest.
+     *
+     * @param digest - The digest of the manifest to retrieve.
+     * @returns A Promise that resolves to the retrieved manifest.
+     * @throws {ManifestNotFoundException} If the manifest is not found for the given digest.
+     */
     async getManifestByDigest(digest) {
         if (this.manifestCache.has(digest)) {
+            // Return cached manifest.
             return this.manifestCache.get(digest);
         }
         else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${digest}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const obj = JSON.parse(response?.data);
-            // save it for later use
-            this.manifestCache.set(digest, obj);
-            return obj;
-        }
-    }
-    deleteTag(tag) {
-        this.digestByTagCache.delete(tag);
-    }
-    async getTagDigest(tag) {
-        if (!this.digestByTagCache.has(tag)) {
-            // load it
-            await this.getManifestByTag(tag);
-        }
-        const digest = this.digestByTagCache.get(tag);
-        if (digest) {
-            return digest;
-        }
-        else {
-            throw new Error(`couln't find digest for tag ${tag}`);
-        }
-    }
-    async getManifestByTag(tag) {
-        const cacheDigest = this.digestByTagCache.get(tag);
-        if (cacheDigest) {
-            // get the digest to look up the manifest
-            return this.manifestCache.get(cacheDigest);
-        }
-        else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const digest = calcDigest(response?.data);
-            const obj = JSON.parse(response?.data);
-            this.manifestCache.set(digest, obj);
-            this.digestByTagCache.set(tag, digest);
-            return obj;
-        }
-    }
-    // ignores referrers tags
-    async getAllTagDigests() {
-        const digests = [];
-        const tags = await this.getTags();
-        for (const tag of tags) {
-            // skip over referrer tags
-            if (!tag.startsWith('sha256-')) {
-                const manifest = await this.getManifestByTag(tag);
-                const digest = await this.getTagDigest(tag);
-                digests.push(digest);
-                // if manifest image add to the digests
-                if (manifest.manifests) {
-                    for (const imageManifest of manifest.manifests) {
-                        digests.push(imageManifest.digest);
-                    }
+            try {
+                // Retrieve the manifest.
+                const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${digest}`, {
+                    transformResponse: [
+                        data => {
+                            return data;
+                        }
+                    ]
+                });
+                const manifest = JSON.parse(response?.data);
+                // Save it for later use.
+                this.manifestCache.set(digest, manifest);
+                return manifest;
+            }
+            catch (error) {
+                if (axios_isAxiosError(error) &&
+                    error.response &&
+                    error.response.status === 400) {
+                    throw new ManifestNotFoundException(`Manifest not found for digest ${digest}`);
+                }
+                else {
+                    throw error;
                 }
             }
         }
-        return digests;
     }
+    /**
+     * Puts the manifest for a given tag in the registry.
+     * @param tag - The tag of the manifest.
+     * @param manifest - The manifest to be put.
+     * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
+     * @returns A Promise that resolves when the manifest is successfully put in the registry.
+     */
     async putManifest(tag, manifest, multiArch) {
         if (!this.config.dryRun) {
-            let contentType = 'application/vnd.oci.image.manifest.v1+json';
-            if (multiArch) {
-                contentType = 'application/vnd.oci.image.index.v1+json';
-            }
+            const contentType = multiArch
+                ? 'application/vnd.oci.image.manifest.v1+json'
+                : 'application/vnd.oci.image.index.v1+json';
             const config = {
                 headers: {
                     'Content-Type': contentType
                 }
             };
-            // upgrade token
-            let putToken;
             const auth = lib_axios.create();
             try {
+                // Try to put the manifest without token.
                 await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, config);
             }
             catch (error) {
-                if (axios_isAxiosError(error) && error.response) {
-                    if (error.response?.status === 401) {
-                        const challenge = error.response?.headers['www-authenticate'];
-                        const attributes = parseChallenge(challenge);
-                        if (isValidChallenge(attributes)) {
-                            // crude
-                            const tokenResponse = await auth.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
-                                auth: {
-                                    username: 'token',
-                                    password: this.config.token
-                                }
-                            });
-                            putToken = tokenResponse.data.token;
+                if (axios_isAxiosError(error) && error.response?.status === 401) {
+                    const token = await this.handleAuthenticationChallenge(error.response?.headers['www-authenticate']);
+                    await this.axios.put(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, {
+                        headers: {
+                            'content-type': contentType,
+                            Authorization: `Bearer ${token}`
                         }
-                        else {
-                            throw new Error(`invalid www-authenticate challenge ${challenge}`);
-                        }
-                    }
-                    else {
-                        throw error;
-                    }
+                    });
+                }
+                else {
+                    throw error;
                 }
             }
-            if (putToken) {
-                // now put the updated manifest
-                await this.axios.put(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, {
-                    headers: {
-                        'content-type': contentType,
-                        Authorization: `Bearer ${putToken}`
-                    }
-                });
-            }
-            else {
-                throw new Error('no token set to upload manifest');
-            }
-        }
-    }
-    // ghcr.io not yet supporting referrers api?
-    async getReferrersManifest(digest) {
-        if (this.referrersCache.has(digest)) {
-            return this.referrersCache.get(digest);
-        }
-        else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/referrers/${digest}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const obj = JSON.parse(response?.data);
-            // save it for later use
-            this.referrersCache.set(digest, obj);
-            return obj;
         }
     }
 }

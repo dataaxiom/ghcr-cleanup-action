@@ -1,9 +1,19 @@
 import { createHash } from 'crypto'
 
+/**
+ * Calculates the digest of a manifest using the SHA256 algorithm.
+ * @param manifest - The manifest to calculate the digest for.
+ * @returns The calculated digest in the format "sha256:{digest}".
+ */
 export function calcDigest(manifest: string): string {
   return `sha256:${createHash('sha256').update(manifest).digest('hex').toLowerCase()}`
 }
 
+/**
+ * Parses a challenge string and returns a map of attributes.
+ * @param challenge - The challenge string to parse.
+ * @returns A map of attributes parsed from the challenge string.
+ */
 export function parseChallenge(challenge: string): Map<string, string> {
   const attributes = new Map<string, string>()
   if (challenge.startsWith('Bearer ')) {
