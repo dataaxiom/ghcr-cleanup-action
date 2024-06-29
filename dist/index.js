@@ -1820,56 +1820,6 @@ function isLoopbackAddress(host) {
 
 /***/ }),
 
-/***/ 5375:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
-  Octokit: () => Octokit
-});
-module.exports = __toCommonJS(dist_src_exports);
-var import_core = __nccwpck_require__(4952);
-var import_plugin_request_log = __nccwpck_require__(748);
-var import_plugin_paginate_rest = __nccwpck_require__(606);
-var import_plugin_rest_endpoint_methods = __nccwpck_require__(4923);
-
-// pkg/dist-src/version.js
-var VERSION = "20.1.1";
-
-// pkg/dist-src/index.js
-var Octokit = import_core.Octokit.plugin(
-  import_plugin_request_log.requestLog,
-  import_plugin_rest_endpoint_methods.legacyRestEndpointMethods,
-  import_plugin_paginate_rest.paginateRest
-).defaults({
-  userAgent: `octokit-rest.js/${VERSION}`
-});
-// Annotate the CommonJS export names for ESM import in node:
-0 && (0);
-
-
-/***/ }),
-
 /***/ 7633:
 /***/ ((module) => {
 
@@ -3059,65 +3009,6 @@ function paginateRest(octokit) {
   };
 }
 paginateRest.VERSION = VERSION;
-// Annotate the CommonJS export names for ESM import in node:
-0 && (0);
-
-
-/***/ }),
-
-/***/ 748:
-/***/ ((module) => {
-
-
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
-  requestLog: () => requestLog
-});
-module.exports = __toCommonJS(dist_src_exports);
-
-// pkg/dist-src/version.js
-var VERSION = "4.0.1";
-
-// pkg/dist-src/index.js
-function requestLog(octokit) {
-  octokit.hook.wrap("request", (request, options) => {
-    octokit.log.debug("request", options);
-    const start = Date.now();
-    const requestOptions = octokit.request.endpoint.parse(options);
-    const path = requestOptions.url.replace(options.baseUrl, "");
-    return request(options).then((response) => {
-      octokit.log.info(
-        `${requestOptions.method} ${path} - ${response.status} in ${Date.now() - start}ms`
-      );
-      return response;
-    }).catch((error) => {
-      octokit.log.info(
-        `${requestOptions.method} ${path} - ${error.status} in ${Date.now() - start}ms`
-      );
-      throw error;
-    });
-  });
-}
-requestLog.VERSION = VERSION;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (0);
 
@@ -33964,7 +33855,7 @@ function wrappy (fn, cb) {
 /***/ ((module, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(5035);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1537);
 /**
  * The entrypoint for the action.
  */
@@ -33977,7 +33868,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 5035:
+/***/ 1537:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -33998,8 +33889,59 @@ __nccwpck_require__.d(common_utils_namespaceObject, {
 
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
 var core = __nccwpck_require__(2186);
-// EXTERNAL MODULE: ./node_modules/@octokit/rest/dist-node/index.js
-var dist_node = __nccwpck_require__(5375);
+// EXTERNAL MODULE: ./node_modules/@octokit/rest/node_modules/@octokit/core/dist-node/index.js
+var dist_node = __nccwpck_require__(4952);
+;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/version.js
+const VERSION = "5.3.0";
+
+
+;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/index.js
+
+function requestLog(octokit) {
+  octokit.hook.wrap("request", (request, options) => {
+    octokit.log.debug("request", options);
+    const start = Date.now();
+    const requestOptions = octokit.request.endpoint.parse(options);
+    const path = requestOptions.url.replace(options.baseUrl, "");
+    return request(options).then((response) => {
+      const requestId = response.headers["x-github-request-id"];
+      octokit.log.info(
+        `${requestOptions.method} ${path} - ${response.status} with id ${requestId} in ${Date.now() - start}ms`
+      );
+      return response;
+    }).catch((error) => {
+      const requestId = error.response.headers["x-github-request-id"] || "UNKNOWN";
+      octokit.log.error(
+        `${requestOptions.method} ${path} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
+      );
+      throw error;
+    });
+  });
+}
+requestLog.VERSION = VERSION;
+
+
+// EXTERNAL MODULE: ./node_modules/@octokit/rest/node_modules/@octokit/plugin-paginate-rest/dist-node/index.js
+var plugin_paginate_rest_dist_node = __nccwpck_require__(606);
+// EXTERNAL MODULE: ./node_modules/@octokit/rest/node_modules/@octokit/plugin-rest-endpoint-methods/dist-node/index.js
+var plugin_rest_endpoint_methods_dist_node = __nccwpck_require__(4923);
+;// CONCATENATED MODULE: ./node_modules/@octokit/rest/dist-src/version.js
+const version_VERSION = "21.0.0";
+
+
+;// CONCATENATED MODULE: ./node_modules/@octokit/rest/dist-src/index.js
+
+
+
+
+
+const Octokit = dist_node.Octokit.plugin(requestLog, plugin_rest_endpoint_methods_dist_node.legacyRestEndpointMethods, plugin_paginate_rest_dist_node.paginateRest).defaults(
+  {
+    userAgent: `octokit-rest.js/${version_VERSION}`
+  }
+);
+
+
 // EXTERNAL MODULE: ./node_modules/bottleneck/light.js
 var light = __nccwpck_require__(1174);
 ;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-throttling/dist-bundle/index.js
@@ -34008,7 +33950,7 @@ var light = __nccwpck_require__(1174);
 
 
 // pkg/dist-src/version.js
-var VERSION = "0.0.0-development";
+var dist_bundle_VERSION = "0.0.0-development";
 
 // pkg/dist-src/wrap-request.js
 var noop = () => Promise.resolve();
@@ -34209,7 +34151,7 @@ function throttling(octokit, octokitOptions) {
   octokit.hook.wrap("request", wrapRequest.bind(null, state));
   return {};
 }
-throttling.VERSION = VERSION;
+throttling.VERSION = dist_bundle_VERSION;
 throttling.triggersNotification = triggersNotification;
 
 
@@ -34303,7 +34245,7 @@ async function requestWithGraphqlErrorHandling(state, octokit, request, options)
 }
 
 // pkg/dist-src/index.js
-var dist_bundle_VERSION = "0.0.0-development";
+var plugin_retry_dist_bundle_VERSION = "0.0.0-development";
 function retry(octokit, octokitOptions) {
   const state = Object.assign(
     {
@@ -34330,37 +34272,7 @@ function retry(octokit, octokitOptions) {
     }
   };
 }
-retry.VERSION = dist_bundle_VERSION;
-
-
-;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/version.js
-const version_VERSION = "5.2.0";
-
-
-;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/index.js
-
-function requestLog(octokit) {
-  octokit.hook.wrap("request", (request, options) => {
-    octokit.log.debug("request", options);
-    const start = Date.now();
-    const requestOptions = octokit.request.endpoint.parse(options);
-    const path = requestOptions.url.replace(options.baseUrl, "");
-    return request(options).then((response) => {
-      const requestId = response.headers["x-github-request-id"];
-      octokit.log.info(
-        `${requestOptions.method} ${path} - ${response.status} with id ${requestId} in ${Date.now() - start}ms`
-      );
-      return response;
-    }).catch((error) => {
-      const requestId = error.response.headers["x-github-request-id"] || "UNKNOWN";
-      octokit.log.error(
-        `${requestOptions.method} ${path} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
-      );
-      throw error;
-    });
-  });
-}
-requestLog.VERSION = version_VERSION;
+retry.VERSION = plugin_retry_dist_bundle_VERSION;
 
 
 ;// CONCATENATED MODULE: ./src/config.ts
@@ -34370,7 +34282,7 @@ requestLog.VERSION = version_VERSION;
 
 
 // @ts-expect-error: esm errror
-const MyOctokit = dist_node.Octokit.plugin(requestLog, throttling, retry);
+const MyOctokit = Octokit.plugin(requestLog, throttling, retry);
 var LogLevel;
 (function (LogLevel) {
     LogLevel[LogLevel["ERROR"] = 1] = "ERROR";
@@ -39737,8 +39649,23 @@ async function handleRetry(axiosInstance, currentState, error, config) {
     }
     config.transformRequest = [(data) => data];
     await onRetry(currentState.retryCount, error, config);
+    if (config.signal?.aborted) {
+        return Promise.resolve(axiosInstance(config));
+    }
     return new Promise((resolve) => {
-        setTimeout(() => resolve(axiosInstance(config)), delay);
+        const abortListener = () => {
+            clearTimeout(timeout);
+            resolve(axiosInstance(config));
+        };
+        const timeout = setTimeout(() => {
+            resolve(axiosInstance(config));
+            if (config.signal?.removeEventListener) {
+                config.signal.removeEventListener('abort', abortListener);
+            }
+        }, delay);
+        if (config.signal?.addEventListener) {
+            config.signal.addEventListener('abort', abortListener, { once: true });
+        }
     });
 }
 async function handleMaxRetryTimesExceeded(currentState, error) {
