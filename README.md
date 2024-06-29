@@ -22,6 +22,13 @@ It includes the following features:
 
 ## Setup
 
+### Do a dry-run
+
+Test the cleanup action first by setting the "dry-run: true" option on the
+action and then reviewing the workflow log. This mode will simulate the cleanup
+action but will not delete any images/packages. This is especially important
+when using a wild card syntax to select images.
+
 ### Token Permissions
 
 To allow the injected GITHUB_TOKEN to have access to delete the images/packages
@@ -56,10 +63,10 @@ ensure it's permissions have been setup correctly, either by:
 | repository      |    no    | repository name | The repository name                                                  |
 | package         |    no    | repository name | The package name                                                     |
 
-If the tags, keep_n_untagged or keep_n_tagged options are not set then all
+If the tags, keep-n-untagged or keep-n-tagged options are not set then all
 untagged images will be deleted.
 
-The keep_n_untagged and keep_n_tagged options can not be set at the same time.
+The keep-n-untagged and keep-n-tagged options can not be set at the same time.
 
 ## Main Execution Modes
 
@@ -231,12 +238,6 @@ jobs:
 ```
 
 ## Notes
-
-### Do a dry-run
-
-Test the cleanup action first by setting the "dry-run: true" option on the
-action and then reviewing the workflow log. This mode will simulate the cleanup
-action but will not delete any images/packages.
 
 ### Package Restoration
 
