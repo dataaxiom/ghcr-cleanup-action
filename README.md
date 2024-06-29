@@ -27,7 +27,7 @@ It includes the following features:
 Test the cleanup action first by setting the "dry-run: true" option on the
 action and then reviewing the workflow log. This mode will simulate the cleanup
 action but will not delete any images/packages. This is especially important
-when using a wild card syntax to select images.
+when using a wildcard syntax to select images.
 
 ### Token Permissions
 
