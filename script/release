@@ -71,6 +71,6 @@ git tag -a "v$major.$minor.$patch" -m "v$major.$minor.$patch"
 echo -e "${GREEN}Tagged: v$major.$minor.$patch${OFF}"
 
 # Push the new tag to the remote
-git push origin :"v$major" "v$major" :"v$major.$minor" "v$major.$minor" :"v$major.$minor.$patch" "v$major.$minor.$patch"
+git push origin :"v$major" "v$major" :"v$major.$minor" "v$major.$minor" "v$major.$minor.$patch"
 echo -e "${GREEN}Release tag pushed to remote${OFF}"
 echo -e "${GREEN}Done!${OFF}"
