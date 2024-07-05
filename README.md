@@ -29,7 +29,7 @@ Includes the following features:
 
 ### Token Permissions
 
-THe injected GITHUB_TOKEN needs permissions to delete images/package versions
+The injected GITHUB_TOKEN needs permissions to delete images/package versions
 from the package repository. Ensure permissions are set up correctly:
 
 - In project Settings > Actions > General set the Workflow permissions option to
