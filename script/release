@@ -18,13 +18,13 @@
 #
 # script/release
 
-# Terminal colors
+# Terminal colors.
 OFF='\033[0m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 
-# Get the latest release tag
+# Get the latest release tag.
 latest_tag=$(git describe --tags "$(git rev-list --tags --max-count=1)")
 
 if [[ -z "$latest_tag" ]]; then
@@ -40,7 +40,7 @@ echo -e "The latest release tag is: ${BLUE}${latest_tag}${OFF}"
 read -r -p 'Enter a new release tag (vX.X.X format): ' new_tag
 
 # Validate the new release tag
-tag_regex='v[0-9]+\.[0-9]+\.[0-9]+$'
+tag_regex='v([0-9]+)\.([0-9]+)\.([0-9]+)$'
 if echo "$new_tag" | grep -q -E "$tag_regex"; then
 	echo -e "Tag: ${BLUE}$new_tag${OFF} is valid"
 else
@@ -49,11 +49,28 @@ else
 	exit 1
 fi
 
-# Tag the new release
-git tag -a "$new_tag" -m "$new_tag Release"
-echo -e "${GREEN}Tagged: $new_tag${OFF}"
+# Extract major, minor, and patch number from the new release tag
+if [[ $new_tag =~ $tag_regex ]]; then
+	major=${BASH_REMATCH[1]}
+	minor=${BASH_REMATCH[2]}
+	patch=${BASH_REMATCH[3]}
+else
+	echo -e "Failed to extract major, minor, and patch number from the new release tag"
+	exit 1
+fi
+
+# Delete previous tags of the form vX and vX.X, if they exist.
+git tag -d "v$major" "v$major.$minor"
+
+# Tag the new release.
+git tag -a "v$major" -m "v$major"
+echo -e "${GREEN}Tagged: v$major${OFF}"
+git tag -a "v$major.$minor" -m "v$major.$minor"
+echo -e "${GREEN}Tagged: v$major.$minor${OFF}"
+git tag -a "v$major.$minor.$patch" -m "v$major.$minor.$patch"
+echo -e "${GREEN}Tagged: v$major.$minor.$patch${OFF}"
 
 # Push the new tag to the remote
-git push --tags
+git push origin :"v$major" "v$major" :"v$major.$minor" "v$major.$minor" :"v$major.$minor.$patch" "v$major.$minor.$patch"
 echo -e "${GREEN}Release tag pushed to remote${OFF}"
 echo -e "${GREEN}Done!${OFF}"
