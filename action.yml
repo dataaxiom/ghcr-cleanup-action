@@ -1,4 +1,4 @@
-name: ghcr.io Repository Cleanup Action
+name: ghcr.io Container Repository Cleanup Action
 
 description: >
   Delete obsolete images from a repository in the GitHub Container Registry

@@ -1,4 +1,4 @@
-# ghcr.io Repository Cleanup Action
+# ghcr.io Container Repository Cleanup Action
 
 [![GitHub Super-Linter](https://github.com/jenskeiner/ghcr-container-repository-cleanup-action/actions/workflows/linter.yml/badge.svg)](https://github.com/super-linter/super-linter)
 ![CI](https://github.com/jenskeiner/ghcr-container-repository-cleanup-action/actions/workflows/ci.yml/badge.svg)
@@ -126,10 +126,10 @@ Set the `include-tags` option to delete specific tags.
 
 ```yaml
 jobs:
-  - name: Cleanup
+  - name: ghcr.io container repository cleanup action
     runs-on: ubuntu-latest
     steps:
-      - uses: jenskeiner/ghcr-cleanup-action@v1
+      - uses: jenskeiner/ghcr-container-repository-cleanup-action@v1
         with:
           include-tags: mytag|mytag2
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -152,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete pull request tags and images
-        uses: jenskeiner/ghcr-cleanup-action@v1
+        uses: jenskeiner/ghcr-container-repository-cleanup-action@v1
         with:
           include-tags: pr-${{github.event.pull_request.number}}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -166,10 +166,10 @@ package name.
 
 ```yaml
 jobs:
-  - name: ghcr.io cleanup action
+  - name: ghcr.io container repository cleanup action
     runs-on: ubuntu-latest
     steps:
-      - uses: jenskeiner/ghcr-cleanup-action@v1
+      - uses: jenskeiner/ghcr-container-repository-cleanup-action@v1
         with:
           exclude-tags: mytag|mytag2
           keep-n-tagged: 0
@@ -194,11 +194,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete obsolete tags and images
-        uses: jenskeiner/ghcr-cleanup-action@v1
+        uses: jenskeiner/ghcr-container-repository-cleanup-action@v1
         with:
-          # Don't delete main, master, develop, semantic version tags, 
+          # Don't delete main, master, develop, semantic version tags,
           # and pull request tags.
-          exclude-tags: '^main|master|develop|\d+(?:\.\d+){0,2}|pr-\d+$' 
+          exclude-tags: '^main|master|develop|\d+(?:\.\d+){0,2}|pr-\d+$'
           keep-n-tagged: 0
           keep-n-untagged: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -212,10 +212,10 @@ with a positive value.
 
 ```yaml
 jobs:
-  - name: ghcr.io cleanup action
+  - name: ghcr.io container repository cleanup action
     runs-on: ubuntu-latest
     steps:
-      - uses: jenskeiner/ghcr-cleanup-action@v1
+      - uses: jenskeiner/ghcr-container-repository-cleanup-action@v1
         with:
           exclude-tags: mytag|mytag2
           keep-n-tagged: 3
@@ -235,7 +235,7 @@ these can be overriden by setting owner, repository and package values.
 
 ```yaml
 jobs:
-  - name: ghcr.io cleanup action
+  - name: ghcr.io container repository cleanup action
     runs-on: ubuntu-latest
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
