@@ -1,0 +1,43 @@
+// sha256:6d9a2e77c3b19944a28c3922f5715ede91c1ae869d91edf5f6adf88ed54e97cf // dummy image should get deleted as well
+
+sha256:cd421f41ebaab52ae1ac91a8391ddbd094595264c6e689954b79b3d24ea52f88 // 1.31-uclibc multi-arch manifest list
+sha256:1ee006886991ad4689838d3a288e0dd3fd29b70e276622f16b67a8922831a853 // 1.31-uclibc linux/arm64/v8
+sha256:0ed7a4588573e91f1601ef93449136a54f57a9277d67835eded3818d873cb6f8 // 1.31-uclibc linux/arm/v7
+sha256:fd4a8673d0344c3a7f427fe4440d4b8dfd4fa59cfabbd9098f9eb0cb4ba905d0 // 1.31-uclibc linux/amd64
+sha256:999f1137906d82f896a70c18ed63d2797a1562cd7d4d2c1907f681b35c30459d // 1.31-uclibc linux/386
+sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f // 1.31-uclibc linux/mips64le
+sha256:6cc0997f14702efd436598fa83a4f7ddc7be6d2d9e8e3b6f94b63d3389aeb8c4 // 1.31-uclibc linux/arm/v5
+
+sha256:136787c141852fd4b9b1e06e7cfda442fc3903a7b40b8fe9c91e0a97cb68aaf6 // 1.34-uclibc multi-arch manifest list
+sha256:bd2e91e69aab407d5dd5cbed335db4e689b7e07296896b011337ea39e4c6c9e3 // 1.34-uclibc linux/amd64
+sha256:f63c301e3c72bb28862d25834fd62cb2ab69771fbe2c3d75c9ef80cbceeb10b0 // 1.34-uclibc linux/arm/v5
+sha256:fa593fea4652962c58eb580d901227656cd38bdefdf3b30c1943ba835e0e43c0 // 1.34-uclibc linux/arm/v7
+sha256:426959e366f6be21b9a300af9d84678884d78d33b31c925228ea40a5ebd96ec1 // 1.34-uclibc linux/arm64/v8
+sha256:9c4bf07a332df43e621b541af2873ab83160031e4756c42a44765c7bfd3ec7c4 // 1.34-uclibc linux/i386
+sha256:9adfdd8d78315e5163b6c943d596240e2eb2b75e8c589dc7600395e0717f6795 // 1.34-uclibc linux/mips64le
+sha256:92f6eed1de620dd42e1fb36e4a04e394d462b180cb48672189a90cb236df35f7 // 1.34-uclibc linux/riscv64
+
+sha256:b4899072f500eabf2504e7d0348955b46cd3f60dcbb3bc97ff56e5ef793263f7 // 1.35-glibc multi-arch manifest list (untagged)
+sha256:7033ccb216e3d50435f389125e4bcbab60c1eeb11c2efb921f8a6ba051fba44e // 1.35-glibc linux/ppc64le (untagged)
+sha256:427e650d8e154867a0565876a8f75ff3bb3b0c478e8cb0958bef3e94a6233627 // 1.35-glibc linux/riscv64 (untagged)
+sha256:3c38b35913846e31ff760be79d619901cc0ae97dd2518b1861f6baff810b71b7 // 1.35-glibc linux/s390x (untagged)
+
+sha256:97d85ff9630b634ddff3e3ff69fd02bc3b69de8dba0c5002eb0ad6915d1bf4c0 // 1.36-uclibc multi-arch manifest list
+sha256:b9ec44e0c85c90e8d2b0924d14f9c7b660ac3e1f54ba93775ef14141b99da784 // 1.36-uclibc linux/amd64
+sha256:51b23b77f857a4162b822fefdec06ce186069f16a8abbcad749fa316e7b59559 // 1.36-uclibc linux/arm/v5
+sha256:d17e303da1fdc67a0fdbb3c6f762e1f3636cb7c39796ba43e3cdcdad8b254e0d // 1.36-uclibc linux/arm/v7
+sha256:35834e2f1b1af43c91fb78f1ae048f4a4dbde25783427ee2de0c1025b9884e4c // 1.36-uclibc linux/arm64/v8
+sha256:3db309c17e4d867279fc722f212e7f1b1bb1d0fdd254e9c19ab6dc5cfa5e116b // 1.36-uclibc linux/386
+sha256:c7010eb77c634ddb8817d43e275079adb398399ed53014f6b7358c8d00a3d9ff // 1.36-uclibc linux/mips64le
+sha256:0a9ce6c1a04fbe0711e61c7179b0bc0a9cc1dd1bf4ba998ef1a09f7437463ddf // 1.36-uclibc linux/riscv64
+
+sha256:25e9fcbd3799fce9c0ec978303d35dbb18a6ffb1fc76fc9b181dd4e657e2cd13 // 1.36-glibc multi-arch manifest list (untagged)
+sha256:50aa4698fa6262977cff89181b2664b99d8a56dbca847bf62f2ef04854597cf8 // 1.36-glibc linux/amd64 (untagged)
+sha256:4f59192a36b74af7fac168709958274fde518efc52c6b727f1c15767838f6593 // 1.36-glibc linux/arm/v5 (untagged)
+sha256:f818f615af072e0e97b8c4cb065beefafb97ff3ecd7f3f5842b2a55492df5573 // 1.36-glibc linux/arm/v7 (untagged)
+sha256:8bd2137dd2a779a73bba21c508ed0d899898a73974c4a6a675c6cd8a8a726547 // 1.36-glibc linux/arm64/v8 (untagged)
+sha256:8cb10e6e178f7380e1f4207ab36535b983f24fa9c510dbab15fb4e83ceb8374a // 1.36-glibc linux/386 (untagged)
+sha256:2b790cbdfed430c4d23317d807b0e7a042125491b0874f48ea9cf8f8dc8c1ed0 // 1.36-glibc linux/mips64le (untagged)
+sha256:695e336a2d2bebc1e84d31aaf410bb839e42798ee9513ca93f2bb17c2228aaab // 1.36-glibc linux/ppc64le (untagged)
+sha256:efd5b4545a7ae2ccbe13f667ea8755af8a04367e42e38ce150a623c09319cc6d // 1.36-glibc linux/riscv64 (untagged)
+sha256:296b36302bbc517808484e7ceba75141eb3d62d97d3c2f1ce53d6c1149262b63 // 1.36-glibc linux/s390x (untagged)

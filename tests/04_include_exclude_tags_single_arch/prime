@@ -1,0 +1,4 @@
+busybox@sha256:1ccc0a0ca577e5fb5a0bdf2150a1a9f842f47c8865e861fa0062c5d343eb8cac|1.32-uclibc // linux/amd64
+busybox@sha256:febcf61cd6e1ac9628f6ac14fa40836d16f3c6ddef3b303ff0321606e55ddd0b|1.33-uclibc // linux/amd64
+busybox@sha256:bd2e91e69aab407d5dd5cbed335db4e689b7e07296896b011337ea39e4c6c9e3|1.34-uclibc // linux/amd64
+

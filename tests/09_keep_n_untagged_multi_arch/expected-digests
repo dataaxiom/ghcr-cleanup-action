@@ -1,0 +1,5 @@
+sha256:6d9a2e77c3b19944a28c3922f5715ede91c1ae869d91edf5f6adf88ed54e97cf // dummy image
+
+sha256:97d85ff9630b634ddff3e3ff69fd02bc3b69de8dba0c5002eb0ad6915d1bf4c0 // 1.36-uclibc multi-arch manifest list
+sha256:c7010eb77c634ddb8817d43e275079adb398399ed53014f6b7358c8d00a3d9ff // 1.36-uclibc linux/mips64le
+sha256:0a9ce6c1a04fbe0711e61c7179b0bc0a9cc1dd1bf4ba998ef1a09f7437463ddf // 1.36-uclibc linux/riscv64

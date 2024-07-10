@@ -1820,56 +1820,6 @@ function isLoopbackAddress(host) {
 
 /***/ }),
 
-/***/ 5375:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
-  Octokit: () => Octokit
-});
-module.exports = __toCommonJS(dist_src_exports);
-var import_core = __nccwpck_require__(4952);
-var import_plugin_request_log = __nccwpck_require__(748);
-var import_plugin_paginate_rest = __nccwpck_require__(606);
-var import_plugin_rest_endpoint_methods = __nccwpck_require__(4923);
-
-// pkg/dist-src/version.js
-var VERSION = "20.1.1";
-
-// pkg/dist-src/index.js
-var Octokit = import_core.Octokit.plugin(
-  import_plugin_request_log.requestLog,
-  import_plugin_rest_endpoint_methods.legacyRestEndpointMethods,
-  import_plugin_paginate_rest.paginateRest
-).defaults({
-  userAgent: `octokit-rest.js/${VERSION}`
-});
-// Annotate the CommonJS export names for ESM import in node:
-0 && (0);
-
-
-/***/ }),
-
 /***/ 7633:
 /***/ ((module) => {
 
@@ -3059,65 +3009,6 @@ function paginateRest(octokit) {
   };
 }
 paginateRest.VERSION = VERSION;
-// Annotate the CommonJS export names for ESM import in node:
-0 && (0);
-
-
-/***/ }),
-
-/***/ 748:
-/***/ ((module) => {
-
-
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
-  requestLog: () => requestLog
-});
-module.exports = __toCommonJS(dist_src_exports);
-
-// pkg/dist-src/version.js
-var VERSION = "4.0.1";
-
-// pkg/dist-src/index.js
-function requestLog(octokit) {
-  octokit.hook.wrap("request", (request, options) => {
-    octokit.log.debug("request", options);
-    const start = Date.now();
-    const requestOptions = octokit.request.endpoint.parse(options);
-    const path = requestOptions.url.replace(options.baseUrl, "");
-    return request(options).then((response) => {
-      octokit.log.info(
-        `${requestOptions.method} ${path} - ${response.status} in ${Date.now() - start}ms`
-      );
-      return response;
-    }).catch((error) => {
-      octokit.log.info(
-        `${requestOptions.method} ${path} - ${error.status} in ${Date.now() - start}ms`
-      );
-      throw error;
-    });
-  });
-}
-requestLog.VERSION = VERSION;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (0);
 
@@ -33964,7 +33855,7 @@ function wrappy (fn, cb) {
 /***/ ((module, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1982);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(9653);
 /**
  * The entrypoint for the action.
  */
@@ -33977,7 +33868,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 1982:
+/***/ 9653:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -33998,17 +33889,67 @@ __nccwpck_require__.d(common_utils_namespaceObject, {
 
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
 var core = __nccwpck_require__(2186);
-// EXTERNAL MODULE: ./node_modules/@octokit/rest/dist-node/index.js
-var dist_node = __nccwpck_require__(5375);
+// EXTERNAL MODULE: ./node_modules/@octokit/rest/node_modules/@octokit/core/dist-node/index.js
+var dist_node = __nccwpck_require__(4952);
+;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/version.js
+const VERSION = "5.3.1";
+
+
+;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/index.js
+
+function requestLog(octokit) {
+  octokit.hook.wrap("request", (request, options) => {
+    octokit.log.debug("request", options);
+    const start = Date.now();
+    const requestOptions = octokit.request.endpoint.parse(options);
+    const path = requestOptions.url.replace(options.baseUrl, "");
+    return request(options).then((response) => {
+      const requestId = response.headers["x-github-request-id"];
+      octokit.log.info(
+        `${requestOptions.method} ${path} - ${response.status} with id ${requestId} in ${Date.now() - start}ms`
+      );
+      return response;
+    }).catch((error) => {
+      const requestId = error.response?.headers["x-github-request-id"] || "UNKNOWN";
+      octokit.log.error(
+        `${requestOptions.method} ${path} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
+      );
+      throw error;
+    });
+  });
+}
+requestLog.VERSION = VERSION;
+
+
+// EXTERNAL MODULE: ./node_modules/@octokit/rest/node_modules/@octokit/plugin-paginate-rest/dist-node/index.js
+var plugin_paginate_rest_dist_node = __nccwpck_require__(606);
+// EXTERNAL MODULE: ./node_modules/@octokit/rest/node_modules/@octokit/plugin-rest-endpoint-methods/dist-node/index.js
+var plugin_rest_endpoint_methods_dist_node = __nccwpck_require__(4923);
+;// CONCATENATED MODULE: ./node_modules/@octokit/rest/dist-src/version.js
+const version_VERSION = "21.0.1";
+
+
+;// CONCATENATED MODULE: ./node_modules/@octokit/rest/dist-src/index.js
+
+
+
+
+
+const Octokit = dist_node.Octokit.plugin(requestLog, plugin_rest_endpoint_methods_dist_node.legacyRestEndpointMethods, plugin_paginate_rest_dist_node.paginateRest).defaults(
+  {
+    userAgent: `octokit-rest.js/${version_VERSION}`
+  }
+);
+
+
 // EXTERNAL MODULE: ./node_modules/bottleneck/light.js
 var light = __nccwpck_require__(1174);
 ;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-throttling/dist-bundle/index.js
 // pkg/dist-src/index.js
 
 
-
 // pkg/dist-src/version.js
-var VERSION = "0.0.0-development";
+var dist_bundle_VERSION = "0.0.0-development";
 
 // pkg/dist-src/wrap-request.js
 var noop = () => Promise.resolve();
@@ -34209,7 +34150,7 @@ function throttling(octokit, octokitOptions) {
   octokit.hook.wrap("request", wrapRequest.bind(null, state));
   return {};
 }
-throttling.VERSION = VERSION;
+throttling.VERSION = dist_bundle_VERSION;
 throttling.triggersNotification = triggersNotification;
 
 
@@ -34230,11 +34171,11 @@ class RequestError extends Error {
   response;
   constructor(message, statusCode, options) {
     super(message);
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
     this.name = "HttpError";
-    this.status = statusCode;
+    this.status = Number.parseInt(statusCode);
+    if (Number.isNaN(this.status)) {
+      this.status = 0;
+    }
     if ("response" in options) {
       this.response = options.response;
     }
@@ -34303,7 +34244,7 @@ async function requestWithGraphqlErrorHandling(state, octokit, request, options)
 }
 
 // pkg/dist-src/index.js
-var dist_bundle_VERSION = "0.0.0-development";
+var plugin_retry_dist_bundle_VERSION = "0.0.0-development";
 function retry(octokit, octokitOptions) {
   const state = Object.assign(
     {
@@ -34330,37 +34271,7 @@ function retry(octokit, octokitOptions) {
     }
   };
 }
-retry.VERSION = dist_bundle_VERSION;
-
-
-;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/version.js
-const version_VERSION = "5.2.0";
-
-
-;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/index.js
-
-function requestLog(octokit) {
-  octokit.hook.wrap("request", (request, options) => {
-    octokit.log.debug("request", options);
-    const start = Date.now();
-    const requestOptions = octokit.request.endpoint.parse(options);
-    const path = requestOptions.url.replace(options.baseUrl, "");
-    return request(options).then((response) => {
-      const requestId = response.headers["x-github-request-id"];
-      octokit.log.info(
-        `${requestOptions.method} ${path} - ${response.status} with id ${requestId} in ${Date.now() - start}ms`
-      );
-      return response;
-    }).catch((error) => {
-      const requestId = error.response.headers["x-github-request-id"] || "UNKNOWN";
-      octokit.log.error(
-        `${requestOptions.method} ${path} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
-      );
-      throw error;
-    });
-  });
-}
-requestLog.VERSION = version_VERSION;
+retry.VERSION = plugin_retry_dist_bundle_VERSION;
 
 
 ;// CONCATENATED MODULE: ./src/config.ts
@@ -34370,7 +34281,7 @@ requestLog.VERSION = version_VERSION;
 
 
 // @ts-expect-error: esm errror
-const MyOctokit = dist_node.Octokit.plugin(requestLog, throttling, retry);
+const MyOctokit = Octokit.plugin(requestLog, throttling, retry);
 /**
  * Represents the log levels for the action.
  */
@@ -34449,7 +34360,7 @@ function getConfig() {
     config.repository = core.getInput('repository');
     config.package = core.getInput('package');
     // auto populate
-    const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
+    const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY;
     if (GITHUB_REPOSITORY) {
         const parts = GITHUB_REPOSITORY.split('/');
         if (parts.length === 2) {
@@ -35213,6 +35124,36 @@ const isAsyncFn = kindOfTest('AsyncFunction');
 const isThenable = (thing) =>
   thing && (isObject(thing) || isFunction(thing)) && isFunction(thing.then) && isFunction(thing.catch);
 
+// original code
+// https://github.com/DigitalBrainJS/AxiosPromise/blob/16deab13710ec09779922131f3fa5954320f83ab/lib/utils.js#L11-L34
+
+const _setImmediate = ((setImmediateSupported, postMessageSupported) => {
+  if (setImmediateSupported) {
+    return setImmediate;
+  }
+
+  return postMessageSupported ? ((token, callbacks) => {
+    _global.addEventListener("message", ({source, data}) => {
+      if (source === _global && data === token) {
+        callbacks.length && callbacks.shift()();
+      }
+    }, false);
+
+    return (cb) => {
+      callbacks.push(cb);
+      _global.postMessage(token, "*");
+    }
+  })(`axios@${Math.random()}`, []) : (cb) => setTimeout(cb);
+})(
+  typeof setImmediate === 'function',
+  isFunction(_global.postMessage)
+);
+
+const asap = typeof queueMicrotask !== 'undefined' ?
+  queueMicrotask.bind(_global) : ( typeof process !== 'undefined' && process.nextTick || _setImmediate);
+
+// *********************
+
 /* harmony default export */ const utils = ({
   isArray,
   isArrayBuffer,
@@ -35268,7 +35209,9 @@ const isThenable = (thing) =>
   isSpecCompliantForm,
   toJSONObject,
   isAsyncFn,
-  isThenable
+  isThenable,
+  setImmediate: _setImmediate,
+  asap
 });
 
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/core/AxiosError.js
@@ -36690,7 +36633,7 @@ var follow_redirects = __nccwpck_require__(7707);
 // EXTERNAL MODULE: external "zlib"
 var external_zlib_ = __nccwpck_require__(9796);
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/env/data.js
-const data_VERSION = "1.7.2";
+const data_VERSION = "1.7.3";
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/parseProtocol.js
 
 
@@ -36756,103 +36699,7 @@ function fromDataURI(uri, asBlob, options) {
 
 // EXTERNAL MODULE: external "stream"
 var external_stream_ = __nccwpck_require__(2781);
-;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/throttle.js
-
-
-/**
- * Throttle decorator
- * @param {Function} fn
- * @param {Number} freq
- * @return {Function}
- */
-function throttle(fn, freq) {
-  let timestamp = 0;
-  const threshold = 1000 / freq;
-  let timer = null;
-  return function throttled() {
-    const force = this === true;
-
-    const now = Date.now();
-    if (force || now - timestamp > threshold) {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      timestamp = now;
-      return fn.apply(null, arguments);
-    }
-    if (!timer) {
-      timer = setTimeout(() => {
-        timer = null;
-        timestamp = Date.now();
-        return fn.apply(null, arguments);
-      }, threshold - (now - timestamp));
-    }
-  };
-}
-
-/* harmony default export */ const helpers_throttle = (throttle);
-
-;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/speedometer.js
-
-
-/**
- * Calculate data maxRate
- * @param {Number} [samplesCount= 10]
- * @param {Number} [min= 1000]
- * @returns {Function}
- */
-function speedometer(samplesCount, min) {
-  samplesCount = samplesCount || 10;
-  const bytes = new Array(samplesCount);
-  const timestamps = new Array(samplesCount);
-  let head = 0;
-  let tail = 0;
-  let firstSampleTS;
-
-  min = min !== undefined ? min : 1000;
-
-  return function push(chunkLength) {
-    const now = Date.now();
-
-    const startedAt = timestamps[tail];
-
-    if (!firstSampleTS) {
-      firstSampleTS = now;
-    }
-
-    bytes[head] = chunkLength;
-    timestamps[head] = now;
-
-    let i = tail;
-    let bytesCount = 0;
-
-    while (i !== head) {
-      bytesCount += bytes[i++];
-      i = i % samplesCount;
-    }
-
-    head = (head + 1) % samplesCount;
-
-    if (head === tail) {
-      tail = (tail + 1) % samplesCount;
-    }
-
-    if (now - firstSampleTS < min) {
-      return;
-    }
-
-    const passed = startedAt && now - startedAt;
-
-    return passed ? Math.round(bytesCount * 1000 / passed) : undefined;
-  };
-}
-
-/* harmony default export */ const helpers_speedometer = (speedometer);
-
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/AxiosTransformStream.js
-
-
 
 
 
@@ -36877,12 +36724,8 @@ class AxiosTransformStream extends external_stream_.Transform{
       readableHighWaterMark: options.chunkSize
     });
 
-    const self = this;
-
     const internals = this[kInternals] = {
-      length: options.length,
       timeWindow: options.timeWindow,
-      ticksRate: options.ticksRate,
       chunkSize: options.chunkSize,
       maxRate: options.maxRate,
       minChunkSize: options.minChunkSize,
@@ -36894,8 +36737,6 @@ class AxiosTransformStream extends external_stream_.Transform{
       onReadCallback: null
     };
 
-    const _speedometer = helpers_speedometer(internals.ticksRate * options.samplesCount, internals.timeWindow);
-
     this.on('newListener', event => {
       if (event === 'progress') {
         if (!internals.isCaptured) {
@@ -36903,39 +36744,6 @@ class AxiosTransformStream extends external_stream_.Transform{
         }
       }
     });
-
-    let bytesNotified = 0;
-
-    internals.updateProgress = helpers_throttle(function throttledHandler() {
-      const totalBytes = internals.length;
-      const bytesTransferred = internals.bytesSeen;
-      const progressBytes = bytesTransferred - bytesNotified;
-      if (!progressBytes || self.destroyed) return;
-
-      const rate = _speedometer(progressBytes);
-
-      bytesNotified = bytesTransferred;
-
-      process.nextTick(() => {
-        self.emit('progress', {
-          loaded: bytesTransferred,
-          total: totalBytes,
-          progress: totalBytes ? (bytesTransferred / totalBytes) : undefined,
-          bytes: progressBytes,
-          rate: rate ? rate : undefined,
-          estimated: rate && totalBytes && bytesTransferred <= totalBytes ?
-            (totalBytes - bytesTransferred) / rate : undefined,
-          lengthComputable: totalBytes != null
-        });
-      });
-    }, internals.ticksRate);
-
-    const onFinish = () => {
-      internals.updateProgress.call(true);
-    };
-
-    this.once('end', onFinish);
-    this.once('error', onFinish);
   }
 
   _read(size) {
@@ -36949,7 +36757,6 @@ class AxiosTransformStream extends external_stream_.Transform{
   }
 
   _transform(chunk, encoding, callback) {
-    const self = this;
     const internals = this[kInternals];
     const maxRate = internals.maxRate;
 
@@ -36961,16 +36768,14 @@ class AxiosTransformStream extends external_stream_.Transform{
     const bytesThreshold = (maxRate / divider);
     const minChunkSize = internals.minChunkSize !== false ? Math.max(internals.minChunkSize, bytesThreshold * 0.01) : 0;
 
-    function pushChunk(_chunk, _callback) {
+    const pushChunk = (_chunk, _callback) => {
       const bytes = Buffer.byteLength(_chunk);
       internals.bytesSeen += bytes;
       internals.bytes += bytes;
 
-      if (internals.isCaptured) {
-        internals.updateProgress();
-      }
+      internals.isCaptured && this.emit('progress', internals.bytesSeen);
 
-      if (self.push(_chunk)) {
+      if (this.push(_chunk)) {
         process.nextTick(_callback);
       } else {
         internals.onReadCallback = () => {
@@ -37034,11 +36839,6 @@ class AxiosTransformStream extends external_stream_.Transform{
         callback(null);
       }
     });
-  }
-
-  setLength(length) {
-    this[kInternals].length = +length;
-    return this;
   }
 }
 
@@ -37224,7 +37024,157 @@ const callbackify = (fn, reducer) => {
 
 /* harmony default export */ const helpers_callbackify = (callbackify);
 
+;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/speedometer.js
+
+
+/**
+ * Calculate data maxRate
+ * @param {Number} [samplesCount= 10]
+ * @param {Number} [min= 1000]
+ * @returns {Function}
+ */
+function speedometer(samplesCount, min) {
+  samplesCount = samplesCount || 10;
+  const bytes = new Array(samplesCount);
+  const timestamps = new Array(samplesCount);
+  let head = 0;
+  let tail = 0;
+  let firstSampleTS;
+
+  min = min !== undefined ? min : 1000;
+
+  return function push(chunkLength) {
+    const now = Date.now();
+
+    const startedAt = timestamps[tail];
+
+    if (!firstSampleTS) {
+      firstSampleTS = now;
+    }
+
+    bytes[head] = chunkLength;
+    timestamps[head] = now;
+
+    let i = tail;
+    let bytesCount = 0;
+
+    while (i !== head) {
+      bytesCount += bytes[i++];
+      i = i % samplesCount;
+    }
+
+    head = (head + 1) % samplesCount;
+
+    if (head === tail) {
+      tail = (tail + 1) % samplesCount;
+    }
+
+    if (now - firstSampleTS < min) {
+      return;
+    }
+
+    const passed = startedAt && now - startedAt;
+
+    return passed ? Math.round(bytesCount * 1000 / passed) : undefined;
+  };
+}
+
+/* harmony default export */ const helpers_speedometer = (speedometer);
+
+;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/throttle.js
+/**
+ * Throttle decorator
+ * @param {Function} fn
+ * @param {Number} freq
+ * @return {Function}
+ */
+function throttle(fn, freq) {
+  let timestamp = 0;
+  let threshold = 1000 / freq;
+  let lastArgs;
+  let timer;
+
+  const invoke = (args, now = Date.now()) => {
+    timestamp = now;
+    lastArgs = null;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    fn.apply(null, args);
+  }
+
+  const throttled = (...args) => {
+    const now = Date.now();
+    const passed = now - timestamp;
+    if ( passed >= threshold) {
+      invoke(args, now);
+    } else {
+      lastArgs = args;
+      if (!timer) {
+        timer = setTimeout(() => {
+          timer = null;
+          invoke(lastArgs)
+        }, threshold - passed);
+      }
+    }
+  }
+
+  const flush = () => lastArgs && invoke(lastArgs);
+
+  return [throttled, flush];
+}
+
+/* harmony default export */ const helpers_throttle = (throttle);
+
+;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/progressEventReducer.js
+
+
+
+
+const progressEventReducer = (listener, isDownloadStream, freq = 3) => {
+  let bytesNotified = 0;
+  const _speedometer = helpers_speedometer(50, 250);
+
+  return helpers_throttle(e => {
+    const loaded = e.loaded;
+    const total = e.lengthComputable ? e.total : undefined;
+    const progressBytes = loaded - bytesNotified;
+    const rate = _speedometer(progressBytes);
+    const inRange = loaded <= total;
+
+    bytesNotified = loaded;
+
+    const data = {
+      loaded,
+      total,
+      progress: total ? (loaded / total) : undefined,
+      bytes: progressBytes,
+      rate: rate ? rate : undefined,
+      estimated: rate && total && inRange ? (total - loaded) / rate : undefined,
+      event: e,
+      lengthComputable: total != null,
+      [isDownloadStream ? 'download' : 'upload']: true
+    };
+
+    listener(data);
+  }, freq);
+}
+
+const progressEventDecorator = (total, throttled) => {
+  const lengthComputable = total != null;
+
+  return [(loaded) => throttled[0]({
+    lengthComputable,
+    total,
+    loaded
+  }), throttled[1]];
+}
+
+const asyncDecorator = (fn) => (...args) => utils.asap(() => fn(...args));
+
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/adapters/http.js
+
 
 
 
@@ -37271,6 +37221,14 @@ const isHttps = /https:?/;
 const supportedProtocols = platform.protocols.map(protocol => {
   return protocol + ':';
 });
+
+const flushOnFinish = (stream, [throttled, flush]) => {
+  stream
+    .on('end', flush)
+    .on('error', flush);
+
+  return throttled;
+}
 
 /**
  * If the proxy or config beforeRedirects functions are defined, call them with the options
@@ -37505,8 +37463,7 @@ const buildAddressEntry = (address, family) => resolveFamily(utils.isObject(addr
     // Only set header if it hasn't been set in config
     headers.set('User-Agent', 'axios/' + data_VERSION, false);
 
-    const onDownloadProgress = config.onDownloadProgress;
-    const onUploadProgress = config.onUploadProgress;
+    const {onUploadProgress, onDownloadProgress} = config;
     const maxRate = config.maxRate;
     let maxUploadRate = undefined;
     let maxDownloadRate = undefined;
@@ -37579,15 +37536,16 @@ const buildAddressEntry = (address, family) => resolveFamily(utils.isObject(addr
       }
 
       data = external_stream_.pipeline([data, new helpers_AxiosTransformStream({
-        length: contentLength,
         maxRate: utils.toFiniteNumber(maxUploadRate)
       })], utils.noop);
 
-      onUploadProgress && data.on('progress', progress => {
-        onUploadProgress(Object.assign(progress, {
-          upload: true
-        }));
-      });
+      onUploadProgress && data.on('progress', flushOnFinish(
+        data,
+        progressEventDecorator(
+          contentLength,
+          progressEventReducer(asyncDecorator(onUploadProgress), false, 3)
+        )
+      ));
     }
 
     // HTTP basic authentication
@@ -37686,17 +37644,18 @@ const buildAddressEntry = (address, family) => resolveFamily(utils.isObject(addr
 
       const responseLength = +res.headers['content-length'];
 
-      if (onDownloadProgress) {
+      if (onDownloadProgress || maxDownloadRate) {
         const transformStream = new helpers_AxiosTransformStream({
-          length: utils.toFiniteNumber(responseLength),
           maxRate: utils.toFiniteNumber(maxDownloadRate)
         });
 
-        onDownloadProgress && transformStream.on('progress', progress => {
-          onDownloadProgress(Object.assign(progress, {
-            download: true
-          }));
-        });
+        onDownloadProgress && transformStream.on('progress', flushOnFinish(
+          transformStream,
+          progressEventDecorator(
+            responseLength,
+            progressEventReducer(asyncDecorator(onDownloadProgress), true, 3)
+          )
+        ));
 
         streams.push(transformStream);
       }
@@ -37910,40 +37869,6 @@ const buildAddressEntry = (address, family) => resolveFamily(utils.isObject(addr
 });
 
 const __setProxy = (/* unused pure expression or super */ null && (setProxy));
-
-;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/progressEventReducer.js
-
-
-
-/* harmony default export */ const progressEventReducer = ((listener, isDownloadStream, freq = 3) => {
-  let bytesNotified = 0;
-  const _speedometer = helpers_speedometer(50, 250);
-
-  return helpers_throttle(e => {
-    const loaded = e.loaded;
-    const total = e.lengthComputable ? e.total : undefined;
-    const progressBytes = loaded - bytesNotified;
-    const rate = _speedometer(progressBytes);
-    const inRange = loaded <= total;
-
-    bytesNotified = loaded;
-
-    const data = {
-      loaded,
-      total,
-      progress: total ? (loaded / total) : undefined,
-      bytes: progressBytes,
-      rate: rate ? rate : undefined,
-      estimated: rate && total && inRange ? (total - loaded) / rate : undefined,
-      event: e,
-      lengthComputable: total != null
-    };
-
-    data[isDownloadStream ? 'download' : 'upload'] = true;
-
-    listener(data);
-  }, freq);
-});
 
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/isURLSameOrigin.js
 
@@ -38244,16 +38169,18 @@ const isXHRAdapterSupported = typeof XMLHttpRequest !== 'undefined';
     const _config = resolveConfig(config);
     let requestData = _config.data;
     const requestHeaders = core_AxiosHeaders.from(_config.headers).normalize();
-    let {responseType} = _config;
+    let {responseType, onUploadProgress, onDownloadProgress} = _config;
     let onCanceled;
-    function done() {
-      if (_config.cancelToken) {
-        _config.cancelToken.unsubscribe(onCanceled);
-      }
+    let uploadThrottled, downloadThrottled;
+    let flushUpload, flushDownload;
 
-      if (_config.signal) {
-        _config.signal.removeEventListener('abort', onCanceled);
-      }
+    function done() {
+      flushUpload && flushUpload(); // flush events
+      flushDownload && flushDownload(); // flush events
+
+      _config.cancelToken && _config.cancelToken.unsubscribe(onCanceled);
+
+      _config.signal && _config.signal.removeEventListener('abort', onCanceled);
     }
 
     let request = new XMLHttpRequest();
@@ -38323,7 +38250,7 @@ const isXHRAdapterSupported = typeof XMLHttpRequest !== 'undefined';
         return;
       }
 
-      reject(new core_AxiosError('Request aborted', core_AxiosError.ECONNABORTED, _config, request));
+      reject(new core_AxiosError('Request aborted', core_AxiosError.ECONNABORTED, config, request));
 
       // Clean up request
       request = null;
@@ -38333,7 +38260,7 @@ const isXHRAdapterSupported = typeof XMLHttpRequest !== 'undefined';
     request.onerror = function handleError() {
       // Real errors are hidden from us by the browser
       // onerror should only fire if it's a network error
-      reject(new core_AxiosError('Network Error', core_AxiosError.ERR_NETWORK, _config, request));
+      reject(new core_AxiosError('Network Error', core_AxiosError.ERR_NETWORK, config, request));
 
       // Clean up request
       request = null;
@@ -38349,7 +38276,7 @@ const isXHRAdapterSupported = typeof XMLHttpRequest !== 'undefined';
       reject(new core_AxiosError(
         timeoutErrorMessage,
         transitional.clarifyTimeoutError ? core_AxiosError.ETIMEDOUT : core_AxiosError.ECONNABORTED,
-        _config,
+        config,
         request));
 
       // Clean up request
@@ -38377,13 +38304,18 @@ const isXHRAdapterSupported = typeof XMLHttpRequest !== 'undefined';
     }
 
     // Handle progress if needed
-    if (typeof _config.onDownloadProgress === 'function') {
-      request.addEventListener('progress', progressEventReducer(_config.onDownloadProgress, true));
+    if (onDownloadProgress) {
+      ([downloadThrottled, flushDownload] = progressEventReducer(onDownloadProgress, true));
+      request.addEventListener('progress', downloadThrottled);
     }
 
     // Not all browsers support upload events
-    if (typeof _config.onUploadProgress === 'function' && request.upload) {
-      request.upload.addEventListener('progress', progressEventReducer(_config.onUploadProgress));
+    if (onUploadProgress && request.upload) {
+      ([uploadThrottled, flushUpload] = progressEventReducer(onUploadProgress));
+
+      request.upload.addEventListener('progress', uploadThrottled);
+
+      request.upload.addEventListener('loadend', flushUpload);
     }
 
     if (_config.cancelToken || _config.signal) {
@@ -38467,7 +38399,6 @@ const composeSignals = (signals, timeout) => {
 
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/trackStream.js
 
-
 const streamChunk = function* (chunk, chunkSize) {
   let len = chunk.byteLength;
 
@@ -38496,25 +38427,38 @@ const trackStream = (stream, chunkSize, onProgress, onFinish, encode) => {
   const iterator = readBytes(stream, chunkSize, encode);
 
   let bytes = 0;
+  let done;
+  let _onFinish = (e) => {
+    if (!done) {
+      done = true;
+      onFinish && onFinish(e);
+    }
+  }
 
   return new ReadableStream({
-    type: 'bytes',
-
     async pull(controller) {
-      const {done, value} = await iterator.next();
+      try {
+        const {done, value} = await iterator.next();
 
-      if (done) {
-        controller.close();
-        onFinish();
-        return;
+        if (done) {
+         _onFinish();
+          controller.close();
+          return;
+        }
+
+        let len = value.byteLength;
+        if (onProgress) {
+          let loadedBytes = bytes += len;
+          onProgress(loadedBytes);
+        }
+        controller.enqueue(new Uint8Array(value));
+      } catch (err) {
+        _onFinish(err);
+        throw err;
       }
-
-      let len = value.byteLength;
-      onProgress && onProgress(bytes += len);
-      controller.enqueue(new Uint8Array(value));
     },
     cancel(reason) {
-      onFinish(reason);
+      _onFinish(reason);
       return iterator.return();
     }
   }, {
@@ -38533,15 +38477,6 @@ const trackStream = (stream, chunkSize, onProgress, onFinish, encode) => {
 
 
 
-const fetchProgressDecorator = (total, fn) => {
-  const lengthComputable = total != null;
-  return (loaded) => setTimeout(() => fn({
-    lengthComputable,
-    total,
-    loaded
-  }));
-}
-
 const isFetchSupported = typeof fetch === 'function' && typeof Request === 'function' && typeof Response === 'function';
 const isReadableStreamSupported = isFetchSupported && typeof ReadableStream === 'function';
 
@@ -38551,7 +38486,15 @@ const encodeText = isFetchSupported && (typeof TextEncoder === 'function' ?
     async (str) => new Uint8Array(await new Response(str).arrayBuffer())
 );
 
-const supportsRequestStream = isReadableStreamSupported && (() => {
+const test = (fn, ...args) => {
+  try {
+    return !!fn(...args);
+  } catch (e) {
+    return false
+  }
+}
+
+const supportsRequestStream = isReadableStreamSupported && test(() => {
   let duplexAccessed = false;
 
   const hasContentType = new Request(platform.origin, {
@@ -38564,17 +38507,13 @@ const supportsRequestStream = isReadableStreamSupported && (() => {
   }).headers.has('Content-Type');
 
   return duplexAccessed && !hasContentType;
-})();
+});
 
 const DEFAULT_CHUNK_SIZE = 64 * 1024;
 
-const supportsResponseStream = isReadableStreamSupported && !!(()=> {
-  try {
-    return utils.isReadableStream(new Response('').body);
-  } catch(err) {
-    // return undefined
-  }
-})();
+const supportsResponseStream = isReadableStreamSupported &&
+  test(() => utils.isReadableStream(new Response('').body));
+
 
 const resolvers = {
   stream: supportsResponseStream && ((res) => res.body)
@@ -38602,7 +38541,7 @@ const getBodyLength = async (body) => {
     return (await new Request(body).arrayBuffer()).byteLength;
   }
 
-  if(utils.isArrayBufferView(body)) {
+  if(utils.isArrayBufferView(body) || utils.isArrayBuffer(body)) {
     return body.byteLength;
   }
 
@@ -38672,15 +38611,17 @@ const resolveBodyLength = async (headers, body) => {
       }
 
       if (_request.body) {
-        data = trackStream(_request.body, DEFAULT_CHUNK_SIZE, fetchProgressDecorator(
+        const [onProgress, flush] = progressEventDecorator(
           requestContentLength,
-          progressEventReducer(onUploadProgress)
-        ), null, encodeText);
+          progressEventReducer(asyncDecorator(onUploadProgress))
+        );
+
+        data = trackStream(_request.body, DEFAULT_CHUNK_SIZE, onProgress, flush, encodeText);
       }
     }
 
     if (!utils.isString(withCredentials)) {
-      withCredentials = withCredentials ? 'cors' : 'omit';
+      withCredentials = withCredentials ? 'include' : 'omit';
     }
 
     request = new Request(url, {
@@ -38690,7 +38631,7 @@ const resolveBodyLength = async (headers, body) => {
       headers: headers.normalize().toJSON(),
       body: data,
       duplex: "half",
-      withCredentials
+      credentials: withCredentials
     });
 
     let response = await fetch(request);
@@ -38706,11 +38647,16 @@ const resolveBodyLength = async (headers, body) => {
 
       const responseContentLength = utils.toFiniteNumber(response.headers.get('content-length'));
 
+      const [onProgress, flush] = onDownloadProgress && progressEventDecorator(
+        responseContentLength,
+        progressEventReducer(asyncDecorator(onDownloadProgress), true)
+      ) || [];
+
       response = new Response(
-        trackStream(response.body, DEFAULT_CHUNK_SIZE, onDownloadProgress && fetchProgressDecorator(
-          responseContentLength,
-          progressEventReducer(onDownloadProgress, true)
-        ), isStreamResponse && onFinish, encodeText),
+        trackStream(response.body, DEFAULT_CHUNK_SIZE, onProgress, () => {
+          flush && flush();
+          isStreamResponse && onFinish();
+        }, encodeText),
         options
       );
     }
@@ -39665,6 +39611,17 @@ function exponentialDelay(retryNumber = 0, error = undefined, delayFactor = 100)
     const randomSum = delay * 0.2 * Math.random(); // 0-20% of the delay
     return delay + randomSum;
 }
+/**
+ * Linear delay
+ * @param {number | undefined} delayFactor - delay factor in milliseconds (default: 100)
+ * @returns {function} (retryNumber: number, error: AxiosError | undefined) => number
+ */
+function linearDelay(delayFactor = 100) {
+    return (retryNumber = 0, error = undefined) => {
+        const delay = retryNumber * delayFactor;
+        return Math.max(delay, retryAfter(error));
+    };
+}
 const DEFAULT_OPTIONS = {
     retries: 3,
     retryCondition: isNetworkOrIdempotentRequestError,
@@ -39677,10 +39634,12 @@ const DEFAULT_OPTIONS = {
 function getRequestOptions(config, defaultOptions) {
     return { ...DEFAULT_OPTIONS, ...defaultOptions, ...config[namespace] };
 }
-function setCurrentState(config, defaultOptions) {
+function setCurrentState(config, defaultOptions, resetLastRequestTime = false) {
     const currentState = getRequestOptions(config, defaultOptions || {});
     currentState.retryCount = currentState.retryCount || 0;
-    currentState.lastRequestTime = currentState.lastRequestTime || Date.now();
+    if (!currentState.lastRequestTime || resetLastRequestTime) {
+        currentState.lastRequestTime = Date.now();
+    }
     config[namespace] = currentState;
     return currentState;
 }
@@ -39730,8 +39689,23 @@ async function handleRetry(axiosInstance, currentState, error, config) {
     }
     config.transformRequest = [(data) => data];
     await onRetry(currentState.retryCount, error, config);
+    if (config.signal?.aborted) {
+        return Promise.resolve(axiosInstance(config));
+    }
     return new Promise((resolve) => {
-        setTimeout(() => resolve(axiosInstance(config)), delay);
+        const abortListener = () => {
+            clearTimeout(timeout);
+            resolve(axiosInstance(config));
+        };
+        const timeout = setTimeout(() => {
+            resolve(axiosInstance(config));
+            if (config.signal?.removeEventListener) {
+                config.signal.removeEventListener('abort', abortListener);
+            }
+        }, delay);
+        if (config.signal?.addEventListener) {
+            config.signal.addEventListener('abort', abortListener, { once: true });
+        }
     });
 }
 async function handleMaxRetryTimesExceeded(currentState, error) {
@@ -39740,7 +39714,7 @@ async function handleMaxRetryTimesExceeded(currentState, error) {
 }
 const axiosRetry = (axiosInstance, defaultOptions) => {
     const requestInterceptorId = axiosInstance.interceptors.request.use((config) => {
-        setCurrentState(config, defaultOptions);
+        setCurrentState(config, defaultOptions, true);
         if (config[namespace]?.validateResponse) {
             // by setting this, all HTTP responses will be go through the error interceptor first
             config.validateStatus = () => false;
@@ -39772,6 +39746,7 @@ axiosRetry.isSafeRequestError = isSafeRequestError;
 axiosRetry.isIdempotentRequestError = isIdempotentRequestError;
 axiosRetry.isNetworkOrIdempotentRequestError = isNetworkOrIdempotentRequestError;
 axiosRetry.exponentialDelay = exponentialDelay;
+axiosRetry.linearDelay = linearDelay;
 axiosRetry.isRetryableError = isRetryableError;
 /* harmony default export */ const esm = (axiosRetry);
 
@@ -39808,6 +39783,11 @@ function parseChallenge(challenge) {
     }
     return attributes;
 }
+/**
+ * Checks if a challenge is valid based on the provided attributes.
+ * @param attributes - A map of attribute names and values.
+ * @returns A boolean indicating whether the challenge is valid or not.
+ */
 function isValidChallenge(attributes) {
     let valid = false;
     if (attributes.has('realm') &&
@@ -39852,7 +39832,7 @@ class Registry {
         // Set up retries.
         esm(this.axios, { retries: 3 });
         // Set up default request headers.
-        this.axios.defaults.headers.common['Accept'] =
+        this.axios.defaults.headers.common.Accept =
             'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json';
     }
     /**
@@ -39900,12 +39880,11 @@ class Registry {
             await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/tags/list`);
         }
         catch (error) {
-            if (axios_isAxiosError(error) && error.response) {
+            if (axios_isAxiosError(error) && error.response != null) {
                 if (error.response?.status === 401) {
                     const challenge = error.response?.headers['www-authenticate'];
                     const token = await this.handleAuthenticationChallenge(challenge);
-                    this.axios.defaults.headers.common['Authorization'] =
-                        `Bearer ${token}`;
+                    this.axios.defaults.headers.common.Authorization = `Bearer ${token}`;
                 }
                 else {
                     throw error;
@@ -39942,7 +39921,7 @@ class Registry {
             }
             catch (error) {
                 if (axios_isAxiosError(error) &&
-                    error.response &&
+                    error.response != null &&
                     error.response.status === 400) {
                     throw new ManifestNotFoundException(`Manifest not found for digest ${digest}`);
                 }
@@ -39959,11 +39938,9 @@ class Registry {
      * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
      * @returns A Promise that resolves when the manifest is successfully put in the registry.
      */
-    async putManifest(tag, manifest, multiArch) {
+    async putManifest(tag, manifest) {
         if (!this.config.dryRun) {
-            const contentType = multiArch
-                ? 'application/vnd.oci.image.manifest.v1+json'
-                : 'application/vnd.oci.image.index.v1+json';
+            const contentType = manifest.mediaType;
             const config = {
                 headers: {
                     'Content-Type': contentType
@@ -40284,7 +40261,9 @@ class CleanupAction {
         // Add the cgiven digest to the result, since it points to an existing manifest.
         result.push(digest);
         // Check the media type of the manifest.
-        if (manifest.mediaType === 'application/vnd.oci.image.index.v1+json') {
+        if (manifest.mediaType === 'application/vnd.oci.image.index.v1+json' ||
+            manifest.mediaType ===
+                'application/vnd.docker.distribution.manifest.list.v2+json') {
             // Manifest list, i.e. a multi-architecture image pointing to multiple child manifests.
             core.info(`- ${digest}: manifest list`);
             // Recursively get all reachable versions for each child manifest.
@@ -40300,7 +40279,9 @@ class CleanupAction {
                 }
             }
         }
-        else if (manifest.mediaType === 'application/vnd.oci.image.manifest.v1+json') {
+        else if (manifest.mediaType === 'application/vnd.oci.image.manifest.v1+json' ||
+            manifest.mediaType ===
+                'application/vnd.docker.distribution.manifest.v2+json') {
             // Image manifest. Can be a single-architecture image or an attestation.
             if (manifest.layers.length === 1 &&
                 manifest.layers[0].mediaType === 'application/vnd.in-toto+json') {
@@ -40339,12 +40320,12 @@ class CleanupAction {
             if (manifest0.manifests) {
                 // Multi-arch manifest. Remove any pointers to child manifests.
                 manifest0.manifests = [];
-                await this.registry.putManifest(tag, manifest0, true);
+                await this.registry.putManifest(tag, manifest0);
             }
             else {
-                // Single-architecture or atestation manifest. Remove any pointers to layers.
+                // Single-architecture or attestation manifest. Remove any pointers to layers.
                 manifest0.layers = [];
-                await this.registry.putManifest(tag, manifest0, false);
+                await this.registry.putManifest(tag, manifest0);
             }
             // Reload the package repository to update the version cache.
             await this.githubPackageRepo.loadVersions();
@@ -40441,6 +40422,7 @@ class CleanupAction {
             let c_tag = [];
             let c_digest = [];
             let d_tag = [];
+            let d_digest = [];
             const tagsRest = this.githubPackageRepo
                 .getTags()
                 .filter(tag => !a_tag.includes(tag))
@@ -40463,7 +40445,12 @@ class CleanupAction {
                 this.config.keepNtagged != null
                     ? tagsRest.slice(this.config.keepNtagged)
                     : [];
+            // 8. Determine D_digest.
+            d_digest = await this.getReachableDigestsForTags(d_tag);
+            core.info(`Most recent ${this.config.keepNtagged} tags to keep`);
             this.logItems(c_tag);
+            core.info('Remaining tags to delete: ');
+            this.logItems(d_tag);
             core.endGroup();
             core.startGroup('Determine most recent remaining untagged images to keep.');
             let e_digest = [];
@@ -40474,12 +40461,15 @@ class CleanupAction {
                 .filter(digest => !a_digest.includes(digest))
                 .filter(digest => !b_digest.includes(digest))
                 .filter(digest => !c_digest.includes(digest))
+                .filter(digest => !d_digest.includes(digest))
                 .sort((a, b) => {
                 return (Date.parse(this.githubPackageRepo.getVersionForDigest(b)?.updated_at ??
                     '1970-01-01T00:00:00Z') -
                     Date.parse(this.githubPackageRepo.getVersionForDigest(a)?.updated_at ??
                         '1970-01-01T00:00:00Z'));
             });
+            core.info('Remaining digest to consider:');
+            this.logItems(imagesRest);
             // 8. Determine E_digest.
             e_digest =
                 this.config.keepNuntagged != null
@@ -40490,7 +40480,10 @@ class CleanupAction {
                 this.config.keepNuntagged != null
                     ? imagesRest.slice(this.config.keepNuntagged)
                     : [];
+            core.info(`Most recent ${this.config.keepNuntagged} untagged images to keep:`);
             this.logItems(e_digest);
+            core.info('Remaining untagged images to delete:');
+            this.logItems(f_digest);
             core.endGroup();
             core.startGroup('Determine final set of tags to delete.');
             const tagsDelete = a_tag.filter(tag => !b_tag.includes(tag)).concat(d_tag);
@@ -40498,8 +40491,9 @@ class CleanupAction {
             core.endGroup();
             core.startGroup('Determine final set of versions to delete.');
             const digestsDelete = a_digest
-                .filter(digest => !b_digest.includes(digest) && !c_digest.includes(digest))
-                .concat(f_digest);
+                .concat(d_digest)
+                .concat(f_digest)
+                .filter(digest => !b_digest.includes(digest) && !c_digest.includes(digest));
             this.logItems(digestsDelete);
             core.endGroup();
             // Delete the tags.

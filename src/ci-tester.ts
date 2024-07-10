@@ -22,32 +22,48 @@ export function processWrapper(
   options: SpawnSyncOptionsWithStringEncoding
 ): void {
   const output = spawnSync(command, args, options)
-  if (output.error) {
+  if (output.error != null) {
     throw new Error(`error running command: ${output.error}`)
   } else if (output.status !== null && output.status !== 0) {
     throw new Error(`running command:  + ${command}, status: ${output.status}`)
   }
 }
 
-function pushImage(
+/**
+ * Pushes a given source image to the given destination.
+ *
+ * Uses skopeo to perform the copy operation.
+ *
+ * @param srcImage The source image in the format `docker://<image-name>`.
+ * @param destImage The destination image in the format `docker://<image-name>`.
+ * @param extraArgs Additional arguments to pass to the `skopeo` command.
+ * @param token The authentication token for the destination registry.
+ */
+function copyImage(
   srcImage: string,
   destImage: string,
   extraArgs: string | undefined,
   token: string
 ): void {
-  console.log(`copying image: ${srcImage} ${destImage}`)
+  core.info(`Copying image ${srcImage} to ${destImage}.`)
+
+  // Set up the arguments for the skopeo command.
   const args = [
     'copy',
     `docker://${srcImage}`,
     `docker://${destImage}`,
     `--dest-creds=token:${token}`
   ]
+
+  // Add any additional arguments.
   if (extraArgs) {
     const parts = extraArgs.split(' ')
     for (const part of parts) {
       args.push(part.trim())
     }
   }
+
+  // Run the skopeo command.
   processWrapper('skopeo', args, {
     encoding: 'utf-8',
     shell: false,
@@ -55,77 +71,109 @@ function pushImage(
   })
 }
 
-async function loadImages(
-  directory: string,
+async function copyImages(
+  filePath: string,
   owner: string,
   packageName: string,
   token: string,
   delay: number
 ): Promise<void> {
-  if (!fs.existsSync(`${directory}/prime`)) {
-    throw Error(`file: ${directory}/prime doesn't exist`)
+  const fileContents = fs.readFileSync(filePath, 'utf-8')
+
+  for (const line of fileContents.split('\n')) {
+    // Remove comment, maybe, and trim whitespace.
+    const line0 = (
+      line.includes('//') ? line.substring(0, line.indexOf('//')) : line
+    ).trim()
+
+    // Ignore empty lines.
+    if (line0.length <= 0) continue
+
+    // Split into parts.
+    const parts = line0.split('|')
+
+    core.info(`parts = ${parts}`)
+
+    // Validate the number of parts.
+    if (parts.length !== 2 && parts.length !== 3) {
+      throw Error(`prime file format error: ${line}`)
+    }
+
+    // The source image repository is the first part.
+    const srcImage = parts[0]
+
+    // Determine the tags to use in the target repository.
+    let tags: string[] = []
+    if (parts[1]) {
+      // The tags are explicitly given in the second part, separated by commas.
+      tags = parts[1].split(',').map(tag => `:${tag.trim()}`)
+    } else if (parts[0].includes('@')) {
+      // No tag specified, use the source image digest, so the copied image will be untagged.
+      tags = [parts[0].substring(parts[0].indexOf('@'))]
+    } else if (parts[0].includes(':')) {
+      // No tag specified, use the the source image tag.
+      tags = [parts[0].substring(parts[0].indexOf(':'))]
+    } else {
+      // Incorrect format.
+      throw Error('Unable to determine target image tag or digest')
+    }
+
+    // The full destination image name.
+    const destImages: string[] = tags.map(
+      tag => `ghcr.io/${owner}/${packageName}${tag}`
+    )
+
+    core.info(`srcImage = ${srcImage}`)
+    core.info(`destImages = ${destImages}`)
+
+    // Additional arguments to pass to the skopeo command, maybe.
+    const args = parts.length === 3 ? parts[2] : undefined
+
+    for (const destImage of destImages) {
+      copyImage(srcImage, destImage, args, token)
+    }
   }
 
-  const fileContents = fs.readFileSync(`${directory}/prime`, 'utf-8')
-  for (let line of fileContents.split('\n')) {
-    const original = line
-    if (line.length > 0) {
-      if (line.includes('//')) {
-        line = line.substring(0, line.indexOf('//'))
-      }
-      line = line.trim()
-
-      // split into parts
-      const parts = line.split('|')
-      if (parts.length !== 2 && parts.length !== 3) {
-        throw Error(`prime file format error: ${original}`)
-      }
-      const srcImage = parts[0]
-      let tag
-      if (parts[1]) {
-        if (parts[1].includes('@')) {
-          tag = parts[1]
-        } else {
-          tag = `:${parts[1]}`
-        }
-      } else {
-        if (parts[0].includes('@')) {
-          tag = `${parts[0].substring(parts[0].indexOf('@'))}`
-        } else if (parts[0].includes(':')) {
-          tag = `:${parts[0].substring(parts[0].indexOf(':'))}`
-        } else {
-          throw Error(`no tag specified in ${parts[0]}`)
-        }
-      }
-      const destImage = `ghcr.io/${owner}/${packageName}${tag}`
-      const args = parts.length === 3 ? parts[2] : undefined
-      pushImage(srcImage, destImage, args, token)
-    }
-    if (delay > 0) {
-      // sleep to allow packages to be created in order
-      await new Promise(f => setTimeout(f, delay))
-    }
+  if (delay > 0) {
+    // sleep to allow packages to be created in order
+    await new Promise(f => setTimeout(f, delay))
   }
 }
 
-async function deleteDigests(
-  directory: string,
-  packageIdByDigest: Map<string, string>,
-  githubPackageRepo: GithubPackageRepo
+/**
+ * Deletes package versions based on the digests specified in a file.
+ *
+ * @param directory The directory where the file is located.
+ * @param packageIdByDigest A map that stores the package ID by digest.
+ * @param repo The instance of the GithubPackageRepo class.
+ */
+async function deleteImages(
+  filePath: string,
+  repo: GithubPackageRepo
 ): Promise<void> {
-  if (fs.existsSync(`${directory}/prime-delete`)) {
-    const fileContents = fs.readFileSync(`${directory}/prime-delete`, 'utf-8')
-    for (let line of fileContents.split('\n')) {
-      if (line.length > 0) {
-        if (line.includes('//')) {
-          line = line.substring(0, line.indexOf('//') - 1)
-        }
-        line = line.trim()
-        const id = packageIdByDigest.get(line)
-        if (id) {
-          await githubPackageRepo.deletePackageVersion(id)
-        }
-      }
+  // Read file contents.
+  const fileContents = fs.readFileSync(filePath, 'utf-8')
+
+  for (const line of fileContents.split('\n')) {
+    // Remove comment, maybe, and trim whitespace.
+    const line0 = (
+      line.includes('//') ? line.substring(0, line.indexOf('//')) : line
+    ).trim()
+
+    // Skip empty lines.
+    if (line0.length <= 0) continue
+
+    const version = repo.getVersionForDigest(line0)
+
+    if (version) {
+      core.info(
+        `Deleting package version: id = ${version.id}, digest = ${line0}`
+      )
+      await repo.deletePackageVersion(version.id)
+    } else {
+      throw Error(
+        `Unable to delete image with digest = ${line0} as it was not found in the repository.`
+      )
     }
   }
 }
@@ -142,7 +190,7 @@ export async function run(): Promise<void> {
     delay: { key: 'delay', args: 1, required: false }
   })
 
-  if (!args) {
+  if (args == null) {
     throw Error('args is not setup')
   }
 
@@ -171,14 +219,14 @@ export async function run(): Promise<void> {
     delay = parseInt(args.delay)
   }
 
-  //let tag
+  // let tag
   if (args.tag) {
     assertString(args.tag)
-    //tag = args.tag
+    // tag = args.tag
   }
 
   // auto populate
-  const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY']
+  const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY
   if (GITHUB_REPOSITORY) {
     const parts = GITHUB_REPOSITORY.split('/')
     if (parts.length === 2) {
@@ -202,50 +250,81 @@ export async function run(): Promise<void> {
   const githubPackageRepo = new GithubPackageRepo(config)
   await githubPackageRepo.init()
 
-  let packageIdByDigest = new Map<string, string>()
-  let packagesById = new Map<string, any>()
+  const packagesById = new Map<string, any>()
 
+  // Digest of busybox image to be used as dummy image. Corresponds to busybox:1.31.
   const dummyDigest =
-    'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f'
+    'sha256:6d9a2e77c3b19944a28c3922f5715ede91c1ae869d91edf5f6adf88ed54e97cf' // 1.36.1-musl linux/amd64
 
   if (args.mode === 'prime') {
-    // push dummy image - repo once it's created and has an iamge it requires atleast one image
-    pushImage(
-      `busybox@${dummyDigest}`, // 1.31
+    // Prime the container image repository with the given images and tags.
+    core.info(
+      `Priming the container image repository ghcr.io/${config.owner}/${config.package}.`
+    )
+
+    // Push dummy image to ensure that the container image repository exists and contains at least one version.
+    // Once the repository has been created, it must contain at least one version, i.e. trying to delete the
+    // last version will fail. To that end, the dummy image is always kept in the repository but is ignored for
+    // the actual tests.
+    copyImage(
+      `busybox@${dummyDigest}`,
       `ghcr.io/${config.owner}/${config.package}:dummy`,
       undefined,
       args.token
     )
-    // load after dummy to make sure the package exists on first clone/setup
+
+    // Load all versions.
     await githubPackageRepo.loadVersions()
 
-    // remove all the existing images - except for the dummy image
-    for (const digest of packageIdByDigest.keys()) {
-      if (digest !== dummyDigest) {
-        const id = packageIdByDigest.get(digest)
-        if (id) {
-          await githubPackageRepo.deletePackageVersion(id)
-        }
+    // Remove all existing images, except for the dummy image.
+    for (const version of githubPackageRepo.getVersions()) {
+      if (version.name !== dummyDigest) {
+        await githubPackageRepo.deletePackageVersion(version.id)
       }
     }
 
-    // prime the test images
-    await loadImages(
-      args.directory,
-      config.owner,
-      config.package,
-      config.token,
-      delay
-    )
+    // Path to prime file. Contains the images to copy into the repository.
+    const primeFilePath = `${args.directory}/prime`
 
-    if (fs.existsSync(`${args.directory}/prime-delete`)) {
-      // reload
-      packageIdByDigest = new Map<string, string>()
-      packagesById = new Map<string, any>()
+    if (fs.existsSync(primeFilePath)) {
+      core.info(`Found prime file at ${primeFilePath}. Pushing images in file.`)
+
+      // Push the images from the prime file.
+      await copyImages(
+        primeFilePath,
+        config.owner,
+        config.package,
+        config.token,
+        delay
+      )
+    } else {
+      // No prime file. This is an error because for testing the action, we need to copy some images into the reppository first.
+      throw Error(`No prime file found at ${primeFilePath}.`)
+    }
+
+    // Path to prime-delete file. Contains the digests of images to delete from the repository after images have been copied.
+    // Can be used to delete select images again that were initially copied recursively because they were referenced from the
+    // prime images.
+    const primeDeleteFilePath = `${args.directory}/prime-delete`
+
+    if (fs.existsSync(primeDeleteFilePath)) {
+      core.info(
+        `Found prime-delete file at ${primeDeleteFilePath}. Deleting images in file.`
+      )
+
+      // Reload all versions.
       await githubPackageRepo.loadVersions()
 
-      // make any deletions
-      await deleteDigests(args.directory, packageIdByDigest, githubPackageRepo)
+      for (const version of githubPackageRepo.getVersions()) {
+        core.info(`id = ${version.id}, digest = ${version.name}`)
+      }
+
+      // Delete the images from the prime delete file.
+      await deleteImages(primeDeleteFilePath, githubPackageRepo)
+    } else {
+      console.info(
+        `No prime-delete file found at ${primeDeleteFilePath}. Skipping.`
+      )
     }
   } else if (args.mode === 'validate') {
     // test the repo after the test
@@ -253,41 +332,55 @@ export async function run(): Promise<void> {
 
     let error = false
 
-    // load the expected digests
+    // Load expected digests.
     if (!fs.existsSync(`${args.directory}/expected-digests`)) {
       core.setFailed(`file: ${args.directory}/expected-digests doesn't exist`)
       error = true
     } else {
-      const digests = new Set<string>()
+      const digests_expected = new Set<string>()
       const fileContents = fs.readFileSync(
         `${args.directory}/expected-digests`,
         'utf-8'
       )
-      for (let line of fileContents.split('\n')) {
-        if (line.length > 0) {
-          if (line.includes('//')) {
-            line = line.substring(0, line.indexOf('//') - 1)
-          }
-          line = line.trim()
-          digests.add(line)
+
+      for (const line of fileContents.split('\n')) {
+        // Remove comment, maybe, and trim whitespace.
+        const line0 = (
+          line.includes('//') ? line.substring(0, line.indexOf('//')) : line
+        ).trim()
+
+        // Ignore empty lines.
+        if (line0.length <= 0) continue
+
+        digests_expected.add(line0)
+      }
+
+      const digests = new Set<string>()
+      for (const version of githubPackageRepo.getVersions()) {
+        digests.add(version.name)
+      }
+
+      for (const digest of digests_expected) {
+        if (digests.has(digest)) {
+          // Found expected digest.
+
+          // Delete it from the set already since it is irrelevant when checking for unexpected digests in the next loop below.
+          digests.delete(digest)
+        } else {
+          // Could not find expected digest.
+          error = true
+          core.setFailed(`Expected digest not found after test: ${digest}`)
         }
       }
 
       for (const digest of digests) {
-        if (packageIdByDigest.has(digest)) {
-          packageIdByDigest.delete(digest)
-        } else {
-          error = true
-          core.setFailed(`expected digest not found after test: ${digest}`)
-        }
-      }
-      for (const digest of packageIdByDigest.keys()) {
+        // Found digest that was not expected.
         error = true
-        core.setFailed(`extra digest found after test: ${digest}`)
+        core.setFailed(`Found unexpected digest after test: ${digest}`)
       }
     }
 
-    // load the expected tags
+    // Load expected tags.
 
     if (!fs.existsSync(`${args.directory}/expected-tags`)) {
       core.setFailed(`file: ${args.directory}/expected-tags doesn't exist`)
@@ -298,29 +391,41 @@ export async function run(): Promise<void> {
         `${args.directory}/expected-tags`,
         'utf-8'
       )
-      for (let line of fileContents.split('\n')) {
-        if (line.length > 0) {
-          if (line.includes('//')) {
-            line = line.substring(0, line.indexOf('//'))
-          }
-          line = line.trim()
-          expectedTags.add(line)
+      for (const line of fileContents.split('\n')) {
+        // Remove comment, maybe, and trim whitespace.
+        const line0 = (
+          line.includes('//') ? line.substring(0, line.indexOf('//')) : line
+        ).trim()
+
+        // Ignore empty lines.
+        if (line0.length <= 0) continue
+
+        expectedTags.add(line)
+      }
+
+      const tags = new Set<string>()
+      for (const tag of githubPackageRepo.getTags()) {
+        tags.add(tag)
+      }
+
+      for (const tag of expectedTags) {
+        if (tags.has(tag)) {
+          // Found expected tag.
+
+          // Delete it from the set already since it is irrelevant when checking for unexpected digests in the next loop below.
+          tags.delete(tag)
+        } else {
+          // Could not find expected tag.
+          error = true
+          core.setFailed(`Expected tag not found after test: ${tag}`)
         }
       }
 
-      // const regTags = new Set(await registry.getTags())
-      // for (const expectedTag of expectedTags) {
-      //   if (regTags.has(expectedTag)) {
-      //     regTags.delete(expectedTag)
-      //   } else {
-      //     error = true
-      //     core.setFailed(`expected tag ${expectedTag} not found after test`)
-      //   }
-      // }
-      // for (const regTag of regTags) {
-      //   error = true
-      //   core.setFailed(`extra tag found after test: ${regTag}`)
-      // }
+      for (const tag of tags) {
+        // Found tag that was not expected.
+        error = true
+        core.setFailed(`Found unexpected tag after test: ${tag}`)
+      }
     }
 
     if (!error) console.info('test passed!')

@@ -1,0 +1,9 @@
+// sha256:6d9a2e77c3b19944a28c3922f5715ede91c1ae869d91edf5f6adf88ed54e97cf // dummy image should get deleted as well
+
+sha256:fd4a8673d0344c3a7f427fe4440d4b8dfd4fa59cfabbd9098f9eb0cb4ba905d0 // 1.31-uclibc linux/amd64
+sha256:bd2e91e69aab407d5dd5cbed335db4e689b7e07296896b011337ea39e4c6c9e3 // 1.34-uclibc linux/amd64
+sha256:51de9138b0cc394c813df84f334d638499333cac22edd05d0300b2c9a2dc80dd // 1.34-glibc linux/amd64 (untagged)
+sha256:5b6e7aeda43f426b6423f60da863e2e6015c9983c957cf1b068120aea609261d // 1.35-glibc linux/amd64 (untagged)
+sha256:b9ec44e0c85c90e8d2b0924d14f9c7b660ac3e1f54ba93775ef14141b99da784 // 1.36-uclibc linux/amd64
+sha256:50aa4698fa6262977cff89181b2664b99d8a56dbca847bf62f2ef04854597cf8 // 1.36-glibc linux/amd64 (untagged)
+

@@ -1,15 +1,15 @@
 {
   "name": "ghcr-cleanup-action",
-  "description": "GitHub Container Registry Cleanup Action",
-  "version": "1.0.5",
-  "author": "Dataaxiom Inc",
-  "homepage": "https://github.com/dataaxiom/ghcr-cleanup-action",
+  "description": "ghcr.io Container Repository Cleanup Action",
+  "version": "1.0.1",
+  "author": "Jens Keiner",
+  "homepage": "https://github.com/jenskeiner/ghcr-container-repository-cleanup-action",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dataaxiom/ghcr-cleanup-action.git"
+    "url": "git+https://github.com/jenskeiner/ghcr-container-repository-cleanup-action.git"
   },
   "bugs": {
-    "url": "https://github.com/dataaxiom/ghcr-cleanup-action/issues"
+    "url": "https://github.com/jenskeiner/ghcr-container-repository-cleanup-action/issues"
   },
   "keywords": [
     "ci",
@@ -71,7 +71,7 @@
     "@octokit/plugin-retry": "^7.1.1",
     "@octokit/plugin-throttling": "^9.3.1",
     "@octokit/request-error": "^6.1.4",
-    "@octokit/rest": "^20.1.1",
+    "@octokit/rest": "^21.0.1",
     "axios": "^1.7.3",
     "axios-retry": "^4.5.0",
     "stdio": "^2.1.3"
@@ -79,13 +79,13 @@
   "devDependencies": {
     "@jest/globals": "^29.7.0",
     "@types/jest": "^29.5.12",
-    "@types/node": "^20.14.0",
-    "@typescript-eslint/eslint-plugin": "^7.11.0",
+    "@types/node": "^22.1.0",
+    "@typescript-eslint/eslint-plugin": "^7.14.1",
     "@typescript-eslint/parser": "^7.18.0",
     "@vercel/ncc": "^0.38.1",
     "eslint": "^8.57.0",
     "eslint-import-resolver-typescript": "^3.6.1",
-    "eslint-plugin-github": "^4.10.2",
+    "eslint-plugin-github": "^5.0.1",
     "eslint-plugin-jest": "^28.8.0",
     "eslint-plugin-jsonc": "^2.16.0",
     "eslint-plugin-prettier": "^5.2.1",
@@ -95,6 +95,7 @@
     "prettier-eslint": "^16.3.0",
     "ts-jest": "^29.2.4",
     "ts-jest-resolver": "^2.0.1",
+    "ts-standard": "^12.0.2",
     "typescript": "^5.5.4"
   }
 }

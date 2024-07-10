@@ -153,7 +153,11 @@ class CleanupAction {
     result.push(digest)
 
     // Check the media type of the manifest.
-    if (manifest.mediaType === 'application/vnd.oci.image.index.v1+json') {
+    if (
+      manifest.mediaType === 'application/vnd.oci.image.index.v1+json' ||
+      manifest.mediaType ===
+        'application/vnd.docker.distribution.manifest.list.v2+json'
+    ) {
       // Manifest list, i.e. a multi-architecture image pointing to multiple child manifests.
       core.info(`- ${digest}: manifest list`)
 
@@ -170,7 +174,9 @@ class CleanupAction {
         }
       }
     } else if (
-      manifest.mediaType === 'application/vnd.oci.image.manifest.v1+json'
+      manifest.mediaType === 'application/vnd.oci.image.manifest.v1+json' ||
+      manifest.mediaType ===
+        'application/vnd.docker.distribution.manifest.v2+json'
     ) {
       // Image manifest. Can be a single-architecture image or an attestation.
 
@@ -217,11 +223,11 @@ class CleanupAction {
       if (manifest0.manifests) {
         // Multi-arch manifest. Remove any pointers to child manifests.
         manifest0.manifests = []
-        await this.registry.putManifest(tag, manifest0, true)
+        await this.registry.putManifest(tag, manifest0)
       } else {
-        // Single-architecture or atestation manifest. Remove any pointers to layers.
+        // Single-architecture or attestation manifest. Remove any pointers to layers.
         manifest0.layers = []
-        await this.registry.putManifest(tag, manifest0, false)
+        await this.registry.putManifest(tag, manifest0)
       }
 
       // Reload the package repository to update the version cache.
@@ -341,6 +347,7 @@ class CleanupAction {
       let c_tag: string[] = []
       let c_digest: string[] = []
       let d_tag: string[] = []
+      let d_digest: string[] = []
 
       const tagsRest: string[] = this.githubPackageRepo
         .getTags()
@@ -374,7 +381,13 @@ class CleanupAction {
           ? tagsRest.slice(this.config.keepNtagged)
           : []
 
+      // 8. Determine D_digest.
+      d_digest = await this.getReachableDigestsForTags(d_tag)
+
+      core.info(`Most recent ${this.config.keepNtagged} tags to keep`)
       this.logItems(c_tag)
+      core.info('Remaining tags to delete: ')
+      this.logItems(d_tag)
 
       core.endGroup()
 
@@ -390,6 +403,7 @@ class CleanupAction {
         .filter(digest => !a_digest.includes(digest))
         .filter(digest => !b_digest.includes(digest))
         .filter(digest => !c_digest.includes(digest))
+        .filter(digest => !d_digest.includes(digest))
         .sort((a: string, b: string) => {
           return (
             Date.parse(
@@ -403,6 +417,9 @@ class CleanupAction {
           )
         })
 
+      core.info('Remaining digest to consider:')
+      this.logItems(imagesRest)
+
       // 8. Determine E_digest.
       e_digest =
         this.config.keepNuntagged != null
@@ -415,7 +432,12 @@ class CleanupAction {
           ? imagesRest.slice(this.config.keepNuntagged)
           : []
 
+      core.info(
+        `Most recent ${this.config.keepNuntagged} untagged images to keep:`
+      )
       this.logItems(e_digest)
+      core.info('Remaining untagged images to delete:')
+      this.logItems(f_digest)
 
       core.endGroup()
 
@@ -426,10 +448,11 @@ class CleanupAction {
 
       core.startGroup('Determine final set of versions to delete.')
       const digestsDelete = a_digest
+        .concat(d_digest)
+        .concat(f_digest)
         .filter(
           digest => !b_digest.includes(digest) && !c_digest.includes(digest)
         )
-        .concat(f_digest)
 
       this.logItems(digestsDelete)
       core.endGroup()

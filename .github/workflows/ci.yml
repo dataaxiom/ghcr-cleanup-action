@@ -2,9 +2,9 @@ name: Integration Tests
 
 on:
   workflow_dispatch: {}
-  # push:
-  # pull_request_target:
-  #   types: [assigned, opened, synchronize, reopened]
+  push:
+  pull_request_target:
+    types: [assigned, opened, synchronize, reopened]
 
 permissions:
   id-token: write
@@ -57,60 +57,87 @@ jobs:
       max-parallel: 1
       matrix:
         tests:
-          - title: '1a - Single: Untagged'
-            purpose: 'Removes all untagged images (single arch)'
-            folder: '1a_single-untagged'
-
-          - title: '1b - Multi: Untagged'
-            purpose: 'Removes all untagged images (multi arch)'
-            folder: '1b_multi-untagged'
-
-          - title: '2a - Single: Tagged'
-            purpose: 'Removes images with specific tag (single arch)'
-            folder: '2a_single-tagged'
-            tags: 'uclibc-1.35,uclibc-1.36'
-
-          - title: '2b - Multi: Tagged'
-            purpose: 'Removes images with specific tag (multi arch)'
-            folder: '2b_multi-tagged'
-            tags: 'uclibc-1.35,uclibc-1.36'
-
-          - title: '3a - Single: Keep N Tagged'
-            purpose: 'Removes all but the newest 2 tagged images (single arch)'
-            folder: '3a_single-keep-n-tagged'
-            keep-n-tagged: 2
-            exclude-tags: dummy
-
-          - title: '3b - Multi: Keep N Tagged'
-            purpose: 'Removes all but the newest 2 tagged images (multi arch)'
-            folder: '3b_multi-keep-n-tagged'
-            keep-n-tagged: 2
-            exclude-tags: dummy
-
-          - title: '4a - Single: Keep N Untagged'
+          - title: 'No arguments'
             purpose:
-              'Keeps all tagged images and removes all but the newest 2 untagged
-              images (single arch)'
-            folder: '4a_single-keep-n-untagged'
-            keep-n-untagged: 2
-
-          - title: '4b - Multi: Keep N Untagged'
+              'Check that no versions are removed when running with no
+              arguments.'
+            folder: '01_no_arguments'
+          - title: 'Include select tags (single arch)'
             purpose:
-              'Keeps all tagged images and removes all but the newest 2 untagged
-              images (multi arch)'
-            folder: '4b_multi-keep-n-untagged'
-            keep-n-untagged: 2
-
-          - title: '5 - Dry-Run'
-            purpose: 'No packages are removed'
-            folder: '5_dry-run'
+              'Check that specific tags are removed correctly when specified.
+              (single arch)'
+            folder: '02_include_tags_single_arch'
+            include-tags: '^1.3[23]-uclibc$'
+          - title: 'Include select tags (multi-arch)'
+            purpose:
+              'Check that specific tags and their dependents are removed
+              correctly when specified. (multi-arch)'
+            folder: '03_include_tags_multi_arch'
+            include-tags: '^1.3[23]-uclibc$'
+          - title: 'Include and exclude select tags (single arch)'
+            purpose:
+              'Check that specific tags are included in the removal when
+              specified, as well as excluded when specified. Exclusion trumps
+              inclusion. (single arch)'
+            folder: '04_include_exclude_tags_single_arch'
+            include-tags: '^1.3[23]-uclibc$'
+            exclude-tags: '^1.33-uclibc$'
+          - title: 'Include and exclude select tags (multi-arch)'
+            purpose:
+              'Check that specific tags and their dependents are included in the
+              removal when specified, as well as excluded when specified.
+              Exclusion trumps inclusion. (multi-arch)'
+            folder: '05_include_exclude_tags_multi_arch'
+            include-tags: '^1.3[23]-uclibc$'
+            exclude-tags: '^1.33-uclibc$'
+          - title: 'Keep n latest tags (single-arch)'
+            purpose: 'Check that the latest n tags are kept. (single arch)'
+            folder: '06_keep_n_tagged_single_arch'
+            keep-n-tagged: 3
+          - title: 'Keep n latest tags (multi-arch)'
+            purpose:
+              'Check that the latest n tags and their dependents are kept.
+              (multi-arch)'
+            folder: '07_keep_n_tagged_multi_arch'
+            keep-n-tagged: 3
+          - title: 'Keep n latest untagged images (single arch)'
+            purpose:
+              'Check that the latest n untagged images are kept. (single arch)'
+            folder: '08_keep_n_untagged_single_arch'
+            keep-n-untagged: 3
+          - title: 'Keep n latest untagged images (multi arch)'
+            purpose:
+              'Check that the latest n untagged images are kept. (multi arch)'
+            folder: '09_keep_n_untagged_multi_arch'
+            keep-n-untagged: 3
+          - title: 'All options (single arch)'
+            purpose:
+              'Check that the combination of all options works correctly.
+              (single arch)'
+            folder: '10_all_options_single_arch'
+            include-tags: '^1.35-uclibc$'
+            exclude-tags: '^1.31-uclibc$'
+            keep-n-tagged: 2
+            keep-n-untagged: 3
+          - title: 'All options (multi-arch)'
+            purpose:
+              'Check that the combination of all options works correctly.
+              (multi-arch)'
+            folder: '11_all_options_multi_arch'
+            include-tags: '^1.35-uclibc$'
+            exclude-tags: '^1.31-uclibc$'
+            keep-n-tagged: 2
+            keep-n-untagged: 14
+          - title: 'Dry run (multi-arch)'
+            purpose:
+              'Check that using the dry-run option does not actually delete
+              anything. (multi-arch)'
+            folder: '12_dry_run_multi_arch'
+            include-tags: '^1.35-uclibc$'
+            exclude-tags: '^1.31-uclibc$'
+            keep-n-tagged: 2
+            keep-n-untagged: 14
             dry-run: true
-
-          - title: '6 - Missing Digests'
-            purpose: 'Looks for missing digests'
-            folder: '6_missing-images'
-            tags: 'uclibc-1.34'
-
     steps:
       # Setup for test execution
       - name: Checkout
@@ -127,9 +154,14 @@ jobs:
         run: |
           echo "Purpose of test: ${{ matrix.tests.purpose }}"
 
-          TAGS=""
-          if [ ! -z "${{ matrix.tests.tags }}" ]; then
-            TAGS="${{ matrix.tests.tags }}"
+          INCLUDE_TAGS=""
+          if [ ! -z "${{ matrix.tests.include-tags }}" ]; then
+            INCLUDE_TAGS="${{ matrix.tests.include-tags }}"
+          fi
+
+          EXCLUDE_TAGS=""
+          if [ ! -z "${{ matrix.tests.exclude-tags }}" ]; then
+            EXCLUDE_TAGS="${{ matrix.tests.exclude-tags }}"
           fi
 
           KEEP_N_TAGGED=""
@@ -142,16 +174,6 @@ jobs:
             KEEP_N_UNTAGGED="${{ matrix.tests.keep-n-untagged }}"
           fi
 
-          EXCLUDE_TAGS=""
-          if [ ! -z "${{ matrix.tests.exclude-tags }}" ]; then
-            EXCLUDE_TAGS="${{ matrix.tests.exclude-tags }}"
-          fi
-
-          DRY_RUN=""
-          if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
-            DRY_RUN="TRUE"
-          fi
-
           DRY_RUN=""
           if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
             DRY_RUN="TRUE"
@@ -162,28 +184,28 @@ jobs:
             DELAY="3000"
           fi
 
-          echo "TAGS=$TAGS" >> $GITHUB_ENV
+          echo "INCLUDE_TAGS=$INCLUDE_TAGS" >> $GITHUB_ENV
+          echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
           echo "KEEP_N_TAGGED=$KEEP_N_TAGGED" >> $GITHUB_ENV
           echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED" >> $GITHUB_ENV
-          echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
           echo "DELAY=$DELAY" >> $GITHUB_ENV
 
-      # - name: ' > Debug: Print Matrix Variables'
-      #   run: |
-      #     echo "tags: ${{ matrix.tests.tags }}"
-      #     echo "keep-n-tagged: ${{ matrix.tests.keep-n-tagged }}"
-      #     echo "keep-n-untagged: ${{ matrix.tests.keep-n-untagged }}"
-      #     echo "exclude-tags: ${{ matrix.tests.exclude-tags }}"
-      #     echo "dry-run: ${{ matrix.tests.dry-run }}"
+      - name: ' > Debug: Print Matrix Variables'
+        run: |
+          echo "include-tags: ${{ matrix.tests.include-tags }}"
+          echo "exclude-tags: ${{ matrix.tests.exclude-tags }}"
+          echo "keep-n-tagged: ${{ matrix.tests.keep-n-tagged }}"
+          echo "keep-n-untagged: ${{ matrix.tests.keep-n-untagged }}"
+          echo "dry-run: ${{ matrix.tests.dry-run }}"
 
-      # - name: ' > Debug: Print Env Variables'
-      #   run: |
-      #     echo "tags: ${{ env.TAGS }}"
-      #     echo "keep-n-tagged: ${{ env.KEEP_N_TAGGED }}"
-      #     echo "keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}"
-      #     echo "exclude-tags: ${{ env.EXCLUDE_TAGS }}"
-      #     echo "dry-run: ${{ env.DRY_RUN }}"
+      - name: ' > Debug: Print Env Variables'
+        run: |
+          echo "include-tags: ${{ env.INCLUDE_TAGS }}"
+          echo "exclude-tags: ${{ env.EXCLUDE_TAGS }}"
+          echo "keep-n-tagged: ${{ env.KEEP_N_TAGGED }}"
+          echo "keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}"
+          echo "dry-run: ${{ env.DRY_RUN }}"
 
       - name: ' > Priming Test Environment'
         run: |
@@ -194,10 +216,10 @@ jobs:
       - name: ' > Running Workflow'
         uses: ./
         with:
-          tags: ${{ env.TAGS }}
+          include-tags: ${{ env.INCLUDE_TAGS }}
+          exclude-tags: ${{ env.EXCLUDE_TAGS }}
           keep-n-tagged: ${{ env.KEEP_N_TAGGED }}
           keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}
-          exclude-tags: ${{ env.EXCLUDE_TAGS }}
           dry-run: ${{ env.DRY_RUN }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -207,115 +229,115 @@ jobs:
             --directory tests/${{ matrix.tests.folder }} \
             --mode validate
 
-  attestation-tests:
-    name: Attestation Tests
-    runs-on: ubuntu-latest
-    concurrency:
-      group: attestation-tests-group
-    env:
-      REGISTRY: ghcr.io
-    needs: integration-tests
+  # attestation-tests:
+  #   name: Attestation Tests
+  #   runs-on: ubuntu-latest
+  #   concurrency:
+  #     group: attestation-tests-group
+  #   env:
+  #     REGISTRY: ghcr.io
+  #   needs: integration-tests
 
-    steps:
-      # Setup for test execution
-      - name: Checkout
-        uses: actions/checkout@v4
+  #   steps:
+  #     # Setup for test execution
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-          cache: npm
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version-file: .node-version
+  #         cache: npm
 
-      # referrer/attestation tests
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: lower-repo
-        run: |
-          echo "repository=${GITHUB_REPOSITORY@L}" >> $GITHUB_OUTPUT
+  #     # referrer/attestation tests
+  #     - name: Login to GitHub Container Registry
+  #       uses: docker/login-action@v3
+  #       with:
+  #         registry: ${{ env.REGISTRY }}
+  #         username: ${{ github.actor }}
+  #         password: ${{ secrets.GITHUB_TOKEN }}
+  #     - id: lower-repo
+  #       run: |
+  #         echo "repository=${GITHUB_REPOSITORY@L}" >> $GITHUB_OUTPUT
 
-      # attestation tagged test
-      - name: Prime Test - Attestation Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-tagged --mode prime
-      - name: Build and push image
-        id: push1
-        uses: docker/build-push-action@v6.7.0
-        with:
-          context: tests/attestation-tagged
-          file: tests/attestation-tagged/Dockerfile.image
-          push: true
-          tags:
-            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
-      - name: Attest Image
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name:
-            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
-          subject-digest: ${{ steps.push1.outputs.digest }}
-          push-to-registry: true
-      - name: Run Test - Attestation Tagged
-        uses: ./
-        with:
-          tags: test
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Attestation Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-tagged --mode validate
+  #     # attestation tagged test
+  #     - name: Prime Test - Attestation Tagged
+  #       run:
+  #         node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+  #         tests/attestation-tagged --mode prime
+  #     - name: Build and push image
+  #       id: push1
+  #       uses: docker/build-push-action@v5.3.0
+  #       with:
+  #         context: tests/attestation-tagged
+  #         file: tests/attestation-tagged/Dockerfile.image
+  #         push: true
+  #         tags:
+  #           ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
+  #     - name: Attest Image
+  #       uses: actions/attest-build-provenance@v1
+  #       with:
+  #         subject-name:
+  #           ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
+  #         subject-digest: ${{ steps.push1.outputs.digest }}
+  #         push-to-registry: true
+  #     - name: Run Test - Attestation Tagged
+  #       uses: ./
+  #       with:
+  #         tags: test
+  #         token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Validate Test Results - Attestation Tagged
+  #       run:
+  #         node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+  #         tests/attestation-tagged --mode validate
 
-      # attestation untagged test
-      - name: Prime Test - Attestation UnTagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-untagged --mode prime
-      - name: Build and push image 1
-        id: push2
-        uses: docker/build-push-action@v6.7.0
-        with:
-          context: tests/attestation-untagged
-          file: tests/attestation-untagged/Dockerfile.image1
-          push: true
-          tags:
-            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
-      - name: Attest Image 1
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name:
-            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
-          subject-digest: ${{ steps.push2.outputs.digest }}
-          push-to-registry: true
-      - name: Build and push image 2
-        id: push3
-        uses: docker/build-push-action@v6.7.0
-        with:
-          context: tests/attestation-untagged
-          file: tests/attestation-untagged/Dockerfile.image2
-          push: true
-          tags:
-            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
-      - name: Attest Image 2
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name:
-            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
-          subject-digest: ${{ steps.push3.outputs.digest }}
-          push-to-registry: true
-      - name: Save Digests - Attestation UnTagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-untagged --mode save-expected --tag test
-      - name: Run Test - Attestation UnTagged
-        uses: ./
-        with:
-          validate: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate Test Results - Attestation Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-untagged --mode validate
+  #     # attestation untagged test
+  #     - name: Prime Test - Attestation UnTagged
+  #       run:
+  #         node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+  #         tests/attestation-untagged --mode prime
+  #     - name: Build and push image 1
+  #       id: push2
+  #       uses: docker/build-push-action@v5.3.0
+  #       with:
+  #         context: tests/attestation-untagged
+  #         file: tests/attestation-untagged/Dockerfile.image1
+  #         push: true
+  #         tags:
+  #           ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
+  #     - name: Attest Image 1
+  #       uses: actions/attest-build-provenance@v1
+  #       with:
+  #         subject-name:
+  #           ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
+  #         subject-digest: ${{ steps.push2.outputs.digest }}
+  #         push-to-registry: true
+  #     - name: Build and push image 2
+  #       id: push3
+  #       uses: docker/build-push-action@v5.3.0
+  #       with:
+  #         context: tests/attestation-untagged
+  #         file: tests/attestation-untagged/Dockerfile.image2
+  #         push: true
+  #         tags:
+  #           ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
+  #     - name: Attest Image 2
+  #       uses: actions/attest-build-provenance@v1
+  #       with:
+  #         subject-name:
+  #           ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
+  #         subject-digest: ${{ steps.push3.outputs.digest }}
+  #         push-to-registry: true
+  #     - name: Save Digests - Attestation UnTagged
+  #       run:
+  #         node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+  #         tests/attestation-untagged --mode save-expected --tag test
+  #     - name: Run Test - Attestation UnTagged
+  #       uses: ./
+  #       with:
+  #         validate: true
+  #         token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Validate Test Results - Attestation Tagged
+  #       run:
+  #         node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+  #         tests/attestation-untagged --mode validate

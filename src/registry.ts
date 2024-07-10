@@ -37,7 +37,7 @@ export class Registry {
     // Set up retries.
     axiosRetry(this.axios, { retries: 3 })
     // Set up default request headers.
-    this.axios.defaults.headers.common['Accept'] =
+    this.axios.defaults.headers.common.Accept =
       'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json'
   }
 
@@ -92,12 +92,11 @@ export class Registry {
         `/v2/${this.config.owner}/${this.config.package}/tags/list`
       )
     } catch (error) {
-      if (isAxiosError(error) && error.response) {
+      if (isAxiosError(error) && error.response != null) {
         if (error.response?.status === 401) {
           const challenge = error.response?.headers['www-authenticate']
           const token = await this.handleAuthenticationChallenge(challenge)
-          this.axios.defaults.headers.common['Authorization'] =
-            `Bearer ${token}`
+          this.axios.defaults.headers.common.Authorization = `Bearer ${token}`
         } else {
           throw error
         }
@@ -137,7 +136,7 @@ export class Registry {
       } catch (error) {
         if (
           isAxiosError(error) &&
-          error.response &&
+          error.response != null &&
           error.response.status === 400
         ) {
           throw new ManifestNotFoundException(
@@ -157,15 +156,9 @@ export class Registry {
    * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
    * @returns A Promise that resolves when the manifest is successfully put in the registry.
    */
-  async putManifest(
-    tag: string,
-    manifest: any,
-    multiArch: boolean
-  ): Promise<void> {
+  async putManifest(tag: string, manifest: any): Promise<void> {
     if (!this.config.dryRun) {
-      const contentType = multiArch
-        ? 'application/vnd.oci.image.manifest.v1+json'
-        : 'application/vnd.oci.image.index.v1+json'
+      const contentType = manifest.mediaType
       const config = {
         headers: {
           'Content-Type': contentType

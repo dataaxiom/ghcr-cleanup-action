@@ -1,0 +1,5 @@
+sha256:6d9a2e77c3b19944a28c3922f5715ede91c1ae869d91edf5f6adf88ed54e97cf // dummy image
+
+sha256:bd2e91e69aab407d5dd5cbed335db4e689b7e07296896b011337ea39e4c6c9e3 // 1.34-uclibc linux/amd64
+sha256:ff53c7a7182e2267f92e122df74ed67aa1b989195fbd093a89ed9ad6edb89bc0 // 1.35-uclibc linux/amd64
+sha256:b9ec44e0c85c90e8d2b0924d14f9c7b660ac3e1f54ba93775ef14141b99da784 // 1.36-uclibc linux/amd64

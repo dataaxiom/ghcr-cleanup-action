@@ -107,7 +107,7 @@ export function getConfig(): Config {
   config.package = core.getInput('package')
 
   // auto populate
-  const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY']
+  const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY
   if (GITHUB_REPOSITORY) {
     const parts = GITHUB_REPOSITORY.split('/')
     if (parts.length === 2) {

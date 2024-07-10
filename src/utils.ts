@@ -31,6 +31,11 @@ export function parseChallenge(challenge: string): Map<string, string> {
   return attributes
 }
 
+/**
+ * Checks if a challenge is valid based on the provided attributes.
+ * @param attributes - A map of attribute names and values.
+ * @returns A boolean indicating whether the challenge is valid or not.
+ */
 export function isValidChallenge(attributes: Map<string, string>): boolean {
   let valid = false
   if (

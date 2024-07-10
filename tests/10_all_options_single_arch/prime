@@ -1,0 +1,12 @@
+busybox@sha256:fd4a8673d0344c3a7f427fe4440d4b8dfd4fa59cfabbd9098f9eb0cb4ba905d0|1.31-uclibc| // 1.31-uclibc linux/amd64
+busybox@sha256:55c756c1a3c8e4a17e465d513de8374c7615ba6f7f5d3d0a4c7ad30ccabe2eb4| // 1.31-glibc linux/amd64 (untagged)
+busybox@sha256:1ccc0a0ca577e5fb5a0bdf2150a1a9f842f47c8865e861fa0062c5d343eb8cac|1.32-uclibc| // 1.32-uclibc linux/amd64
+busybox@sha256:95262195a281b3756e734b3996132030d76d5bd773564ea762d49eccf006571b| // 1.32-glibc linux/amd64 (untagged)
+busybox@sha256:febcf61cd6e1ac9628f6ac14fa40836d16f3c6ddef3b303ff0321606e55ddd0b|1.33-uclibc| // 1.33-uclibc linux/amd64
+busybox@sha256:c62b257794964545fbb60b5345a6a0b6d7babbbe98b9d23ff54e79bd69899db3| // 1.33-glibc linux/amd64 (untagged)
+busybox@sha256:bd2e91e69aab407d5dd5cbed335db4e689b7e07296896b011337ea39e4c6c9e3|1.34-uclibc| // 1.34-uclibc linux/amd64
+busybox@sha256:51de9138b0cc394c813df84f334d638499333cac22edd05d0300b2c9a2dc80dd| // 1.34-glibc linux/amd64 (untagged)
+busybox@sha256:ff53c7a7182e2267f92e122df74ed67aa1b989195fbd093a89ed9ad6edb89bc0|1.35-uclibc| // 1.35-uclibc linux/amd64
+busybox@sha256:5b6e7aeda43f426b6423f60da863e2e6015c9983c957cf1b068120aea609261d| // 1.35-glibc linux/amd64 (untagged)
+busybox@sha256:b9ec44e0c85c90e8d2b0924d14f9c7b660ac3e1f54ba93775ef14141b99da784|1.36-uclibc| // 1.36-uclibc linux/amd64
+busybox@sha256:50aa4698fa6262977cff89181b2664b99d8a56dbca847bf62f2ef04854597cf8| // 1.36-glibc linux/amd64 (untagged)
