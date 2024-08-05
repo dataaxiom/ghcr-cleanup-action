@@ -40256,8 +40256,10 @@ class CleanupAction {
         await this.githubPackageRepo.loadPackages(this.packageIdByDigest, this.packagesById);
         // extract tags
         for (const ghPackage of this.packagesById.values()) {
-            for (const tag of ghPackage.metadata.container.tags) {
-                this.tagsInUse.add(tag);
+            if (ghPackage.metadata.container.tags) {
+                for (const tag of ghPackage.metadata.container.tags) {
+                    this.tagsInUse.add(tag);
+                }
             }
         }
         // find exclude tags using matcher
