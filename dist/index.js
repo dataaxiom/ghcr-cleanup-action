@@ -33892,7 +33892,7 @@ var core = __nccwpck_require__(2186);
 // EXTERNAL MODULE: ./node_modules/@octokit/rest/node_modules/@octokit/core/dist-node/index.js
 var dist_node = __nccwpck_require__(4952);
 ;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/version.js
-const VERSION = "5.3.0";
+const VERSION = "5.3.1";
 
 
 ;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-request-log/dist-src/index.js
@@ -33910,7 +33910,7 @@ function requestLog(octokit) {
       );
       return response;
     }).catch((error) => {
-      const requestId = error.response.headers["x-github-request-id"] || "UNKNOWN";
+      const requestId = error.response?.headers["x-github-request-id"] || "UNKNOWN";
       octokit.log.error(
         `${requestOptions.method} ${path} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
       );
@@ -33926,7 +33926,7 @@ var plugin_paginate_rest_dist_node = __nccwpck_require__(606);
 // EXTERNAL MODULE: ./node_modules/@octokit/rest/node_modules/@octokit/plugin-rest-endpoint-methods/dist-node/index.js
 var plugin_rest_endpoint_methods_dist_node = __nccwpck_require__(4923);
 ;// CONCATENATED MODULE: ./node_modules/@octokit/rest/dist-src/version.js
-const version_VERSION = "21.0.0";
+const version_VERSION = "21.0.1";
 
 
 ;// CONCATENATED MODULE: ./node_modules/@octokit/rest/dist-src/index.js
@@ -33946,7 +33946,6 @@ const Octokit = dist_node.Octokit.plugin(requestLog, plugin_rest_endpoint_method
 var light = __nccwpck_require__(1174);
 ;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-throttling/dist-bundle/index.js
 // pkg/dist-src/index.js
-
 
 
 // pkg/dist-src/version.js
@@ -34172,11 +34171,11 @@ class RequestError extends Error {
   response;
   constructor(message, statusCode, options) {
     super(message);
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
     this.name = "HttpError";
-    this.status = statusCode;
+    this.status = Number.parseInt(statusCode);
+    if (Number.isNaN(this.status)) {
+      this.status = 0;
+    }
     if ("response" in options) {
       this.response = options.response;
     }
@@ -39584,6 +39583,17 @@ function exponentialDelay(retryNumber = 0, error = undefined, delayFactor = 100)
     const randomSum = delay * 0.2 * Math.random(); // 0-20% of the delay
     return delay + randomSum;
 }
+/**
+ * Linear delay
+ * @param {number | undefined} delayFactor - delay factor in milliseconds (default: 100)
+ * @returns {function} (retryNumber: number, error: AxiosError | undefined) => number
+ */
+function linearDelay(delayFactor = 100) {
+    return (retryNumber = 0, error = undefined) => {
+        const delay = retryNumber * delayFactor;
+        return Math.max(delay, retryAfter(error));
+    };
+}
 const DEFAULT_OPTIONS = {
     retries: 3,
     retryCondition: isNetworkOrIdempotentRequestError,
@@ -39596,10 +39606,12 @@ const DEFAULT_OPTIONS = {
 function getRequestOptions(config, defaultOptions) {
     return { ...DEFAULT_OPTIONS, ...defaultOptions, ...config[namespace] };
 }
-function setCurrentState(config, defaultOptions) {
+function setCurrentState(config, defaultOptions, resetLastRequestTime = false) {
     const currentState = getRequestOptions(config, defaultOptions || {});
     currentState.retryCount = currentState.retryCount || 0;
-    currentState.lastRequestTime = currentState.lastRequestTime || Date.now();
+    if (!currentState.lastRequestTime || resetLastRequestTime) {
+        currentState.lastRequestTime = Date.now();
+    }
     config[namespace] = currentState;
     return currentState;
 }
@@ -39674,7 +39686,7 @@ async function handleMaxRetryTimesExceeded(currentState, error) {
 }
 const axiosRetry = (axiosInstance, defaultOptions) => {
     const requestInterceptorId = axiosInstance.interceptors.request.use((config) => {
-        setCurrentState(config, defaultOptions);
+        setCurrentState(config, defaultOptions, true);
         if (config[namespace]?.validateResponse) {
             // by setting this, all HTTP responses will be go through the error interceptor first
             config.validateStatus = () => false;
@@ -39706,6 +39718,7 @@ axiosRetry.isSafeRequestError = isSafeRequestError;
 axiosRetry.isIdempotentRequestError = isIdempotentRequestError;
 axiosRetry.isNetworkOrIdempotentRequestError = isNetworkOrIdempotentRequestError;
 axiosRetry.exponentialDelay = exponentialDelay;
+axiosRetry.linearDelay = linearDelay;
 axiosRetry.isRetryableError = isRetryableError;
 /* harmony default export */ const esm = (axiosRetry);
 
