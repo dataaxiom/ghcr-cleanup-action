@@ -40448,7 +40448,10 @@ class CleanupAction {
                 // if manifest image add to the digests
                 if (manifest.manifests) {
                     for (const imageManifest of manifest.manifests) {
-                        digests.push(imageManifest.digest);
+                        // only add existing packages
+                        if (this.packageIdByDigest.get(imageManifest.digest)) {
+                            digests.push(imageManifest.digest);
+                        }
                     }
                 }
             }
@@ -40660,7 +40663,7 @@ class CleanupAction {
                 this.packagesById.delete(id);
             }
             else {
-                throw new Error(`couldn't find package id ${id} in repository, skipping`);
+                throw new Error(`couldn't find package id ${id} for ${digest} in repository, skipping`);
             }
         }
         // now trim child packages from the remaining untagged images
