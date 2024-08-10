@@ -110,7 +110,6 @@ async function loadImages(
 
 async function deleteDigests(
   directory: string,
-  packageIdByDigest: Map<string, string>,
   githubPackageRepo: GithubPackageRepo
 ): Promise<void> {
   if (fs.existsSync(`${directory}/prime-delete`)) {
@@ -121,7 +120,7 @@ async function deleteDigests(
           line = line.substring(0, line.indexOf('//') - 1)
         }
         line = line.trim()
-        const id = packageIdByDigest.get(line)
+        const id = githubPackageRepo.getIdByDigest(line)
         if (id) {
           await githubPackageRepo.deletePackageVersion(id, line, [])
         }
@@ -202,9 +201,6 @@ export async function run(): Promise<void> {
   const githubPackageRepo = new GithubPackageRepo(config)
   await githubPackageRepo.init()
 
-  let packageIdByDigest = new Map<string, string>()
-  let packagesById = new Map<string, any>()
-
   const dummyDigest =
     'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f'
 
@@ -217,12 +213,12 @@ export async function run(): Promise<void> {
       args.token
     )
     // load after dummy to make sure the package exists on first clone/setup
-    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+    await githubPackageRepo.loadPackages()
 
     // remove all the existing images - except for the dummy image
-    for (const digest of packageIdByDigest.keys()) {
+    for (const digest of githubPackageRepo.getDigests()) {
       if (digest !== dummyDigest) {
-        const id = packageIdByDigest.get(digest)
+        const id = githubPackageRepo.getIdByDigest(digest)
         if (id) {
           await githubPackageRepo.deletePackageVersion(id, digest, [])
         }
@@ -239,17 +235,14 @@ export async function run(): Promise<void> {
     )
 
     if (fs.existsSync(`${args.directory}/prime-delete`)) {
-      // reload
-      packageIdByDigest = new Map<string, string>()
-      packagesById = new Map<string, any>()
-      await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+      await githubPackageRepo.loadPackages()
 
       // make any deletions
-      await deleteDigests(args.directory, packageIdByDigest, githubPackageRepo)
+      await deleteDigests(args.directory, githubPackageRepo)
     }
   } else if (args.mode === 'validate') {
     // test the repo after the test
-    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+    await githubPackageRepo.loadPackages()
 
     let error = false
 
@@ -258,7 +251,7 @@ export async function run(): Promise<void> {
       core.setFailed(`file: ${args.directory}/expected-digests doesn't exist`)
       error = true
     } else {
-      const digests = new Set<string>()
+      const expectedDigests = new Set<string>()
       const fileContents = fs.readFileSync(
         `${args.directory}/expected-digests`,
         'utf-8'
@@ -269,19 +262,20 @@ export async function run(): Promise<void> {
             line = line.substring(0, line.indexOf('//') - 1)
           }
           line = line.trim()
-          digests.add(line)
+          expectedDigests.add(line)
         }
       }
 
-      for (const digest of digests) {
-        if (packageIdByDigest.has(digest)) {
-          packageIdByDigest.delete(digest)
+      const digests = githubPackageRepo.getDigests()
+      for (const digest of expectedDigests) {
+        if (githubPackageRepo.getDigests().has(digest)) {
+          digests.delete(digest)
         } else {
           error = true
           core.setFailed(`expected digest not found after test: ${digest}`)
         }
       }
-      for (const digest of packageIdByDigest.keys()) {
+      for (const digest of digests) {
         error = true
         core.setFailed(`extra digest found after test: ${digest}`)
       }
@@ -308,7 +302,7 @@ export async function run(): Promise<void> {
         }
       }
 
-      const regTags = new Set(await registry.getTags())
+      const regTags = githubPackageRepo.getTags()
       for (const expectedTag of expectedTags) {
         if (regTags.has(expectedTag)) {
           regTags.delete(expectedTag)
@@ -326,10 +320,11 @@ export async function run(): Promise<void> {
     if (!error) console.info('test passed!')
   } else if (args.mode === 'save-expected') {
     // save the expected tag dynamically
-    await githubPackageRepo.loadPackages(packageIdByDigest, packagesById)
+    await githubPackageRepo.loadPackages()
 
     const tags = new Set<string>()
-    for (const ghPackage of packagesById.values()) {
+    for (const digest of githubPackageRepo.getDigests()) {
+      const ghPackage = githubPackageRepo.getPackageByDigest(digest)
       for (const repoTag of ghPackage.metadata.container.tags) {
         tags.add(repoTag)
       }

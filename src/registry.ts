@@ -3,16 +3,30 @@ import axios, { AxiosInstance, isAxiosError } from 'axios'
 import axiosRetry from 'axios-retry'
 import { calcDigest, isValidChallenge, parseChallenge } from './utils.js'
 
+/**
+ * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
+ */
 export class Registry {
+  // The action configuration
   config: Config
+
+  // http client library instance
   axios: AxiosInstance
+
   // cache of loaded manifests, by digest
   manifestCache = new Map<string, any>()
+
   // map of tag digests
   digestByTagCache = new Map<string, string>()
+
   // map of referrer manifests
   referrersCache = new Map<string, any>()
 
+  /**
+   * Constructor
+   *
+   * @param config The action configuration
+   */
   constructor(config: Config) {
     this.config = config
     this.axios = axios.create({
@@ -23,6 +37,12 @@ export class Registry {
       'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json'
   }
 
+  /**
+   * Logs in to the registry
+   * This method retrieves a token and handles authentication challenges if necessary
+   * @returns A Promise that resolves when the login is successful
+   * @throws If an error occurs during the login process
+   */
   async login(): Promise<void> {
     try {
       // get token
@@ -63,29 +83,12 @@ export class Registry {
     }
   }
 
-  async getTags(link?: string): Promise<string[]> {
-    let tags = []
-    let url = `/v2/${this.config.owner}/${this.config.package}/tags/list?n=100`
-    if (link) {
-      url = link
-    }
-    const response = await this.axios.get(url)
-    if (response.data.tags) {
-      tags = response.data.tags
-    }
-    if (response.headers['link']) {
-      // we have more results to read
-      const headerLink = response.headers['link']
-      const parts = headerLink.split('; ')
-      let next = parts[0]
-      if (next.startsWith('<') && next.endsWith('>')) {
-        next = next.substring(1, next.length - 1)
-      }
-      tags = tags.concat(await this.getTags(next))
-    }
-    return tags
-  }
-
+  /**
+   * Retrieves a manifest by its digest
+   *
+   * @param digest - The digest of the manifest to retrieve
+   * @returns A Promise that resolves to the retrieved manifest
+   */
   async getManifestByDigest(digest: string): Promise<any> {
     if (this.manifestCache.has(digest)) {
       return this.manifestCache.get(digest)
@@ -107,10 +110,21 @@ export class Registry {
     }
   }
 
+  /**
+   * Delete the associated cached digest for tag
+   *
+   * @param tag - The tag to delete
+   */
   deleteTag(tag: string): void {
     this.digestByTagCache.delete(tag)
   }
 
+  /**
+   * Retrieves tag for the given digest
+   *
+   * @param tag - The tag to lookup
+   * @returns A Promise that resolves to the retrieved digest
+   */
   async getTagDigest(tag: string): Promise<string> {
     if (!this.digestByTagCache.has(tag)) {
       // load it
@@ -124,6 +138,12 @@ export class Registry {
     }
   }
 
+  /**
+   * Retrieves a manifest by its tag
+   *
+   * @param tag - The tag of the manifest to retrieve
+   * @returns A Promise that resolves to the retrieved manifest
+   */
   async getManifestByTag(tag: string): Promise<any> {
     const cacheDigest = this.digestByTagCache.get(tag)
     if (cacheDigest) {
@@ -148,6 +168,13 @@ export class Registry {
     }
   }
 
+  /**
+   * Puts the manifest for a given tag in the registry.
+   * @param tag - The tag of the manifest.
+   * @param manifest - The manifest to be put.
+   * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
+   * @returns A Promise that resolves when the manifest is successfully put in the registry.
+   */
   async putManifest(
     tag: string,
     manifest: any,
@@ -216,6 +243,7 @@ export class Registry {
     }
   }
 
+  // TODO
   // ghcr.io not yet supporting referrers api?
   async getReferrersManifest(digest: string): Promise<any> {
     if (this.referrersCache.has(digest)) {

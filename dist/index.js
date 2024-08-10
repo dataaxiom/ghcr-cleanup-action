@@ -34296,11 +34296,14 @@ class Config {
     package = '';
     tags;
     excludeTags;
-    validate;
-    logLevel;
+    deleteUntagged;
     keepNuntagged;
     keepNtagged;
+    deleteGhostImages;
+    deletePartialImages;
     dryRun;
+    validate;
+    logLevel;
     token;
     octokit;
     constructor(token) {
@@ -34389,21 +34392,6 @@ function getConfig() {
         config.tags = core.getInput('delete-tags');
     }
     config.excludeTags = core.getInput('exclude-tags');
-    if (core.getInput('dry-run')) {
-        config.dryRun = core.getBooleanInput('dry-run');
-        if (config.dryRun) {
-            core.info('in dry run mode - no packages will be deleted');
-        }
-    }
-    else {
-        config.dryRun = false;
-    }
-    if (core.getInput('validate')) {
-        config.validate = core.getBooleanInput('validate');
-    }
-    else {
-        config.validate = false;
-    }
     if (core.getInput('keep-n-untagged')) {
         if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
             throw new Error('keep-n-untagged is not number');
@@ -34420,17 +34408,43 @@ function getConfig() {
             config.keepNtagged = parseInt(core.getInput('keep-n-tagged'));
         }
     }
-    if (config.keepNuntagged && config.keepNtagged) {
-        throw Error('keep-n-untagged and keep-n-tagged options can not be set at the same time');
+    if (core.getInput('delete-untagged')) {
+        config.deleteUntagged = core.getBooleanInput('delete-untagged');
     }
-    if (!config.owner) {
-        throw new Error('owner is not set');
+    else {
+        // default is deleteUntagged if no options are set
+        if (!core.getInput('tags') &&
+            !core.getInput('keep-n-untagged') &&
+            !core.getInput('keep-n-tagged')) {
+            config.deleteUntagged = true;
+        }
+        else if (core.getInput('keep-n-tagged')) {
+            config.deleteUntagged = true;
+        }
+        else {
+            config.deleteUntagged = false;
+        }
     }
-    if (!config.package) {
-        throw new Error('package is not set');
+    if (core.getInput('delete-ghost-images')) {
+        config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
     }
-    if (!config.repository) {
-        throw new Error('repository is not set');
+    if (core.getInput('delete-partial-images')) {
+        config.deletePartialImages = core.getBooleanInput('delete-partial-images');
+    }
+    if (core.getInput('dry-run')) {
+        config.dryRun = core.getBooleanInput('dry-run');
+        if (config.dryRun) {
+            core.info('in dry run mode - no packages will be deleted');
+        }
+    }
+    else {
+        config.dryRun = false;
+    }
+    if (core.getInput('validate')) {
+        config.validate = core.getBooleanInput('validate');
+    }
+    else {
+        config.validate = false;
     }
     if (core.getInput('log-level')) {
         const level = core.getInput('log-level').toLowerCase();
@@ -34446,6 +34460,15 @@ function getConfig() {
         else if (level === 'debug') {
             config.logLevel = LogLevel.DEBUG;
         }
+    }
+    if (!config.owner) {
+        throw new Error('owner is not set');
+    }
+    if (!config.package) {
+        throw new Error('package is not set');
+    }
+    if (!config.repository) {
+        throw new Error('repository is not set');
     }
     return config;
 }
@@ -39794,8 +39817,13 @@ function isValidChallenge(attributes) {
 
 
 
+/**
+ * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
+ */
 class Registry {
+    // The action configuration
     config;
+    // http client library instance
     axios;
     // cache of loaded manifests, by digest
     manifestCache = new Map();
@@ -39803,6 +39831,11 @@ class Registry {
     digestByTagCache = new Map();
     // map of referrer manifests
     referrersCache = new Map();
+    /**
+     * Constructor
+     *
+     * @param config The action configuration
+     */
     constructor(config) {
         this.config = config;
         this.axios = lib_axios.create({
@@ -39812,6 +39845,12 @@ class Registry {
         this.axios.defaults.headers.common['Accept'] =
             'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json';
     }
+    /**
+     * Logs in to the registry
+     * This method retrieves a token and handles authentication challenges if necessary
+     * @returns A Promise that resolves when the login is successful
+     * @throws If an error occurs during the login process
+     */
     async login() {
         try {
             // get token
@@ -39850,28 +39889,12 @@ class Registry {
             }
         }
     }
-    async getTags(link) {
-        let tags = [];
-        let url = `/v2/${this.config.owner}/${this.config.package}/tags/list?n=100`;
-        if (link) {
-            url = link;
-        }
-        const response = await this.axios.get(url);
-        if (response.data.tags) {
-            tags = response.data.tags;
-        }
-        if (response.headers['link']) {
-            // we have more results to read
-            const headerLink = response.headers['link'];
-            const parts = headerLink.split('; ');
-            let next = parts[0];
-            if (next.startsWith('<') && next.endsWith('>')) {
-                next = next.substring(1, next.length - 1);
-            }
-            tags = tags.concat(await this.getTags(next));
-        }
-        return tags;
-    }
+    /**
+     * Retrieves a manifest by its digest
+     *
+     * @param digest - The digest of the manifest to retrieve
+     * @returns A Promise that resolves to the retrieved manifest
+     */
     async getManifestByDigest(digest) {
         if (this.manifestCache.has(digest)) {
             return this.manifestCache.get(digest);
@@ -39890,9 +39913,20 @@ class Registry {
             return obj;
         }
     }
+    /**
+     * Delete the associated cached digest for tag
+     *
+     * @param tag - The tag to delete
+     */
     deleteTag(tag) {
         this.digestByTagCache.delete(tag);
     }
+    /**
+     * Retrieves tag for the given digest
+     *
+     * @param tag - The tag to lookup
+     * @returns A Promise that resolves to the retrieved digest
+     */
     async getTagDigest(tag) {
         if (!this.digestByTagCache.has(tag)) {
             // load it
@@ -39906,6 +39940,12 @@ class Registry {
             throw new Error(`couln't find digest for tag ${tag}`);
         }
     }
+    /**
+     * Retrieves a manifest by its tag
+     *
+     * @param tag - The tag of the manifest to retrieve
+     * @returns A Promise that resolves to the retrieved manifest
+     */
     async getManifestByTag(tag) {
         const cacheDigest = this.digestByTagCache.get(tag);
         if (cacheDigest) {
@@ -39927,6 +39967,13 @@ class Registry {
             return obj;
         }
     }
+    /**
+     * Puts the manifest for a given tag in the registry.
+     * @param tag - The tag of the manifest.
+     * @param manifest - The manifest to be put.
+     * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
+     * @returns A Promise that resolves when the manifest is successfully put in the registry.
+     */
     async putManifest(tag, manifest, multiArch) {
         if (!this.config.dryRun) {
             let contentType = 'application/vnd.oci.image.manifest.v1+json';
@@ -39982,6 +40029,7 @@ class Registry {
             }
         }
     }
+    // TODO
     // ghcr.io not yet supporting referrers api?
     async getReferrersManifest(digest) {
         if (this.referrersCache.has(digest)) {
@@ -40005,16 +40053,43 @@ class Registry {
 
 ;// CONCATENATED MODULE: ./src/github-package.ts
 
+/**
+ * Provides access to a package via the GitHub Packages REST API.
+ */
 class GithubPackageRepo {
+    // The action configuration
     config;
+    // The type of repository (User or Organization)
     repoType = 'Organization';
+    // Map of digests to package ids
+    digest2Id = new Map();
+    // Map of ids to package version definitions
+    id2Package = new Map();
+    // Map of tags to digests
+    tag2Digest = new Map();
+    /**
+     * Constructor
+     *
+     * @param config The action configuration
+     */
     constructor(config) {
         this.config = config;
     }
+    /*
+     * Initialization method.
+     */
     async init() {
+        // Determine the repository type (User or Organization)
         this.repoType = await this.config.getOwnerType();
     }
-    async loadPackages(byDigest, packages) {
+    /**
+     * Loads all versions of the package from the GitHub Packages API and populates the internal maps
+     */
+    async loadPackages() {
+        // clear the maps for reloading
+        this.digest2Id.clear();
+        this.id2Package.clear();
+        this.tag2Digest.clear();
         let getFunc = this.config.octokit.rest.packages
             .getAllPackageVersionsForPackageOwnedByOrg;
         let getParams;
@@ -40043,11 +40118,63 @@ class GithubPackageRepo {
         }
         for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
             for (const packageVersion of response.data) {
-                byDigest.set(packageVersion.name, packageVersion.id);
-                packages.set(packageVersion.id, packageVersion);
+                this.digest2Id.set(packageVersion.name, packageVersion.id);
+                this.id2Package.set(packageVersion.id, packageVersion);
+                for (const tag of packageVersion.metadata.container.tags) {
+                    this.tag2Digest.set(tag, packageVersion.name);
+                }
             }
         }
     }
+    /**
+     * Return all tags in use for the package
+     * @returns The tags for the package
+     */
+    getTags() {
+        return new Set(this.tag2Digest.keys());
+    }
+    /**
+     * Return all digests version in use for the package
+     * @returns The digests for the package
+     */
+    getDigests() {
+        return new Set(this.digest2Id.keys());
+    }
+    /**
+     * Return the digest for given tag
+     * @param The tag to lookup
+     * @returns The the digest
+     */
+    getDigestByTag(tag) {
+        return this.tag2Digest.get(tag);
+    }
+    /**
+     * Return the package version id for the given digest
+     * @returns The the package id
+     */
+    getIdByDigest(digest) {
+        return this.digest2Id.get(digest);
+    }
+    /**
+     * Return the package version descriptor for the given digest
+     * @param digest The digest to lookup
+     * @returns The the package descriptor
+     */
+    getPackageByDigest(digest) {
+        let ghPackage;
+        const id = this.digest2Id.get(digest);
+        if (id) {
+            ghPackage = this.id2Package.get(id);
+        }
+        return ghPackage;
+    }
+    /**
+     * Delete a package version
+     * @param id The ID of the package version to delete
+     * @param digest The associated digest for the package version
+     * @param tags The tags associated with the package
+     * @param label Additional label to display
+     */
     async deletePackageVersion(id, digest, tags, label) {
         if (tags && tags.length > 0) {
             core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
@@ -40274,15 +40401,25 @@ async function run() {
     }
 }
 class CleanupAction {
+    // The action configuration
     config;
+    // tags which should be excluded from deletion
     excludeTags = [];
+    // used to interact with the container registry api
     registry;
+    // used to interact with the github package api
     githubPackageRepo;
-    packageIdByDigest = new Map();
-    packagesById = new Map();
-    childInUsePackages = new Map(); // by id
+    // working set of package digests to process filters/keeps options on
+    filterSet = new Set();
+    // digests to delete
+    deleteSet = new Set();
+    // all the tags in use in the registry
     tagsInUse = new Set();
+    // mapping child digests to parent digests
+    digestUsedBy = new Map();
+    // digests which have been deleted
     deleted = new Set();
+    // action stats
     numberMultiImagesDeleted = 0;
     numberImagesDeleted = 0;
     constructor() {
@@ -40295,67 +40432,87 @@ class CleanupAction {
         await this.githubPackageRepo.init();
     }
     async reload() {
-        this.packageIdByDigest = new Map();
-        this.packagesById = new Map();
-        this.childInUsePackages = new Map();
-        this.tagsInUse = new Set();
-        this.deleted = new Set();
-        // get list of all the current packages
-        await this.githubPackageRepo.loadPackages(this.packageIdByDigest, this.packagesById);
-        // extract tags
-        for (const ghPackage of this.packagesById.values()) {
-            if (ghPackage.metadata.container.tags) {
-                for (const tag of ghPackage.metadata.container.tags) {
-                    this.tagsInUse.add(tag);
-                }
-            }
-        }
-        // find exclude tags using matcher
+        this.deleteSet.clear();
+        this.deleted.clear();
+        // prime the list of current packages
+        await this.githubPackageRepo.loadPackages();
+        // extract values from the load
+        this.filterSet = this.githubPackageRepo.getDigests();
+        this.tagsInUse = this.githubPackageRepo.getTags();
+        // build digestUsedBy map
+        await this.loadDigestUsedByMap();
+        // remove children from filterSet - manifest image children, refferers
+        await this.trimChildren();
+        // find excluded tags using matcher
+        this.excludeTags = [];
         if (this.config.excludeTags) {
             const isTagMatch = wildcardMatch(this.config.excludeTags.split(','));
             for (const tag of this.tagsInUse) {
                 if (isTagMatch(tag)) {
+                    // delete the tag from the filterSet
+                    const digest = this.githubPackageRepo.getDigestByTag(tag);
+                    if (digest) {
+                        this.filterSet.delete(digest);
+                    }
                     this.excludeTags.push(tag);
                 }
             }
         }
     }
-    movePackageToChildList(digest) {
-        // get the id and trim it as it's in use
-        const id = this.packageIdByDigest.get(digest);
-        if (id) {
-            // save it as a child
-            if (this.packagesById.get(id)) {
-                this.childInUsePackages.set(id, this.packagesById.get(id));
-                // now remove it
-                this.packagesById.delete(id);
+    /*
+     * Builds a map child images back to their parents
+     * The map is used to determine if image can be safely deleted
+     */
+    async loadDigestUsedByMap() {
+        this.digestUsedBy.clear();
+        const digests = this.githubPackageRepo.getDigests();
+        for (const digest of digests) {
+            const manifest = await this.registry.getManifestByDigest(digest);
+            // we only map multi-arch images
+            if (manifest.manifests) {
+                for (const imageManifest of manifest.manifests) {
+                    // only add existing packages
+                    if (digests.has(imageManifest.digest)) {
+                        let parents = this.digestUsedBy.get(imageManifest.digest);
+                        if (!parents) {
+                            parents = new Set();
+                            this.digestUsedBy.set(imageManifest.digest, parents);
+                        }
+                        parents.add(digest);
+                    }
+                }
             }
         }
     }
-    // move 'child' packages from main package list to the separate child list
-    async trimChildPackages(digest) {
-        // only process digests not already moved
-        const packageId = this.packageIdByDigest.get(digest);
-        if (packageId && !this.childInUsePackages.has(packageId)) {
+    /*
+     * Remove all multi architecture platform images from the filterSet it's including
+     * refferrer image if present. Filting/processing occurs on  top level images.
+     */
+    async trimChildren() {
+        const digests = this.githubPackageRepo.getDigests();
+        for (const digest of digests) {
             const manifest = await this.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
                 for (const imageManifest of manifest.manifests) {
-                    // get the id and trim it as it's in use
-                    this.movePackageToChildList(imageManifest.digest);
+                    if (digests.has(imageManifest.digest)) {
+                        this.filterSet.delete(imageManifest.digest);
+                    }
                 }
             }
             // process any referrers - OCI v1 via tag currently
             const referrerTag = digest.replace('sha256:', 'sha256-');
             if (this.tagsInUse.has(referrerTag) &&
                 !this.excludeTags.includes(referrerTag)) {
-                // find the package and move it and it's children to the childInUsePackages
+                // find the digest and children and remove them
                 const referrerDigest = await this.registry.getTagDigest(referrerTag);
-                this.movePackageToChildList(referrerDigest);
+                this.filterSet.delete(referrerDigest);
                 const referrerManifest = await this.registry.getManifestByTag(referrerTag);
                 if (referrerManifest.manifests) {
                     for (const manifestEntry of referrerManifest.manifests) {
-                        // get the id and trim it as it's in use
-                        this.movePackageToChildList(manifestEntry.digest);
+                        if (digests.has(manifestEntry.digest)) {
+                            // get the id and trim it as it's in use
+                            this.filterSet.delete(manifestEntry.digest);
+                        }
                     }
                 }
             }
@@ -40364,37 +40521,29 @@ class CleanupAction {
     // validate manifests list packages
     async validate() {
         core.info('validating multi-architecture/referrers images:');
-        // copy the loaded packages
-        const packageIdByDigest = new Map(this.packageIdByDigest);
-        const packagesById = new Map(this.packagesById);
         // cycle thru digests checking them
         let error = false;
         const processedManifests = new Set();
-        for (const digest of packageIdByDigest.keys()) {
+        for (const digest of this.githubPackageRepo.getDigests()) {
             // is the digest a multi arch image?
             if (!processedManifests.has(digest)) {
                 const manifest = await this.registry.getManifestByDigest(digest);
-                const id = packageIdByDigest.get(digest);
-                if (id) {
-                    const tags = packagesById.get(id).metadata.container.tags;
-                    if (manifest.manifests) {
-                        for (const childImage of manifest.manifests) {
-                            // mark it as processed
-                            processedManifests.add(childImage.digest);
-                            if (!packageIdByDigest.has(childImage.digest)) {
-                                error = true;
-                                if (tags.length > 0) {
-                                    core.warning(`digest ${childImage.digest} not found on image ${tags}`);
-                                }
-                                else {
-                                    core.warning(`digest ${childImage.digest} not found on untagged image ${digest}`);
-                                }
+                const tags = this.githubPackageRepo.getPackageByDigest(digest).metadata.container
+                    .tags;
+                if (manifest.manifests) {
+                    for (const childImage of manifest.manifests) {
+                        // mark it as processed
+                        processedManifests.add(childImage.digest);
+                        if (!this.githubPackageRepo.getIdByDigest(childImage.digest)) {
+                            error = true;
+                            if (tags.length > 0) {
+                                core.warning(`digest ${childImage.digest} not found on image ${tags}`);
+                            }
+                            else {
+                                core.warning(`digest ${childImage.digest} not found on untagged image ${digest}`);
                             }
                         }
                     }
-                }
-                else {
-                    throw new Error("couln't find package for digest");
                 }
             }
         }
@@ -40402,7 +40551,7 @@ class CleanupAction {
         for (const tag of this.tagsInUse) {
             if (tag.startsWith('sha256-')) {
                 const digest = tag.replace('sha256-', 'sha256:');
-                if (!this.packageIdByDigest.get(digest)) {
+                if (!this.githubPackageRepo.getIdByDigest(digest)) {
                     error = true;
                     core.warning(`parent image for referrer tag ${tag} not found in repository`);
                 }
@@ -40429,6 +40578,9 @@ class CleanupAction {
             if (imageManifest.artifactType.startsWith('application/vnd.dev.sigstore.bundle')) {
                 label = 'sigstore attestation';
             }
+            else {
+                label = imageManifest.artifactType;
+            }
         }
         return label;
     }
@@ -40440,20 +40592,32 @@ class CleanupAction {
             await this.githubPackageRepo.deletePackageVersion(ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
             this.deleted.add(ghPackage.name);
             this.numberImagesDeleted += 1;
-            // if manifest list image now delete the children
+            // if manifest based image now delete it's children
             if (manifest.manifests) {
                 this.numberMultiImagesDeleted += 1;
                 for (const imageManifest of manifest.manifests) {
-                    const packageId = this.packageIdByDigest.get(imageManifest.digest);
-                    if (packageId) {
-                        const manifestPackage = this.childInUsePackages.get(packageId);
-                        if (manifestPackage) {
-                            await this.githubPackageRepo.deletePackageVersion(manifestPackage.id, manifestPackage.name, [], this.buildLabel(imageManifest));
-                            this.deleted.add(manifestPackage.name);
-                            this.numberImagesDeleted += 1;
-                        }
-                        else {
-                            core.setFailed(`something went wrong - can't find the manifest  ${imageManifest.digest}`);
+                    const manifestPackage = this.githubPackageRepo.getPackageByDigest(imageManifest.digest);
+                    if (manifestPackage) {
+                        if (!this.deleted.has(manifestPackage.name)) {
+                            // check if the digest isn't in use by another image
+                            const parents = this.digestUsedBy.get(manifestPackage.name);
+                            if (parents) {
+                                if (parents.size === 1 && parents.has(ghPackage.name)) {
+                                    // it's only referenced from this image so delete it
+                                    await this.githubPackageRepo.deletePackageVersion(manifestPackage.id, manifestPackage.name, [], this.buildLabel(imageManifest));
+                                    this.deleted.add(manifestPackage.name);
+                                    this.numberImagesDeleted += 1;
+                                }
+                                else {
+                                    core.info(` skipping deletion of ${ghPackage.name} as it's in use by another image`);
+                                    // skip the deletion since it's in use by another image - just remove the usedBy reference
+                                    parents.delete(ghPackage.name);
+                                }
+                            }
+                            else {
+                                // should never be here
+                                core.info(` digestUsedBy not correctly setup for ${manifestPackage.name}`);
+                            }
                         }
                     }
                     else {
@@ -40467,67 +40631,37 @@ class CleanupAction {
                 !this.excludeTags.includes(attestationTag)) {
                 // find the package
                 const manifestDigest = await this.registry.getTagDigest(attestationTag);
-                const attestationPackage = this.getPackageByDigest(manifestDigest);
+                const attestationPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
                 // recursively delete it
                 await this.deleteImage(attestationPackage);
             }
         }
     }
-    getPackageByDigest(digest) {
-        let ghPackage;
-        const id = this.packageIdByDigest.get(digest);
-        if (id) {
-            ghPackage = this.packagesById.get(id);
-            if (!ghPackage) {
-                ghPackage = this.childInUsePackages.get(id);
-            }
-        }
-        return ghPackage;
-    }
-    // ignores referrers tags
-    async getAllTagDigests() {
-        const digests = [];
-        for (const tag of this.tagsInUse) {
-            // skip over referrer tags
-            if (!tag.startsWith('sha256-')) {
-                const manifest = await this.registry.getManifestByTag(tag);
-                const digest = await this.registry.getTagDigest(tag);
-                digests.push(digest);
-                // if manifest image add to the digests
-                if (manifest.manifests) {
-                    for (const imageManifest of manifest.manifests) {
-                        // only add existing packages
-                        if (this.packageIdByDigest.get(imageManifest.digest)) {
-                            digests.push(imageManifest.digest);
-                        }
-                    }
-                }
-            }
-        }
-        return digests;
-    }
     async deleteByTag() {
         if (this.config.tags) {
-            core.info(`deleting images by tags ${this.config.tags}`);
+            core.info(`deleting tagged images: ${this.config.tags}`);
             // find the tags the match wildcard patterns
             const isTagMatch = wildcardMatch(this.config.tags.split(','));
             const matchTags = [];
-            for (const tag of this.tagsInUse) {
-                if (isTagMatch(tag)) {
-                    matchTags.push(tag);
+            // build match list from filterSet
+            for (const digest of this.filterSet) {
+                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                for (const tag of ghPackage.metadata.container.tags) {
+                    if (isTagMatch(tag)) {
+                        matchTags.push(tag);
+                    }
                 }
             }
             if (matchTags.length > 0) {
+                core.info(` found matching images to delete: ${matchTags}`);
                 for (const tag of matchTags) {
                     if (!this.excludeTags.includes(tag)) {
                         // get the package
                         const manifest = await this.registry.getManifestByTag(tag);
                         const manifestDigest = await this.registry.getTagDigest(tag);
-                        const ghPackage = this.getPackageByDigest(manifestDigest);
+                        const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
                         // if the image only has one tag - delete it
                         if (ghPackage.metadata.container.tags.length === 1) {
-                            // deleteImage function works from child list so trim first
-                            await this.trimChildPackages(manifestDigest);
                             await this.deleteImage(ghPackage);
                         }
                         else {
@@ -40551,12 +40685,10 @@ class CleanupAction {
                             // the tag will have a new digest now so delete the cached version
                             this.registry.deleteTag(tag);
                             // reload package ids to find the new package id
-                            const reloadPackageByDigest = new Map();
-                            const githubPackages = new Map();
-                            await this.githubPackageRepo.loadPackages(reloadPackageByDigest, githubPackages);
+                            await this.githubPackageRepo.loadPackages();
                             // reload the manifest
                             const untaggedDigest = await this.registry.getTagDigest(tag);
-                            const id = reloadPackageByDigest.get(untaggedDigest);
+                            const id = this.githubPackageRepo.getIdByDigest(untaggedDigest);
                             if (id) {
                                 await this.githubPackageRepo.deletePackageVersion(id, untaggedDigest, [tag]);
                                 this.numberImagesDeleted += 1;
@@ -40570,182 +40702,159 @@ class CleanupAction {
             }
         }
     }
-    async isGhostImage(digest) {
-        let ghostImage = false;
-        // is a ghost image if all of the child manifests dont exist
-        const manfiest = await this.registry.getManifestByDigest(digest);
-        if (manfiest.manifests) {
-            let missing = 0;
-            for (const imageManfiest of manfiest.manifests) {
-                if (!this.packageIdByDigest.get(imageManfiest.digest)) {
-                    missing += 1;
+    async deleteGhostImages() {
+        for (const digest of this.filterSet) {
+            let ghostImage = false;
+            // is a ghost image if all of the child manifests dont exist
+            const manfiest = await this.registry.getManifestByDigest(digest);
+            if (manfiest.manifests) {
+                let missing = 0;
+                for (const imageManfiest of manfiest.manifests) {
+                    if (!this.githubPackageRepo.getIdByDigest(imageManfiest.digest)) {
+                        missing += 1;
+                    }
+                }
+                if (missing === manfiest.manifests.length) {
+                    ghostImage = true;
                 }
             }
-            if (missing === manfiest.manifests.length) {
-                ghostImage = true;
+            if (ghostImage) {
+                // setup the ghost image to be deleted
+                core.info(`image ${digest} is cued up for deletion as it doesn't contain any of it's platform images`);
+                this.filterSet.delete(digest);
+                this.deleteSet.add(digest);
             }
         }
-        return ghostImage;
+    }
+    async deletePartialImages() {
+        for (const digest of this.filterSet) {
+            let partialImage = false;
+            // is a partial image if some of the child manifests dont exist
+            const manfiest = await this.registry.getManifestByDigest(digest);
+            if (manfiest.manifests) {
+                for (const imageManfiest of manfiest.manifests) {
+                    if (!this.githubPackageRepo.getIdByDigest(imageManfiest.digest)) {
+                        partialImage = true;
+                        break;
+                    }
+                }
+            }
+            if (partialImage) {
+                // setup the partial image to be deleted
+                core.info(`image ${digest} is cued up for deletion as it doesn't contain all of it's platform images`);
+                this.filterSet.delete(digest);
+                this.deleteSet.add(digest);
+            }
+        }
     }
     async keepNuntagged() {
         if (this.config.keepNuntagged && this.config.keepNuntagged !== 0) {
             core.info(`deleting untagged images, keeping ${this.config.keepNuntagged} versions`);
-            // get all the tagged digests (ignores referrers tags)
-            const imageDigests = await this.getAllTagDigests();
-            // remove these from the saved packages list
-            for (const digest of imageDigests) {
-                const id = this.packageIdByDigest.get(digest);
-                if (id) {
-                    await this.trimChildPackages(digest);
-                    this.packagesById.delete(id);
-                    this.packageIdByDigest.delete(digest);
+            // create a temporary array of untagged images to process on
+            const unTaggedPackages = [];
+            // find untagged images in the filterSet
+            for (const digest of this.filterSet) {
+                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                if (ghPackage.metadata.container.tags.length === 0) {
+                    unTaggedPackages.push(ghPackage);
                 }
             }
-            // now remove the untagged images left in the packages list
-            if (this.packageIdByDigest.size > 0) {
-                // remove multi/referrer images - only count the manifest list image
-                // and trim manifests which have no children
-                const ghostImages = [];
-                for (const digest of this.packageIdByDigest.keys()) {
-                    await this.trimChildPackages(digest);
-                    if (await this.isGhostImage(digest)) {
-                        // save it to add back
-                        ghostImages.push(this.getPackageByDigest(digest));
-                        // remove it from later untaggedPackages sort
-                        const id = this.packageIdByDigest.get(digest);
-                        if (id) {
-                            this.packagesById.delete(id);
-                        }
-                    }
-                }
-                // now sort the remaining packages by date
-                let untaggedPackages = [...this.packagesById.values()];
-                untaggedPackages.sort((a, b) => {
+            // now sort and remove extra untagged images
+            if (unTaggedPackages.length > 0) {
+                // sort descending
+                unTaggedPackages.sort((a, b) => {
                     return Date.parse(b.updated_at) - Date.parse(a.updated_at);
                 });
-                // add back ghost images to be deleted
-                untaggedPackages = [...ghostImages, ...untaggedPackages];
                 // now delete the remainder untagged packages/images minus the keep value
-                if (untaggedPackages.length > this.config.keepNuntagged) {
-                    untaggedPackages = untaggedPackages.splice(this.config.keepNuntagged);
-                    for (const untaggedPackage of untaggedPackages) {
-                        const ghPackage = this.packagesById.get(untaggedPackage.id);
-                        await this.deleteImage(ghPackage);
+                if (unTaggedPackages.length > this.config.keepNuntagged) {
+                    const deletePackages = unTaggedPackages.splice(this.config.keepNuntagged);
+                    for (const deletePackage of deletePackages) {
+                        this.deleteSet.add(deletePackage.name);
+                        this.filterSet.delete(deletePackage.name);
                     }
                 }
             }
         }
     }
-    async deleteRemainingPackages() {
-        // process deletion in 2 iterations
-        // delete manifest list images first
-        for (const ghPackage of this.packagesById.values()) {
-            if (!this.deleted.has(ghPackage.name)) {
-                const manifest = await this.registry.getManifestByDigest(ghPackage.name);
-                if (manifest.manifests) {
-                    await this.deleteImage(ghPackage);
-                }
-            }
-        }
-        // now process the remainder
-        for (const ghPackage of this.packagesById.values()) {
-            if (!this.deleted.has(ghPackage.name)) {
-                await this.deleteImage(ghPackage);
-            }
+    async delete() {
+        // now delete the images
+        for (const deleteDigest of this.deleteSet) {
+            const deleteImage = this.githubPackageRepo.getPackageByDigest(deleteDigest);
+            await this.deleteImage(deleteImage);
         }
     }
     async keepNtagged() {
         if (this.config.keepNtagged != null) {
             core.info(`deleting tagged images, keeping ${this.config.keepNtagged} versions`);
-            // remove the excluded tags
-            for (const excludedTag of this.excludeTags) {
-                const imageDigest = await this.registry.getTagDigest(excludedTag);
-                await this.trimChildPackages(imageDigest);
-                const id = this.packageIdByDigest.get(imageDigest);
-                if (id) {
-                    this.packagesById.delete(id);
-                    this.packageIdByDigest.delete(imageDigest);
-                }
-                else {
-                    core.info(`image digest ${imageDigest} not found in repository, skipping`);
+            // create a temporary array of tagged images to process on
+            const taggedPackages = [];
+            // only copy images with tags
+            for (const digest of this.filterSet) {
+                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                if (ghPackage.metadata.container.tags.length > 0) {
+                    taggedPackages.push(ghPackage);
                 }
             }
-            // create an array to sort by date
-            let packagesToKeep = [];
-            // trim all the child packages
-            for (const digest of this.packageIdByDigest.keys()) {
-                await this.trimChildPackages(digest);
-            }
-            // only copy images with tags and not ghost images
-            for (const ghPackage of this.packagesById.values()) {
-                if (!(await this.isGhostImage(ghPackage.name))) {
-                    if (ghPackage.metadata.container.tags.length > 0) {
-                        packagesToKeep.push(ghPackage);
-                    }
-                }
-            }
-            // sort them by date
-            packagesToKeep.sort((a, b) => {
-                return Date.parse(a.updated_at) - Date.parse(b.updated_at);
+            // sort descending
+            taggedPackages.sort((a, b) => {
+                return Date.parse(b.updated_at) - Date.parse(a.updated_at);
             });
-            // trim to size
-            if (packagesToKeep.length > this.config.keepNtagged) {
-                packagesToKeep = packagesToKeep.splice(packagesToKeep.length - this.config.keepNtagged);
-            }
-            // now strip these from the package list
-            for (const ghPackage of packagesToKeep) {
-                this.packagesById.delete(ghPackage.id);
+            // trim packages to keep and delete the remainder
+            if (taggedPackages.length > this.config.keepNtagged) {
+                const deletePackages = taggedPackages.splice(this.config.keepNtagged);
+                // now set these up to be deleted
+                for (const deletePackage of deletePackages) {
+                    this.deleteSet.add(deletePackage.name);
+                    this.filterSet.delete(deletePackage.name);
+                }
             }
         }
-        await this.deleteRemainingPackages();
     }
     async deleteUntagged() {
         core.info('deleting all untagged images');
-        // get all the tagged digests from the containter registry
-        const inUseDigests = await this.getAllTagDigests();
-        // cycle through the inUseTags and remove them
-        for (const digest of inUseDigests) {
-            const id = this.packageIdByDigest.get(digest);
-            if (id) {
-                await this.trimChildPackages(digest);
-                this.packagesById.delete(id);
-            }
-            else {
-                throw new Error(`couldn't find package id ${id} for ${digest} in repository, skipping`);
+        // find untagged images in the filterSet
+        for (const digest of this.filterSet) {
+            const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+            if (ghPackage.metadata.container.tags.length === 0) {
+                this.deleteSet.add(ghPackage.name);
+                // not currently removing from filterSet (in loop)
             }
         }
-        // now trim child packages from the remaining untagged images
-        // the delete method will then delete the child packages
-        for (const ghPackage of this.packagesById.values()) {
-            await this.trimChildPackages(ghPackage.name);
-        }
-        await this.deleteRemainingPackages();
     }
     async run() {
         try {
+            // process tag deletions first - to support untagging
             if (this.config.tags) {
                 await this.deleteByTag();
                 await this.reload();
+            }
+            if (this.config.deleteGhostImages) {
+                await this.deleteGhostImages();
+            }
+            if (this.config.deletePartialImages) {
+                await this.deletePartialImages();
+            }
+            if (this.config.keepNtagged != null) {
+                // we are in the cleanup tagged images mode
+                await this.keepNtagged();
             }
             // value 0 will be treated as boolean
             if (this.config.keepNuntagged) {
                 // we are in the cleanup untagged images mode
                 await this.keepNuntagged();
             }
-            else if (this.config.keepNtagged != null) {
-                // we are in the cleanup tagged images mode
-                await this.keepNtagged();
-            }
-            else if (!this.config.tags) {
+            else if (this.config.deleteUntagged) {
                 // delete all untagged images
                 await this.deleteUntagged();
             }
+            // now preform the actual deletion
+            await this.delete();
             if (this.config.validate) {
                 await this.reload();
                 await this.validate();
             }
             core.info('cleanup statistics:');
-            // print stats
+            // print action statistics
             if (this.numberMultiImagesDeleted > 0) {
                 core.info(` multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
             }

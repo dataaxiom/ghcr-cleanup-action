@@ -34566,7 +34566,7 @@ async function loadImages(directory, owner, packageName, token, delay) {
         }
     }
 }
-async function deleteDigests(directory, packageIdByDigest, githubPackageRepo) {
+async function deleteDigests(directory, githubPackageRepo) {
     if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${directory}/prime-delete`)) {
         const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${directory}/prime-delete`, 'utf-8');
         for (let line of fileContents.split('\n')) {
@@ -34575,7 +34575,7 @@ async function deleteDigests(directory, packageIdByDigest, githubPackageRepo) {
                     line = line.substring(0, line.indexOf('//') - 1);
                 }
                 line = line.trim();
-                const id = packageIdByDigest.get(line);
+                const id = githubPackageRepo.getIdByDigest(line);
                 if (id) {
                     await githubPackageRepo.deletePackageVersion(id, line, []);
                 }
@@ -34644,19 +34644,17 @@ async function run() {
     await registry.login();
     const githubPackageRepo = new _github_package_js__WEBPACK_IMPORTED_MODULE_4__/* .GithubPackageRepo */ .l(config);
     await githubPackageRepo.init();
-    let packageIdByDigest = new Map();
-    let packagesById = new Map();
     const dummyDigest = 'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f';
     if (args.mode === 'prime') {
         // push dummy image - repo once it's created and has an iamge it requires atleast one image
         pushImage(`busybox@${dummyDigest}`, // 1.31
         `ghcr.io/${config.owner}/${config.package}:dummy`, undefined, args.token);
         // load after dummy to make sure the package exists on first clone/setup
-        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        await githubPackageRepo.loadPackages();
         // remove all the existing images - except for the dummy image
-        for (const digest of packageIdByDigest.keys()) {
+        for (const digest of githubPackageRepo.getDigests()) {
             if (digest !== dummyDigest) {
-                const id = packageIdByDigest.get(digest);
+                const id = githubPackageRepo.getIdByDigest(digest);
                 if (id) {
                     await githubPackageRepo.deletePackageVersion(id, digest, []);
                 }
@@ -34665,17 +34663,14 @@ async function run() {
         // prime the test images
         await loadImages(args.directory, config.owner, config.package, config.token, delay);
         if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/prime-delete`)) {
-            // reload
-            packageIdByDigest = new Map();
-            packagesById = new Map();
-            await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+            await githubPackageRepo.loadPackages();
             // make any deletions
-            await deleteDigests(args.directory, packageIdByDigest, githubPackageRepo);
+            await deleteDigests(args.directory, githubPackageRepo);
         }
     }
     else if (args.mode === 'validate') {
         // test the repo after the test
-        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        await githubPackageRepo.loadPackages();
         let error = false;
         // load the expected digests
         if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/expected-digests`)) {
@@ -34683,7 +34678,7 @@ async function run() {
             error = true;
         }
         else {
-            const digests = new Set();
+            const expectedDigests = new Set();
             const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${args.directory}/expected-digests`, 'utf-8');
             for (let line of fileContents.split('\n')) {
                 if (line.length > 0) {
@@ -34691,19 +34686,20 @@ async function run() {
                         line = line.substring(0, line.indexOf('//') - 1);
                     }
                     line = line.trim();
-                    digests.add(line);
+                    expectedDigests.add(line);
                 }
             }
-            for (const digest of digests) {
-                if (packageIdByDigest.has(digest)) {
-                    packageIdByDigest.delete(digest);
+            const digests = githubPackageRepo.getDigests();
+            for (const digest of expectedDigests) {
+                if (githubPackageRepo.getDigests().has(digest)) {
+                    digests.delete(digest);
                 }
                 else {
                     error = true;
                     _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`expected digest not found after test: ${digest}`);
                 }
             }
-            for (const digest of packageIdByDigest.keys()) {
+            for (const digest of digests) {
                 error = true;
                 _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`extra digest found after test: ${digest}`);
             }
@@ -34725,7 +34721,7 @@ async function run() {
                     expectedTags.add(line);
                 }
             }
-            const regTags = new Set(await registry.getTags());
+            const regTags = githubPackageRepo.getTags();
             for (const expectedTag of expectedTags) {
                 if (regTags.has(expectedTag)) {
                     regTags.delete(expectedTag);
@@ -34745,9 +34741,10 @@ async function run() {
     }
     else if (args.mode === 'save-expected') {
         // save the expected tag dynamically
-        await githubPackageRepo.loadPackages(packageIdByDigest, packagesById);
+        await githubPackageRepo.loadPackages();
         const tags = new Set();
-        for (const ghPackage of packagesById.values()) {
+        for (const digest of githubPackageRepo.getDigests()) {
+            const ghPackage = githubPackageRepo.getPackageByDigest(digest);
             for (const repoTag of ghPackage.metadata.container.tags) {
                 tags.add(repoTag);
             }
@@ -35203,11 +35200,14 @@ class Config {
     package = '';
     tags;
     excludeTags;
-    validate;
-    logLevel;
+    deleteUntagged;
     keepNuntagged;
     keepNtagged;
+    deleteGhostImages;
+    deletePartialImages;
     dryRun;
+    validate;
+    logLevel;
     token;
     octokit;
     constructor(token) {
@@ -35296,21 +35296,6 @@ function getConfig() {
         config.tags = core.getInput('delete-tags');
     }
     config.excludeTags = core.getInput('exclude-tags');
-    if (core.getInput('dry-run')) {
-        config.dryRun = core.getBooleanInput('dry-run');
-        if (config.dryRun) {
-            core.info('in dry run mode - no packages will be deleted');
-        }
-    }
-    else {
-        config.dryRun = false;
-    }
-    if (core.getInput('validate')) {
-        config.validate = core.getBooleanInput('validate');
-    }
-    else {
-        config.validate = false;
-    }
     if (core.getInput('keep-n-untagged')) {
         if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
             throw new Error('keep-n-untagged is not number');
@@ -35327,17 +35312,43 @@ function getConfig() {
             config.keepNtagged = parseInt(core.getInput('keep-n-tagged'));
         }
     }
-    if (config.keepNuntagged && config.keepNtagged) {
-        throw Error('keep-n-untagged and keep-n-tagged options can not be set at the same time');
+    if (core.getInput('delete-untagged')) {
+        config.deleteUntagged = core.getBooleanInput('delete-untagged');
     }
-    if (!config.owner) {
-        throw new Error('owner is not set');
+    else {
+        // default is deleteUntagged if no options are set
+        if (!core.getInput('tags') &&
+            !core.getInput('keep-n-untagged') &&
+            !core.getInput('keep-n-tagged')) {
+            config.deleteUntagged = true;
+        }
+        else if (core.getInput('keep-n-tagged')) {
+            config.deleteUntagged = true;
+        }
+        else {
+            config.deleteUntagged = false;
+        }
     }
-    if (!config.package) {
-        throw new Error('package is not set');
+    if (core.getInput('delete-ghost-images')) {
+        config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
     }
-    if (!config.repository) {
-        throw new Error('repository is not set');
+    if (core.getInput('delete-partial-images')) {
+        config.deletePartialImages = core.getBooleanInput('delete-partial-images');
+    }
+    if (core.getInput('dry-run')) {
+        config.dryRun = core.getBooleanInput('dry-run');
+        if (config.dryRun) {
+            core.info('in dry run mode - no packages will be deleted');
+        }
+    }
+    else {
+        config.dryRun = false;
+    }
+    if (core.getInput('validate')) {
+        config.validate = core.getBooleanInput('validate');
+    }
+    else {
+        config.validate = false;
     }
     if (core.getInput('log-level')) {
         const level = core.getInput('log-level').toLowerCase();
@@ -35354,6 +35365,15 @@ function getConfig() {
             config.logLevel = LogLevel.DEBUG;
         }
     }
+    if (!config.owner) {
+        throw new Error('owner is not set');
+    }
+    if (!config.package) {
+        throw new Error('package is not set');
+    }
+    if (!config.repository) {
+        throw new Error('repository is not set');
+    }
     return config;
 }
 
@@ -35369,16 +35389,43 @@ function getConfig() {
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
 
+/**
+ * Provides access to a package via the GitHub Packages REST API.
+ */
 class GithubPackageRepo {
+    // The action configuration
     config;
+    // The type of repository (User or Organization)
     repoType = 'Organization';
+    // Map of digests to package ids
+    digest2Id = new Map();
+    // Map of ids to package version definitions
+    id2Package = new Map();
+    // Map of tags to digests
+    tag2Digest = new Map();
+    /**
+     * Constructor
+     *
+     * @param config The action configuration
+     */
     constructor(config) {
         this.config = config;
     }
+    /*
+     * Initialization method.
+     */
     async init() {
+        // Determine the repository type (User or Organization)
         this.repoType = await this.config.getOwnerType();
     }
-    async loadPackages(byDigest, packages) {
+    /**
+     * Loads all versions of the package from the GitHub Packages API and populates the internal maps
+     */
+    async loadPackages() {
+        // clear the maps for reloading
+        this.digest2Id.clear();
+        this.id2Package.clear();
+        this.tag2Digest.clear();
         let getFunc = this.config.octokit.rest.packages
             .getAllPackageVersionsForPackageOwnedByOrg;
         let getParams;
@@ -35407,11 +35454,63 @@ class GithubPackageRepo {
         }
         for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
             for (const packageVersion of response.data) {
-                byDigest.set(packageVersion.name, packageVersion.id);
-                packages.set(packageVersion.id, packageVersion);
+                this.digest2Id.set(packageVersion.name, packageVersion.id);
+                this.id2Package.set(packageVersion.id, packageVersion);
+                for (const tag of packageVersion.metadata.container.tags) {
+                    this.tag2Digest.set(tag, packageVersion.name);
+                }
             }
         }
     }
+    /**
+     * Return all tags in use for the package
+     * @returns The tags for the package
+     */
+    getTags() {
+        return new Set(this.tag2Digest.keys());
+    }
+    /**
+     * Return all digests version in use for the package
+     * @returns The digests for the package
+     */
+    getDigests() {
+        return new Set(this.digest2Id.keys());
+    }
+    /**
+     * Return the digest for given tag
+     * @param The tag to lookup
+     * @returns The the digest
+     */
+    getDigestByTag(tag) {
+        return this.tag2Digest.get(tag);
+    }
+    /**
+     * Return the package version id for the given digest
+     * @returns The the package id
+     */
+    getIdByDigest(digest) {
+        return this.digest2Id.get(digest);
+    }
+    /**
+     * Return the package version descriptor for the given digest
+     * @param digest The digest to lookup
+     * @returns The the package descriptor
+     */
+    getPackageByDigest(digest) {
+        let ghPackage;
+        const id = this.digest2Id.get(digest);
+        if (id) {
+            ghPackage = this.id2Package.get(id);
+        }
+        return ghPackage;
+    }
+    /**
+     * Delete a package version
+     * @param id The ID of the package version to delete
+     * @param digest The associated digest for the package version
+     * @param tags The tags associated with the package
+     * @param label Additional label to display
+     */
     async deletePackageVersion(id, digest, tags, label) {
         if (tags && tags.length > 0) {
             _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
@@ -40818,8 +40917,13 @@ function isValidChallenge(attributes) {
 
 
 
+/**
+ * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
+ */
 class Registry {
+    // The action configuration
     config;
+    // http client library instance
     axios;
     // cache of loaded manifests, by digest
     manifestCache = new Map();
@@ -40827,6 +40931,11 @@ class Registry {
     digestByTagCache = new Map();
     // map of referrer manifests
     referrersCache = new Map();
+    /**
+     * Constructor
+     *
+     * @param config The action configuration
+     */
     constructor(config) {
         this.config = config;
         this.axios = lib_axios.create({
@@ -40836,6 +40945,12 @@ class Registry {
         this.axios.defaults.headers.common['Accept'] =
             'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json';
     }
+    /**
+     * Logs in to the registry
+     * This method retrieves a token and handles authentication challenges if necessary
+     * @returns A Promise that resolves when the login is successful
+     * @throws If an error occurs during the login process
+     */
     async login() {
         try {
             // get token
@@ -40874,28 +40989,12 @@ class Registry {
             }
         }
     }
-    async getTags(link) {
-        let tags = [];
-        let url = `/v2/${this.config.owner}/${this.config.package}/tags/list?n=100`;
-        if (link) {
-            url = link;
-        }
-        const response = await this.axios.get(url);
-        if (response.data.tags) {
-            tags = response.data.tags;
-        }
-        if (response.headers['link']) {
-            // we have more results to read
-            const headerLink = response.headers['link'];
-            const parts = headerLink.split('; ');
-            let next = parts[0];
-            if (next.startsWith('<') && next.endsWith('>')) {
-                next = next.substring(1, next.length - 1);
-            }
-            tags = tags.concat(await this.getTags(next));
-        }
-        return tags;
-    }
+    /**
+     * Retrieves a manifest by its digest
+     *
+     * @param digest - The digest of the manifest to retrieve
+     * @returns A Promise that resolves to the retrieved manifest
+     */
     async getManifestByDigest(digest) {
         if (this.manifestCache.has(digest)) {
             return this.manifestCache.get(digest);
@@ -40914,9 +41013,20 @@ class Registry {
             return obj;
         }
     }
+    /**
+     * Delete the associated cached digest for tag
+     *
+     * @param tag - The tag to delete
+     */
     deleteTag(tag) {
         this.digestByTagCache.delete(tag);
     }
+    /**
+     * Retrieves tag for the given digest
+     *
+     * @param tag - The tag to lookup
+     * @returns A Promise that resolves to the retrieved digest
+     */
     async getTagDigest(tag) {
         if (!this.digestByTagCache.has(tag)) {
             // load it
@@ -40930,6 +41040,12 @@ class Registry {
             throw new Error(`couln't find digest for tag ${tag}`);
         }
     }
+    /**
+     * Retrieves a manifest by its tag
+     *
+     * @param tag - The tag of the manifest to retrieve
+     * @returns A Promise that resolves to the retrieved manifest
+     */
     async getManifestByTag(tag) {
         const cacheDigest = this.digestByTagCache.get(tag);
         if (cacheDigest) {
@@ -40951,6 +41067,13 @@ class Registry {
             return obj;
         }
     }
+    /**
+     * Puts the manifest for a given tag in the registry.
+     * @param tag - The tag of the manifest.
+     * @param manifest - The manifest to be put.
+     * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
+     * @returns A Promise that resolves when the manifest is successfully put in the registry.
+     */
     async putManifest(tag, manifest, multiArch) {
         if (!this.config.dryRun) {
             let contentType = 'application/vnd.oci.image.manifest.v1+json';
@@ -41006,6 +41129,7 @@ class Registry {
             }
         }
     }
+    // TODO
     // ghcr.io not yet supporting referrers api?
     async getReferrersManifest(digest) {
         if (this.referrersCache.has(digest)) {

@@ -22,11 +22,14 @@ export class Config {
   package = ''
   tags?: string
   excludeTags?: string
-  validate?: boolean
-  logLevel: LogLevel
+  deleteUntagged?: boolean
   keepNuntagged?: number
   keepNtagged?: number
+  deleteGhostImages?: boolean
+  deletePartialImages?: boolean
   dryRun?: boolean
+  validate?: boolean
+  logLevel: LogLevel
   token: string
   octokit: any
 
@@ -137,19 +140,6 @@ export function getConfig(): Config {
   }
 
   config.excludeTags = core.getInput('exclude-tags')
-  if (core.getInput('dry-run')) {
-    config.dryRun = core.getBooleanInput('dry-run')
-    if (config.dryRun) {
-      core.info('in dry run mode - no packages will be deleted')
-    }
-  } else {
-    config.dryRun = false
-  }
-  if (core.getInput('validate')) {
-    config.validate = core.getBooleanInput('validate')
-  } else {
-    config.validate = false
-  }
 
   if (core.getInput('keep-n-untagged')) {
     if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
@@ -166,21 +156,45 @@ export function getConfig(): Config {
     }
   }
 
-  if (config.keepNuntagged && config.keepNtagged) {
-    throw Error(
-      'keep-n-untagged and keep-n-tagged options can not be set at the same time'
-    )
+  if (core.getInput('delete-untagged')) {
+    config.deleteUntagged = core.getBooleanInput('delete-untagged')
+  } else {
+    // default is deleteUntagged if no options are set
+    if (
+      !core.getInput('tags') &&
+      !core.getInput('keep-n-untagged') &&
+      !core.getInput('keep-n-tagged')
+    ) {
+      config.deleteUntagged = true
+    } else if (core.getInput('keep-n-tagged')) {
+      config.deleteUntagged = true
+    } else {
+      config.deleteUntagged = false
+    }
   }
 
-  if (!config.owner) {
-    throw new Error('owner is not set')
+  if (core.getInput('delete-ghost-images')) {
+    config.deleteGhostImages = core.getBooleanInput('delete-ghost-images')
   }
-  if (!config.package) {
-    throw new Error('package is not set')
+  if (core.getInput('delete-partial-images')) {
+    config.deletePartialImages = core.getBooleanInput('delete-partial-images')
   }
-  if (!config.repository) {
-    throw new Error('repository is not set')
+
+  if (core.getInput('dry-run')) {
+    config.dryRun = core.getBooleanInput('dry-run')
+    if (config.dryRun) {
+      core.info('in dry run mode - no packages will be deleted')
+    }
+  } else {
+    config.dryRun = false
   }
+
+  if (core.getInput('validate')) {
+    config.validate = core.getBooleanInput('validate')
+  } else {
+    config.validate = false
+  }
+
   if (core.getInput('log-level')) {
     const level = core.getInput('log-level').toLowerCase()
     if (level === 'error') {
@@ -193,5 +207,16 @@ export function getConfig(): Config {
       config.logLevel = LogLevel.DEBUG
     }
   }
+
+  if (!config.owner) {
+    throw new Error('owner is not set')
+  }
+  if (!config.package) {
+    throw new Error('package is not set')
+  }
+  if (!config.repository) {
+    throw new Error('repository is not set')
+  }
+
   return config
 }

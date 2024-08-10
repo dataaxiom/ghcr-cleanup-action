@@ -44,8 +44,23 @@ inputs:
 
   delete-untagged:
     description: >
-      Delete untagged images (true/false)
+      Delete untagged images (true/false). Default option which is set to true
+      when no other options set
     required: false
+
+  delete-ghost-images:
+    description: >
+      Include for deletion multi architecture images where all underlying
+      platform images are missing (true/false).
+    required: false
+    default: false
+
+  delete-partial-images:
+    description: >
+      Include for deletion multi architecture images with partial underlying
+      platform images are missing (true/false).
+    required: false
+    default: false
 
   keep-n-untagged:
     description: >
