@@ -213,8 +213,6 @@ jobs:
   attestation-tests:
     name: Attestation Tests
     runs-on: ubuntu-latest
-    concurrency:
-      group: attestation-tests-group
     env:
       REGISTRY: ghcr.io
     needs: integration-tests
@@ -322,3 +320,63 @@ jobs:
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/attestation-untagged --mode validate
+
+  shared-image-test:
+    name: Shared Image Test
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+      IMAGE: ghcr.io/${{ github.repository }}
+    needs: attestation-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prime Test - Shared Image Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared_platform_images --mode prime
+
+      - name: Create builder
+        run: docker buildx create --name mybuilder --use --bootstrap
+
+      - name: Build multi-platform image1
+        run:
+          docker buildx build --cache-to
+          "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
+          "type=registry,ref=$IMAGE-cache:latest" --platform
+          linux/amd64,linux/arm64 --push -t "$IMAGE:image1"
+          tests/shared_platform_images
+
+      - name: Build multi-platform image2
+        run:
+          docker buildx build --cache-to
+          "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
+          "type=registry,ref=$IMAGE-cache:latest" --platform
+          linux/amd64,linux/arm64 --push -t "$IMAGE:image2"
+          tests/shared_platform_images
+
+      - name: Save Digests - Shared Image Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared_platform_images --mode save-expected --tag image2
+
+      - name: Run Test - Shared Image Test
+        uses: ./
+        with:
+          validate: true
+          delete-tags: image1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate Test Results - Shared Image Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared_platform_images --mode validate

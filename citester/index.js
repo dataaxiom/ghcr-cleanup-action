@@ -34753,16 +34753,23 @@ async function run() {
             // find the digests in use for the supplied tag
             const digest = await registry.getTagDigest(tag);
             fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`);
+            // is it a multi arch image
+            const manifest = await registry.getManifestByTag(tag);
+            if (manifest.manifests) {
+                for (const manifestDigest of manifest.manifests) {
+                    fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifestDigest.digest}\n`);
+                }
+            }
             // is there a refferrer digest
             const referrerTag = digest.replace('sha256:', 'sha256-');
-            if (tags.has(tag)) {
+            if (tags.has(referrerTag)) {
                 fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`);
                 const referrerDigest = await registry.getTagDigest(referrerTag);
                 fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${referrerDigest}\n`);
                 const referrerManifest = await registry.getManifestByDigest(referrerDigest);
                 if (referrerManifest.manifests) {
-                    for (const manifest of referrerManifest.manifests) {
-                        fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifest.digest}\n`);
+                    for (const manifestDigest of referrerManifest.manifests) {
+                        fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifestDigest.digest}\n`);
                     }
                 }
             }
