@@ -166,6 +166,8 @@ export function getConfig(): Config {
       !core.getInput('keep-n-tagged')
     ) {
       config.deleteUntagged = true
+    } else if (core.getInput('keep-n-tagged')) {
+      config.deleteUntagged = true
     } else {
       config.deleteUntagged = false
     }
