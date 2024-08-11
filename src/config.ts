@@ -20,7 +20,7 @@ export class Config {
   owner = ''
   repository = ''
   package = ''
-  tags?: string
+  deleteTags?: string
   excludeTags?: string
   deleteUntagged?: boolean
   keepNuntagged?: number
@@ -134,9 +134,9 @@ export function getConfig(): Config {
     )
   }
   if (core.getInput('tags')) {
-    config.tags = core.getInput('tags')
+    config.deleteTags = core.getInput('tags')
   } else if (core.getInput('delete-tags')) {
-    config.tags = core.getInput('delete-tags')
+    config.deleteTags = core.getInput('delete-tags')
   }
 
   config.excludeTags = core.getInput('exclude-tags')
@@ -162,15 +162,24 @@ export function getConfig(): Config {
     // default is deleteUntagged if no options are set
     if (
       !core.getInput('tags') &&
+      !core.getInput('delete-tags') &&
       !core.getInput('keep-n-untagged') &&
       !core.getInput('keep-n-tagged')
     ) {
       config.deleteUntagged = true
-    } else if (core.getInput('keep-n-tagged')) {
-      config.deleteUntagged = true
     } else {
       config.deleteUntagged = false
     }
+  }
+
+  if (
+    core.getInput('keep-n-untagged') &&
+    core.getInput('delete-untagged') &&
+    !config.deleteUntagged
+  ) {
+    throw new Error(
+      'delete-untagged can not be set to false if keep-n-untagged is set'
+    )
   }
 
   if (core.getInput('delete-ghost-images')) {

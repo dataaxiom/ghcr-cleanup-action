@@ -76,14 +76,16 @@ jobs:
 
           - title: '3a - Single: Keep N Tagged'
             purpose:
-              'Removes all tags except the newest 2 tagged images (single arch)'
+              'Removes all tags except the newest 2 tagged images (single arch)
+              and keeps untagged'
             folder: '3a_single-keep-n-tagged'
             keep-n-tagged: 2
             exclude-tags: dummy
 
           - title: '3b - Multi: Keep N Tagged'
             purpose:
-              'Removes all tags except the newest 2 tagged images (multi arch)'
+              'Removes all tags except the newest 2 tagged images (multi arch)
+              and keeps untagged'
             folder: '3b_multi-keep-n-tagged'
             keep-n-tagged: 2
             exclude-tags: dummy

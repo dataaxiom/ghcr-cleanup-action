@@ -308,10 +308,10 @@ class CleanupAction {
   }
 
   async deleteByTag(): Promise<void> {
-    if (this.config.tags) {
-      core.info(`deleting tagged images: ${this.config.tags}`)
+    if (this.config.deleteTags) {
+      core.info(`deleting tagged images: ${this.config.deleteTags}`)
       // find the tags the match wildcard patterns
-      const isTagMatch = wcmatch(this.config.tags.split(','))
+      const isTagMatch = wcmatch(this.config.deleteTags.split(','))
       const matchTags = []
       // build match list from filterSet
       for (const digest of this.filterSet) {
@@ -528,7 +528,7 @@ class CleanupAction {
   async run(): Promise<void> {
     try {
       // process tag deletions first - to support untagging
-      if (this.config.tags) {
+      if (this.config.deleteTags) {
         await this.deleteByTag()
         await this.reload()
       }

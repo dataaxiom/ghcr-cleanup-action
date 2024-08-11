@@ -34294,7 +34294,7 @@ class Config {
     owner = '';
     repository = '';
     package = '';
-    tags;
+    deleteTags;
     excludeTags;
     deleteUntagged;
     keepNuntagged;
@@ -34386,10 +34386,10 @@ function getConfig() {
         throw Error('tags and delete-tags cant be used at the same time, use either one');
     }
     if (core.getInput('tags')) {
-        config.tags = core.getInput('tags');
+        config.deleteTags = core.getInput('tags');
     }
     else if (core.getInput('delete-tags')) {
-        config.tags = core.getInput('delete-tags');
+        config.deleteTags = core.getInput('delete-tags');
     }
     config.excludeTags = core.getInput('exclude-tags');
     if (core.getInput('keep-n-untagged')) {
@@ -34414,16 +34414,19 @@ function getConfig() {
     else {
         // default is deleteUntagged if no options are set
         if (!core.getInput('tags') &&
+            !core.getInput('delete-tags') &&
             !core.getInput('keep-n-untagged') &&
             !core.getInput('keep-n-tagged')) {
-            config.deleteUntagged = true;
-        }
-        else if (core.getInput('keep-n-tagged')) {
             config.deleteUntagged = true;
         }
         else {
             config.deleteUntagged = false;
         }
+    }
+    if (core.getInput('keep-n-untagged') &&
+        core.getInput('delete-untagged') &&
+        !config.deleteUntagged) {
+        throw new Error('delete-untagged can not be set to false if keep-n-untagged is set');
     }
     if (core.getInput('delete-ghost-images')) {
         config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
@@ -40638,10 +40641,10 @@ class CleanupAction {
         }
     }
     async deleteByTag() {
-        if (this.config.tags) {
-            core.info(`deleting tagged images: ${this.config.tags}`);
+        if (this.config.deleteTags) {
+            core.info(`deleting tagged images: ${this.config.deleteTags}`);
             // find the tags the match wildcard patterns
-            const isTagMatch = wildcardMatch(this.config.tags.split(','));
+            const isTagMatch = wildcardMatch(this.config.deleteTags.split(','));
             const matchTags = [];
             // build match list from filterSet
             for (const digest of this.filterSet) {
@@ -40824,7 +40827,7 @@ class CleanupAction {
     async run() {
         try {
             // process tag deletions first - to support untagging
-            if (this.config.tags) {
+            if (this.config.deleteTags) {
                 await this.deleteByTag();
                 await this.reload();
             }
