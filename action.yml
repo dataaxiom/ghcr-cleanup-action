@@ -52,7 +52,7 @@ inputs:
       Short form of `delete-tags` input option
     required: false
 
-  not-delete-tags:
+  exclude-tags:
     description: >
       Commma separated list of tags strictly to be preserved / excluded from
       deletion. Suports wildcard syntax

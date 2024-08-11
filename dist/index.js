@@ -34391,7 +34391,7 @@ function getConfig() {
     else if (core.getInput('delete-tags')) {
         config.tags = core.getInput('delete-tags');
     }
-    config.excludeTags = core.getInput('not-delete-tags');
+    config.excludeTags = core.getInput('exclude-tags');
     if (core.getInput('keep-n-untagged')) {
         if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
             throw new Error('keep-n-untagged is not number');

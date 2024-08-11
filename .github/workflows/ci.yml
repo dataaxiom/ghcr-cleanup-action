@@ -80,7 +80,7 @@ jobs:
               and keeps untagged'
             folder: '3a_single-keep-n-tagged'
             keep-n-tagged: 2
-            not-delete-tags: dummy
+            exclude-tags: dummy
 
           - title: '3b - Multi: Keep N Tagged'
             purpose:
@@ -88,7 +88,7 @@ jobs:
               and keeps untagged'
             folder: '3b_multi-keep-n-tagged'
             keep-n-tagged: 2
-            not-delete-tags: dummy
+            exclude-tags: dummy
 
           - title: '4a - Single: Keep N Untagged'
             purpose:
@@ -145,9 +145,9 @@ jobs:
             KEEP_N_UNTAGGED="${{ matrix.tests.keep-n-untagged }}"
           fi
 
-          NOT_DELETE_TAGS=""
-          if [ ! -z "${{ matrix.tests.not-delete-tags }}" ]; then
-            NOT_DELETE_TAGS="${{ matrix.tests.not-delete-tags }}"
+          EXCLUDE_TAGS=""
+          if [ ! -z "${{ matrix.tests.exclude-tags }}" ]; then
+            EXCLUDE_TAGS="${{ matrix.tests.exclude-tags }}"
           fi
 
           DRY_RUN=""
@@ -168,7 +168,7 @@ jobs:
           echo "TAGS=$TAGS" >> $GITHUB_ENV
           echo "KEEP_N_TAGGED=$KEEP_N_TAGGED" >> $GITHUB_ENV
           echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED" >> $GITHUB_ENV
-          echo "NOT_DELETE_TAGS=$NOT_DELETE_TAGS" >> $GITHUB_ENV
+          echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
           echo "DELAY=$DELAY" >> $GITHUB_ENV
 
@@ -177,7 +177,7 @@ jobs:
       #     echo "tags: ${{ matrix.tests.tags }}"
       #     echo "keep-n-tagged: ${{ matrix.tests.keep-n-tagged }}"
       #     echo "keep-n-untagged: ${{ matrix.tests.keep-n-untagged }}"
-      #     echo "not-delete-tags: ${{ matrix.tests.not-delete-tags }}"
+      #     echo "exclude-tags: ${{ matrix.tests.exclude-tags }}"
       #     echo "dry-run: ${{ matrix.tests.dry-run }}"
 
       # - name: ' > Debug: Print Env Variables'
@@ -185,7 +185,7 @@ jobs:
       #     echo "tags: ${{ env.TAGS }}"
       #     echo "keep-n-tagged: ${{ env.KEEP_N_TAGGED }}"
       #     echo "keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}"
-      #     echo "not-delete-tags: ${{ env.NOT_DELETE_TAGS }}"
+      #     echo "exclude-tags: ${{ env.EXCLUDE_TAGS }}"
       #     echo "dry-run: ${{ env.DRY_RUN }}"
 
       - name: ' > Priming Test Environment'
@@ -200,7 +200,7 @@ jobs:
           tags: ${{ env.TAGS }}
           keep-n-tagged: ${{ env.KEEP_N_TAGGED }}
           keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}
-          not-delete-tags: ${{ env.NOT_DELETE_TAGS }}
+          exclude-tags: ${{ env.EXCLUDE_TAGS }}
           dry-run: ${{ env.DRY_RUN }}
           token: ${{ secrets.GITHUB_TOKEN }}
 

@@ -65,7 +65,7 @@ ensure it's permissions have been setup correctly, either by:
 | Option                | Required | Defaults  | Description                                                                                                |
 | --------------------- | :------: | --------- | ---------------------------------------------------------------------------------------------------------- |
 | delete-tags           |    no    |           | Comma separated list of tags to delete (supports wildcard syntax. Can abe abbreviated as `tags`)           |
-| not-delete-tags       |    no    |           | Commma separated list of tags strictly to be preserved / excluded from deletion (supports wildcard syntax) |
+| exclude-tags       |    no    |           | Commma separated list of tags strictly to be preserved / excluded from deletion (supports wildcard syntax) |
 | keep-n-untagged       |    no    |           | Number of untagged images to keep, sorted by date                                                          |
 | keep-n-tagged         |    no    |           | Number of tagged images to keep, sorted by date                                                            |
 | delete-untagged       |    no    | depends\* | Delete untagged images (not belonging to multi-arch containers)                                            |
@@ -136,8 +136,8 @@ jobs:
 
 Keeps a number (keep-n-tagged) of tagged images and then deletes the rest. Tags
 are sorted by date. The number to be kept does not include items that will
-anyways be kept due to not-delete-tags option. Example: If there are 100 tagged
-images, and user sets keep-n-tagged: 3 and not-delete-tags: a, b in total 5
+anyways be kept due to exclude-tags option. Example: If there are 100 tagged
+images, and user sets keep-n-tagged: 3 and exclude-tags: a, b in total 5
 images will be kept
 
 ```yaml
@@ -214,7 +214,7 @@ jobs:
 
 ### Tag Wildcard
 
-The tags and not-delete-tags options can use a wildcard syntax, using the ?, \*
+The tags and exclude-tags options can use a wildcard syntax, using the ?, \*
 and \*\* characters. (Utilizes the wildcard-match library)
 
 ```yaml
@@ -225,7 +225,7 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           keep-n-tagged: 3
-          not-delete-tags: 'v*,dev,latest'
+          exclude-tags: 'v*,dev,latest'
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
@@ -245,7 +245,7 @@ jobs:
         with:
           dry-run: true
           keep-n-tagged: 10
-          not-delete-tags: dev
+          exclude-tags: dev
           delete-untagged: true
           delete-ghost-images: true
           delete-partial-images: true
