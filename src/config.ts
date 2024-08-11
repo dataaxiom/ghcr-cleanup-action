@@ -139,7 +139,7 @@ export function getConfig(): Config {
     config.tags = core.getInput('delete-tags')
   }
 
-  config.excludeTags = core.getInput('exclude-tags')
+  config.excludeTags = core.getInput('not-delete-tags')
 
   if (core.getInput('keep-n-untagged')) {
     if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {

@@ -50,21 +50,29 @@ ensure it's permissions have been setup correctly, either by:
 
 ### Action Options
 
-| Option          | Required | Defaults        | Description                                                          |
-| --------------- | :------: | --------------- | -------------------------------------------------------------------- |
-| token           |   yes    |                 | Token used to connect with ghcr.io and the package API               |
-| tags            |    no    |                 | Comma separated list of tags to delete (supports wildcard syntax)    |
-| exclude-tags    |    no    |                 | Comma separated list of tags to exclude (supports wildcard syntax)   |
-| keep-n-untagged |    no    |                 | Number of untagged images to keep, sorted by date                    |
-| keep-n-tagged   |    no    |                 | Number of tagged images to keep, sorted by date                      |
-| dry-run         |    no    | false           | Simulate cleanup action, does not make changes (true/false)          |
-| validate        |    no    | false           | Validate all multi architecture images in the registry after cleanup |
-| owner           |    no    | project owner   | The repository owner, can be organization or user type               |
-| repository      |    no    | repository name | The repository name                                                  |
-| package         |    no    | repository name | The package name                                                     |
+#### General Settings
 
-If the tags, keep-n-untagged or keep-n-tagged options are not set then all
-untagged images will be deleted.
+| Option     | Required | Defaults        | Description                                            |
+| ---------- | :------: | --------------- | ------------------------------------------------------ |
+| token      |   yes    |                 | Token used to connect with ghcr.io and the package API |
+| owner      |    no    | project owner   | The repository owner, can be organization or user type |
+| repository |    no    | repository name | The repository name                                    |
+| package    |    no    | repository name | The package name                                       |
+| log-level  |    no    | warn            | The log level (error/warn/info/debug)                  |
+
+#### Clean-up Options
+
+| Option                | Required | Defaults  | Description                                                                                                |
+| --------------------- | :------: | --------- | ---------------------------------------------------------------------------------------------------------- |
+| delete-tags           |    no    |           | Comma separated list of tags to delete (supports wildcard syntax. Can abe abbreviated as `tags`)           |
+| not-delete-tags       |    no    |           | Commma separated list of tags strictly to be preserved / excluded from deletion (supports wildcard syntax) |
+| keep-n-untagged       |    no    |           | Number of untagged images to keep, sorted by date                                                          |
+| keep-n-tagged         |    no    |           | Number of tagged images to keep, sorted by date                                                            |
+| delete-untagged       |    no    | depends\* | Delete untagged images (not belonging to multi-arch containers)                                            |
+| delete-ghost-images   |    no    | false     | Delete multi architecture images where all underlying platform images are missing                          |
+| delete-partial-images |    no    | false     | Delete multi architecture images where some (but not all) underlying platform images are missing           |
+
+\* True when no other options set, else false
 
 The keep-n-untagged and keep-n-tagged options can not be set at the same time.
 
@@ -97,7 +105,7 @@ jobs:
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          tags: mytag,mytag2
+          delete-tags: mytag,mytag2 # same as tags: mytag,mytag2
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
@@ -127,8 +135,10 @@ jobs:
 ### Keep 'n' tagged images cleanup (keep-n-tagged)
 
 Keeps a number (keep-n-tagged) of tagged images and then deletes the rest. Tags
-are sorted by date. Additional exclude-tags values are not include the total
-count.
+are sorted by date. The number to be kept does not include items that will
+anyways be kept due to not-delete-tags option. Example: If there are 100 tagged
+images, and user sets keep-n-tagged: 3 and not-delete-tags: a, b in total 5
+images will be kept
 
 ```yaml
 jobs:
@@ -204,8 +214,8 @@ jobs:
 
 ### Tag Wildcard
 
-The tags and exclude-tags options can use a wildcard syntax, using the ?, \* and
-\*\* characters. (Utilizes the wildcard-match library)
+The tags and not-delete-tags options can use a wildcard syntax, using the ?, \*
+and \*\* characters. (Utilizes the wildcard-match library)
 
 ```yaml
 jobs:
@@ -215,13 +225,15 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           keep-n-tagged: 3
-          exclude-tags: 'v*,dev,latest'
+          not-delete-tags: 'v*,dev,latest'
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Keep 10 tagged images and "dev" image, and dry-run
 
-Simulates how to keep 10 tagged images as well as the dev-image.
+Simulates how to keep 10 tagged images as well as the dev-image. Additionally
+deletes all untagged images (not belonging to multi-arch containers). Also
+removes multi-arch containers that are missing some or all underlying packages.
 
 ```yaml
 jobs:
@@ -231,9 +243,12 @@ jobs:
       - name: 'Clean up docker images'
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          keep-n-tagged: 10
-          exclude-tags: dev
           dry-run: true
+          keep-n-tagged: 10
+          not-delete-tags: dev
+          delete-untagged: true
+          delete-ghost-images: true
+          delete-partial-images: true
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
