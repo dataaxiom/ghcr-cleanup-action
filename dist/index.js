@@ -40444,7 +40444,7 @@ class CleanupAction {
         this.tagsInUse = this.githubPackageRepo.getTags();
         // build digestUsedBy map
         await this.loadDigestUsedByMap();
-        // remove children from filterSet - manifest image children, refferers
+        // remove children from filterSet - manifest image children, referrers
         await this.trimChildren();
         // find excluded tags using matcher
         this.excludeTags = [];
@@ -40488,8 +40488,8 @@ class CleanupAction {
         }
     }
     /*
-     * Remove all multi architecture platform images from the filterSet it's including
-     * refferrer image if present. Filting/processing occurs on  top level images.
+     * Remove all multi architecture platform images from the filterSet including its
+     * referrer image if present. Filtering/processing occurs only on top level images.
      */
     async trimChildren() {
         const digests = this.githubPackageRepo.getDigests();
@@ -40677,14 +40677,14 @@ class CleanupAction {
                             await this.deleteImage(ghPackage);
                         }
                         else {
-                            // preform a "ghcr.io" image deleltion
+                            // preform a "ghcr.io" image deletion
                             // as the registry doesn't support manifest deletion directly
                             // we instead assign the tag to a different manifest first
                             // then we delete it
                             core.info(`untagging ${tag}`);
                             // clone the manifest
                             const newManifest = JSON.parse(JSON.stringify(manifest));
-                            // create a fake manifest to seperate the tag
+                            // create a fake manifest to separate the tag
                             if (newManifest.manifests) {
                                 // a multi architecture image
                                 newManifest.manifests = [];
@@ -40717,7 +40717,7 @@ class CleanupAction {
     async deleteGhostImages() {
         for (const digest of this.filterSet) {
             let ghostImage = false;
-            // is a ghost image if all of the child manifests dont exist
+            // is a ghost image if all of the child manifests don't exist
             const manfiest = await this.registry.getManifestByDigest(digest);
             if (manfiest.manifests) {
                 let missing = 0;
@@ -40741,7 +40741,7 @@ class CleanupAction {
     async deletePartialImages() {
         for (const digest of this.filterSet) {
             let partialImage = false;
-            // is a partial image if some of the child manifests dont exist
+            // is a partial image if some of the child manifests don't exist
             const manfiest = await this.registry.getManifestByDigest(digest);
             if (manfiest.manifests) {
                 for (const imageManfiest of manfiest.manifests) {
