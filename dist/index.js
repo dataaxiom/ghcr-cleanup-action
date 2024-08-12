@@ -40621,7 +40621,7 @@ class CleanupAction {
                                     this.numberImagesDeleted += 1;
                                 }
                                 else {
-                                    core.info(` skipping deletion of ${ghPackage.name} as it's in use by another image`);
+                                    core.info(` skipping deletion of ${manifestPackage.name} as it's in use by another image`);
                                     // skip the deletion since it's in use by another image - just remove the usedBy reference
                                     parents.delete(ghPackage.name);
                                 }
