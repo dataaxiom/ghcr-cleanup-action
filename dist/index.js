@@ -40564,25 +40564,34 @@ class CleanupAction {
             core.info(' no errors found');
         }
     }
-    buildLabel(imageManifest) {
+    async buildLabel(imageManifest) {
         // build the 'label'
         let label = '';
         if (imageManifest.platform) {
             if (imageManifest.platform.architecture) {
                 label = imageManifest.platform.architecture;
             }
-            if (imageManifest.platform.variant) {
-                label += `/${imageManifest.platform.variant}`;
-            }
-            label = `architecture: ${label}`;
-        }
-        else if (imageManifest.artifactType) {
-            // check if it's a attestation
-            if (imageManifest.artifactType.startsWith('application/vnd.dev.sigstore.bundle')) {
-                label = 'sigstore attestation';
+            if (label !== 'unknown') {
+                if (imageManifest.platform.variant) {
+                    label += `/${imageManifest.platform.variant}`;
+                }
+                label = `architecture: ${label}`;
             }
             else {
-                label = imageManifest.artifactType;
+                // check if it's a buildx attestation
+                const manifest = await this.registry.getManifestByDigest(imageManifest.digest);
+                // kinda crude
+                if (manifest.layers) {
+                    if (manifest.layers[0].mediaType === 'application/vnd.in-toto+json') {
+                        label = 'application/vnd.in-toto+json';
+                    }
+                }
+            }
+        }
+        else if (imageManifest.artifactType) {
+            // check if it's a github attestation
+            if (imageManifest.artifactType.startsWith('application/vnd.dev.sigstore.bundle')) {
+                label = 'sigstore attestation';
             }
         }
         return label;
@@ -40607,7 +40616,7 @@ class CleanupAction {
                             if (parents) {
                                 if (parents.size === 1 && parents.has(ghPackage.name)) {
                                     // it's only referenced from this image so delete it
-                                    await this.githubPackageRepo.deletePackageVersion(manifestPackage.id, manifestPackage.name, [], this.buildLabel(imageManifest));
+                                    await this.githubPackageRepo.deletePackageVersion(manifestPackage.id, manifestPackage.name, [], await this.buildLabel(imageManifest));
                                     this.deleted.add(manifestPackage.name);
                                     this.numberImagesDeleted += 1;
                                 }
