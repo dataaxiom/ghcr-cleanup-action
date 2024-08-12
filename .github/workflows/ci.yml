@@ -15,6 +15,10 @@ concurrency:
   group: ci-tests
   cancel-in-progress: true
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository }}
+
 jobs:
   general-tests:
     name: General Tests
@@ -324,9 +328,6 @@ jobs:
   shared-image-tagged-test:
     name: Shared Images Tagged Test
     runs-on: ubuntu-latest
-    env:
-      REGISTRY: ghcr.io
-      IMAGE: ghcr.io/${{ github.repository }}
     needs: attestation-tests
 
     steps:
@@ -380,3 +381,59 @@ jobs:
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/shared-images-tagged --mode validate
+
+  shared-image-untagged-test:
+    name: Shared Images Untagged Test
+    runs-on: ubuntu-latest
+    needs: shared-image-tagged-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prime Test - Shared Images Untagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-untagged --mode prime
+
+      - name: Create builder
+        run: docker buildx create --name mybuilder --use --bootstrap
+
+      - name: Build multi-platform dummy
+        run:
+          docker buildx build --cache-to
+          "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
+          "type=registry,ref=$IMAGE-cache:latest" --platform
+          linux/amd64,linux/arm64 --push -t "$IMAGE:dummy"
+          tests/shared-images-untagged
+
+      - name: Build multi-platform dummy
+        run:
+          docker buildx build --cache-to
+          "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
+          "type=registry,ref=$IMAGE-cache:latest" --platform
+          linux/amd64,linux/arm64 --push -t "$IMAGE:dummy"
+          tests/shared-images-untagged
+
+      - name: Reload dummy - Shared Images Untagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-untagged --mode prime-dummy
+
+      - name: Run Test - Shared Images Untagged Test
+        uses: ./
+        with:
+          validate: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate Test Results - Shared Images Untagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-untagged --mode validate

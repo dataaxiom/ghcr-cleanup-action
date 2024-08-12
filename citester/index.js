@@ -34645,7 +34645,12 @@ async function run() {
     const githubPackageRepo = new _github_package_js__WEBPACK_IMPORTED_MODULE_4__/* .GithubPackageRepo */ .l(config);
     await githubPackageRepo.init();
     const dummyDigest = 'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f';
-    if (args.mode === 'prime') {
+    if (args.mode === 'prime-dummy') {
+        // just push the dummy image
+        pushImage(`busybox@${dummyDigest}`, // 1.31
+        `ghcr.io/${config.owner}/${config.package}:dummy`, undefined, args.token);
+    }
+    else if (args.mode === 'prime') {
         // push dummy image - repo once it's created and has an iamge it requires atleast one image
         pushImage(`busybox@${dummyDigest}`, // 1.31
         `ghcr.io/${config.owner}/${config.package}:dummy`, undefined, args.token);
