@@ -321,8 +321,8 @@ jobs:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/attestation-untagged --mode validate
 
-  shared-image-test:
-    name: Shared Image Test
+  shared-image-tagged-test:
+    name: Shared Images Tagged Test
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io
@@ -340,10 +340,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prime Test - Shared Image Test
+      - name: Prime Test - Shared Images Tagged Test
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared_platform_images --mode prime
+          tests/shared-images-tagged --mode prime
 
       - name: Create builder
         run: docker buildx create --name mybuilder --use --bootstrap
@@ -354,7 +354,7 @@ jobs:
           "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
           "type=registry,ref=$IMAGE-cache:latest" --platform
           linux/amd64,linux/arm64 --push -t "$IMAGE:image1"
-          tests/shared_platform_images
+          tests/shared-images-tagged
 
       - name: Build multi-platform image2
         run:
@@ -362,21 +362,21 @@ jobs:
           "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
           "type=registry,ref=$IMAGE-cache:latest" --platform
           linux/amd64,linux/arm64 --push -t "$IMAGE:image2"
-          tests/shared_platform_images
+          tests/shared-images-tagged
 
-      - name: Save Digests - Shared Image Test
+      - name: Save Digests - Shared Images Tagged Test
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared_platform_images --mode save-expected --tag image2
+          tests/shared-images-tagged --mode save-expected --tag image2
 
-      - name: Run Test - Shared Image Test
+      - name: Run Test - Shared Images Tagged Test
         uses: ./
         with:
           validate: true
           delete-tags: image1
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Validate Test Results - Shared Image Test
+      - name: Validate Test Results - Shared Images Tagged Test
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared_platform_images --mode validate
+          tests/shared-images-tagged --mode validate
