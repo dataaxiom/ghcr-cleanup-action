@@ -221,7 +221,7 @@ export async function run(): Promise<void> {
       args.token
     )
     // load after dummy to make sure the package exists on first clone/setup
-    await githubPackageRepo.loadPackages()
+    await githubPackageRepo.loadPackages(false)
 
     // remove all the existing images - except for the dummy image
     for (const digest of githubPackageRepo.getDigests()) {
@@ -243,14 +243,14 @@ export async function run(): Promise<void> {
     )
 
     if (fs.existsSync(`${args.directory}/prime-delete`)) {
-      await githubPackageRepo.loadPackages()
+      await githubPackageRepo.loadPackages(false)
 
       // make any deletions
       await deleteDigests(args.directory, githubPackageRepo)
     }
   } else if (args.mode === 'validate') {
     // test the repo after the test
-    await githubPackageRepo.loadPackages()
+    await githubPackageRepo.loadPackages(false)
 
     let error = false
 
@@ -328,7 +328,7 @@ export async function run(): Promise<void> {
     if (!error) console.info('test passed!')
   } else if (args.mode === 'save-expected') {
     // save the expected tag dynamically
-    await githubPackageRepo.loadPackages()
+    await githubPackageRepo.loadPackages(false)
 
     const tags = new Set<string>()
     for (const digest of githubPackageRepo.getDigests()) {

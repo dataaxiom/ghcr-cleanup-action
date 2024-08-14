@@ -72,7 +72,7 @@
     "@octokit/plugin-throttling": "^9.3.1",
     "@octokit/request-error": "^6.1.4",
     "@octokit/rest": "^21.0.1",
-    "axios": "^1.7.3",
+    "axios": "^1.7.4",
     "axios-retry": "^4.4.2",
     "stdio": "^2.1.3",
     "wildcard-match": "^5.1.3"

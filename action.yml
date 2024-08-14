@@ -53,14 +53,12 @@ inputs:
       Include for deletion multi architecture images where all underlying
       platform images are missing (true/false).
     required: false
-    default: false
 
   delete-partial-images:
     description: >
       Include for deletion multi architecture images with partial underlying
       platform images are missing (true/false).
     required: false
-    default: false
 
   keep-n-untagged:
     description: >
@@ -90,7 +88,7 @@ inputs:
   log-level:
     description: >
       Log level (error/warn/info/debug)
-    default: warn
+    required: false
 
 runs:
   using: node20

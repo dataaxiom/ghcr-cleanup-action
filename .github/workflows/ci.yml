@@ -13,7 +13,6 @@ permissions:
 
 concurrency:
   group: ci-tests
-  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -71,12 +70,12 @@ jobs:
           - title: '2a - Single: Tagged'
             purpose: 'Removes images with specific tag (single arch)'
             folder: '2a_single-tagged'
-            tags: 'uclibc-1.35,uclibc-1.36'
+            delete-tags: 'uclibc-1.35,uclibc-1.36'
 
           - title: '2b - Multi: Tagged'
             purpose: 'Removes images with specific tag (multi arch)'
             folder: '2b_multi-tagged'
-            tags: 'uclibc-1.35,uclibc-1.36'
+            delete-tags: 'uclibc-1.35,uclibc-1.36'
 
           - title: '3a - Single: Keep N Tagged'
             purpose:
@@ -116,7 +115,55 @@ jobs:
           - title: '6a - Missing Digests: Tagged'
             purpose: 'Looks for missing digests'
             folder: '6a_missing-digests-tagged'
-            tags: 'uclibc-1.34'
+            delete-tags: 'uclibc-1.34'
+
+          - title: '6b - Ghost Images'
+            purpose: 'Deletes Ghost images'
+            folder: '6b_ghost-images'
+            delete-ghost-images: true
+
+          - title: '6c - Partial Images'
+            purpose: 'Deletes Partial images'
+            folder: '6c_partial-images'
+            delete-partial-images: true
+
+          - title: '7a - Single: Untagging Images'
+            purpose: 'Untagging multi tagged images (single arch)'
+            folder: '7a_single-untagging'
+            delete-tags: tag1,tag2
+
+          - title: '7b - Single: Untagging All Images'
+            purpose: 'Untagging all multi tagged images (single arch)'
+            folder: '7b_single-untagging-all'
+            delete-tags: tag1,tag2,tag3
+
+          - title: '7c - Multi: Untagging Images'
+            purpose: 'Untagging multi tagged images (multi arch)'
+            folder: '7c_multi-untagging'
+            delete-tags: tag2,tag3
+
+          - title: '8a - Multi: Complex'
+            purpose: 'Complex combined Test (multi arch)'
+            folder: '8a_multi-complex'
+            keep-n-tagged: 1
+            delete-untagged: true
+            delete-tags: uclibc-1.34
+            exclude-tags: dummy
+
+          - title: '8b - Multi: Complex'
+            purpose: 'Complex combined Test (multi arch)'
+            folder: '8b_multi-complex'
+            keep-n-tagged: 1
+            keep-n-untagged: 1
+            delete-tags: uclibc-1.34
+            exclude-tags: dummy
+
+          - title: '8c - Multi: Complex'
+            purpose: 'Complex combined Test (multi arch)'
+            folder: '8c_multi-complex'
+            keep-n-tagged: 0
+            keep-n-untagged: 0
+            exclude-tags: dummy
 
     steps:
       # Setup for test execution
@@ -134,9 +181,24 @@ jobs:
         run: |
           echo "Purpose of test: ${{ matrix.tests.purpose }}"
 
-          TAGS=""
-          if [ ! -z "${{ matrix.tests.tags }}" ]; then
-            TAGS="${{ matrix.tests.tags }}"
+          DELETE_TAGS=""
+          if [ ! -z "${{ matrix.tests.delete-tags }}" ]; then
+            DELETE_TAGS="${{ matrix.tests.delete-tags }}"
+          fi
+
+          DELETE_UNTAGGED=""
+          if [ ! -z "${{ matrix.tests.delete-untagged }}" ]; then
+            DELETE_UNTAGGED="${{ matrix.tests.delete-untagged }}"
+          fi
+
+          DELETE_GHOST_IMAGES=""
+          if [ ! -z "${{ matrix.tests.delete-ghost-images }}" ]; then
+            DELETE_GHOST_IMAGES="${{ matrix.tests.delete-ghost-images }}"
+          fi
+
+          DELETE_PARTIAL_IMAGES=""
+          if [ ! -z "${{ matrix.tests.delete-partial-images }}" ]; then
+            DELETE_PARTIAL_IMAGES="${{ matrix.tests.delete-partial-images }}"
           fi
 
           KEEP_N_TAGGED=""
@@ -169,7 +231,10 @@ jobs:
             DELAY="3000"
           fi
 
-          echo "TAGS=$TAGS" >> $GITHUB_ENV
+          echo "DELETE_TAGS=$DELETE_TAGS" >> $GITHUB_ENV
+          echo "DELETE_UNTAGGED=$DELETE_UNTAGGED" >> $GITHUB_ENV
+          echo "DELETE_GHOST_IMAGES=$DELETE_GHOST_IMAGES" >> $GITHUB_ENV
+          echo "DELETE_PARTIAL_IMAGES=$DELETE_PARTIAL_IMAGES" >> $GITHUB_ENV
           echo "KEEP_N_TAGGED=$KEEP_N_TAGGED" >> $GITHUB_ENV
           echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED" >> $GITHUB_ENV
           echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
@@ -178,7 +243,9 @@ jobs:
 
       # - name: ' > Debug: Print Matrix Variables'
       #   run: |
-      #     echo "tags: ${{ matrix.tests.tags }}"
+      #     echo "delete-tags: ${{ matrix.tests.delete-tags }}"
+      #     echo "delete-untagged: ${{ matrix.tests.delete-untagged }}"
+      #     echo "delete-ghost-images: ${{ matrix.tests.delete-ghost-iamges }}"
       #     echo "keep-n-tagged: ${{ matrix.tests.keep-n-tagged }}"
       #     echo "keep-n-untagged: ${{ matrix.tests.keep-n-untagged }}"
       #     echo "exclude-tags: ${{ matrix.tests.exclude-tags }}"
@@ -186,7 +253,9 @@ jobs:
 
       # - name: ' > Debug: Print Env Variables'
       #   run: |
-      #     echo "tags: ${{ env.TAGS }}"
+      #     echo "delete-tags: ${{ env.DELETE_TAGS }}"
+      #     echo "delete-untagged: ${{ env.DELETE_UNTAGGED }}"
+      #     echo "delete-ghost-images: ${{ env.DELETE_GHOST_IMAGES }}"
       #     echo "keep-n-tagged: ${{ env.KEEP_N_TAGGED }}"
       #     echo "keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}"
       #     echo "exclude-tags: ${{ env.EXCLUDE_TAGS }}"
@@ -201,7 +270,10 @@ jobs:
       - name: ' > Running Workflow'
         uses: ./
         with:
-          tags: ${{ env.TAGS }}
+          delete-tags: ${{ env.DELETE_TAGS }}
+          delete-untagged: ${{ env.DELETE_UNTAGGED }}
+          delete-ghost-images: ${{ env.DELETE_GHOST_IMAGES }}
+          delete-partial-images: ${{ env.DELETE_PARTIAL_IMAGES }}
           keep-n-tagged: ${{ env.KEEP_N_TAGGED }}
           keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}
           exclude-tags: ${{ env.EXCLUDE_TAGS }}
@@ -214,8 +286,8 @@ jobs:
             --directory tests/${{ matrix.tests.folder }} \
             --mode validate
 
-  attestation-tests:
-    name: Attestation Tests
+  github-attestation-tests:
+    name: Github Referrer/Attestation Tests
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io
@@ -328,7 +400,7 @@ jobs:
   shared-image-tagged-test:
     name: Shared Images Tagged Test
     runs-on: ubuntu-latest
-    needs: attestation-tests
+    needs: github-attestation-tests
 
     steps:
       - name: Checkout

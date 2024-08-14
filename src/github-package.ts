@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { Config } from './config.js'
+import { Config, LogLevel } from './config.js'
 
 /**
  * Provides access to a package via the GitHub Packages REST API.
@@ -40,7 +40,7 @@ export class GithubPackageRepo {
   /**
    * Loads all versions of the package from the GitHub Packages API and populates the internal maps
    */
-  async loadPackages(): Promise<void> {
+  async loadPackages(output: boolean): Promise<void> {
     // clear the maps for reloading
     this.digest2Id.clear()
     this.id2Package.clear()
@@ -85,6 +85,26 @@ export class GithubPackageRepo {
           this.tag2Digest.set(tag, packageVersion.name)
         }
       }
+    }
+
+    if (output && this.config.logLevel >= LogLevel.INFO) {
+      core.startGroup('Loaded Package Data')
+      for (const ghPackage of this.id2Package.values()) {
+        let tags = ''
+        for (const tag of ghPackage.metadata.container.tags) {
+          tags += `${tag} `
+        }
+        core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`)
+      }
+      core.endGroup()
+    }
+    if (output && this.config.logLevel === LogLevel.DEBUG) {
+      core.startGroup('Loaded Package Payloads')
+      for (const ghPackage of this.id2Package.values()) {
+        const payload = JSON.stringify(ghPackage, null, 4)
+        core.info(payload)
+      }
+      core.endGroup()
     }
   }
 

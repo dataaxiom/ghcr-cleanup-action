@@ -181,10 +181,7 @@ export class Registry {
     multiArch: boolean
   ): Promise<void> {
     if (!this.config.dryRun) {
-      let contentType = 'application/vnd.oci.image.manifest.v1+json'
-      if (multiArch) {
-        contentType = 'application/vnd.oci.image.index.v1+json'
-      }
+      const contentType = manifest.mediaType
       const config = {
         headers: {
           'Content-Type': contentType
@@ -201,7 +198,7 @@ export class Registry {
         )
       } catch (error) {
         if (isAxiosError(error) && error.response) {
-          if (error.response?.status === 401) {
+          if (error.response.status === 401) {
             const challenge = error.response?.headers['www-authenticate']
             const attributes = parseChallenge(challenge)
             if (isValidChallenge(attributes)) {
@@ -222,6 +219,8 @@ export class Registry {
           } else {
             throw error
           }
+        } else {
+          throw error
         }
       }
 
