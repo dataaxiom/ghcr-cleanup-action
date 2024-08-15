@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import { Config, LogLevel } from './config.js'
+import { RequestError } from '@octokit/request-error'
 
 /**
  * Provides access to a package via the GitHub Packages REST API.
@@ -41,70 +42,89 @@ export class GithubPackageRepo {
    * Loads all versions of the package from the GitHub Packages API and populates the internal maps
    */
   async loadPackages(output: boolean): Promise<void> {
-    // clear the maps for reloading
-    this.digest2Id.clear()
-    this.id2Package.clear()
-    this.tag2Digest.clear()
+    try {
+      // clear the maps for reloading
+      this.digest2Id.clear()
+      this.id2Package.clear()
+      this.tag2Digest.clear()
 
-    let getFunc =
-      this.config.octokit.rest.packages
-        .getAllPackageVersionsForPackageOwnedByOrg
-    let getParams
+      let getFunc =
+        this.config.octokit.rest.packages
+          .getAllPackageVersionsForPackageOwnedByOrg
+      let getParams
 
-    if (this.repoType === 'User') {
-      getFunc = this.config.isPrivateRepo
-        ? this.config.octokit.rest.packages
-            .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-        : this.config.octokit.rest.packages
-            .getAllPackageVersionsForPackageOwnedByUser
+      if (this.repoType === 'User') {
+        getFunc = this.config.isPrivateRepo
+          ? this.config.octokit.rest.packages
+              .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
+          : this.config.octokit.rest.packages
+              .getAllPackageVersionsForPackageOwnedByUser
 
-      getParams = {
-        package_type: 'container',
-        package_name: this.config.package,
-        username: this.config.owner,
-        state: 'active',
-        per_page: 100
-      }
-    } else {
-      getParams = {
-        package_type: 'container',
-        package_name: this.config.package,
-        org: this.config.owner,
-        state: 'active',
-        per_page: 100
-      }
-    }
-    for await (const response of this.config.octokit.paginate.iterator(
-      getFunc,
-      getParams
-    )) {
-      for (const packageVersion of response.data) {
-        this.digest2Id.set(packageVersion.name, packageVersion.id)
-        this.id2Package.set(packageVersion.id, packageVersion)
-        for (const tag of packageVersion.metadata.container.tags) {
-          this.tag2Digest.set(tag, packageVersion.name)
+        getParams = {
+          package_type: 'container',
+          package_name: this.config.package,
+          username: this.config.owner,
+          state: 'active',
+          per_page: 100
+        }
+      } else {
+        getParams = {
+          package_type: 'container',
+          package_name: this.config.package,
+          org: this.config.owner,
+          state: 'active',
+          per_page: 100
         }
       }
-    }
-
-    if (output && this.config.logLevel >= LogLevel.INFO) {
-      core.startGroup('Loaded Package Data')
-      for (const ghPackage of this.id2Package.values()) {
-        let tags = ''
-        for (const tag of ghPackage.metadata.container.tags) {
-          tags += `${tag} `
+      for await (const response of this.config.octokit.paginate.iterator(
+        getFunc,
+        getParams
+      )) {
+        for (const packageVersion of response.data) {
+          this.digest2Id.set(packageVersion.name, packageVersion.id)
+          this.id2Package.set(packageVersion.id, packageVersion)
+          for (const tag of packageVersion.metadata.container.tags) {
+            this.tag2Digest.set(tag, packageVersion.name)
+          }
         }
-        core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`)
       }
-      core.endGroup()
-    }
-    if (output && this.config.logLevel === LogLevel.DEBUG) {
-      core.startGroup('Loaded Package Payloads')
-      for (const ghPackage of this.id2Package.values()) {
-        const payload = JSON.stringify(ghPackage, null, 4)
-        core.info(payload)
+
+      if (output && this.config.logLevel >= LogLevel.INFO) {
+        core.startGroup('Loaded Package Data')
+        for (const ghPackage of this.id2Package.values()) {
+          let tags = ''
+          for (const tag of ghPackage.metadata.container.tags) {
+            tags += `${tag} `
+          }
+          core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`)
+        }
+        core.endGroup()
       }
-      core.endGroup()
+      if (output && this.config.logLevel === LogLevel.DEBUG) {
+        core.startGroup('Loaded Package Payloads')
+        for (const ghPackage of this.id2Package.values()) {
+          const payload = JSON.stringify(ghPackage, null, 4)
+          core.info(payload)
+        }
+        core.endGroup()
+      }
+    } catch (error) {
+      if (error instanceof RequestError) {
+        if (error.status) {
+          if (error.status === 404) {
+            if (this.config.defaultPackageUsed) {
+              core.warning(
+                `The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`
+              )
+            } else {
+              core.warning(
+                `The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`
+              )
+            }
+          }
+        }
+      }
+      throw error
     }
   }
 

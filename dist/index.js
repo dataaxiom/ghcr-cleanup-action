@@ -1820,6 +1820,103 @@ function isLoopbackAddress(host) {
 
 /***/ }),
 
+/***/ 537:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// pkg/dist-src/index.js
+var dist_src_exports = {};
+__export(dist_src_exports, {
+  RequestError: () => RequestError
+});
+module.exports = __toCommonJS(dist_src_exports);
+var import_deprecation = __nccwpck_require__(8932);
+var import_once = __toESM(__nccwpck_require__(1223));
+var logOnceCode = (0, import_once.default)((deprecation) => console.warn(deprecation));
+var logOnceHeaders = (0, import_once.default)((deprecation) => console.warn(deprecation));
+var RequestError = class extends Error {
+  constructor(message, statusCode, options) {
+    super(message);
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+    this.name = "HttpError";
+    this.status = statusCode;
+    let headers;
+    if ("headers" in options && typeof options.headers !== "undefined") {
+      headers = options.headers;
+    }
+    if ("response" in options) {
+      this.response = options.response;
+      headers = options.response.headers;
+    }
+    const requestCopy = Object.assign({}, options.request);
+    if (options.request.headers.authorization) {
+      requestCopy.headers = Object.assign({}, options.request.headers, {
+        authorization: options.request.headers.authorization.replace(
+          / .*$/,
+          " [REDACTED]"
+        )
+      });
+    }
+    requestCopy.url = requestCopy.url.replace(/\bclient_secret=\w+/g, "client_secret=[REDACTED]").replace(/\baccess_token=\w+/g, "access_token=[REDACTED]");
+    this.request = requestCopy;
+    Object.defineProperty(this, "code", {
+      get() {
+        logOnceCode(
+          new import_deprecation.Deprecation(
+            "[@octokit/request-error] `error.code` is deprecated, use `error.status`."
+          )
+        );
+        return statusCode;
+      }
+    });
+    Object.defineProperty(this, "headers", {
+      get() {
+        logOnceHeaders(
+          new import_deprecation.Deprecation(
+            "[@octokit/request-error] `error.headers` is deprecated, use `error.response.headers`."
+          )
+        );
+        return headers || {};
+      }
+    });
+  }
+};
+// Annotate the CommonJS export names for ESM import in node:
+0 && (0);
+
+
+/***/ }),
+
 /***/ 7633:
 /***/ ((module) => {
 
@@ -5134,103 +5231,6 @@ legacyRestEndpointMethods.VERSION = VERSION;
 
 /***/ }),
 
-/***/ 6239:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
-  RequestError: () => RequestError
-});
-module.exports = __toCommonJS(dist_src_exports);
-var import_deprecation = __nccwpck_require__(8932);
-var import_once = __toESM(__nccwpck_require__(1223));
-var logOnceCode = (0, import_once.default)((deprecation) => console.warn(deprecation));
-var logOnceHeaders = (0, import_once.default)((deprecation) => console.warn(deprecation));
-var RequestError = class extends Error {
-  constructor(message, statusCode, options) {
-    super(message);
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
-    this.name = "HttpError";
-    this.status = statusCode;
-    let headers;
-    if ("headers" in options && typeof options.headers !== "undefined") {
-      headers = options.headers;
-    }
-    if ("response" in options) {
-      this.response = options.response;
-      headers = options.response.headers;
-    }
-    const requestCopy = Object.assign({}, options.request);
-    if (options.request.headers.authorization) {
-      requestCopy.headers = Object.assign({}, options.request.headers, {
-        authorization: options.request.headers.authorization.replace(
-          / .*$/,
-          " [REDACTED]"
-        )
-      });
-    }
-    requestCopy.url = requestCopy.url.replace(/\bclient_secret=\w+/g, "client_secret=[REDACTED]").replace(/\baccess_token=\w+/g, "access_token=[REDACTED]");
-    this.request = requestCopy;
-    Object.defineProperty(this, "code", {
-      get() {
-        logOnceCode(
-          new import_deprecation.Deprecation(
-            "[@octokit/request-error] `error.code` is deprecated, use `error.status`."
-          )
-        );
-        return statusCode;
-      }
-    });
-    Object.defineProperty(this, "headers", {
-      get() {
-        logOnceHeaders(
-          new import_deprecation.Deprecation(
-            "[@octokit/request-error] `error.headers` is deprecated, use `error.response.headers`."
-          )
-        );
-        return headers || {};
-      }
-    });
-  }
-};
-// Annotate the CommonJS export names for ESM import in node:
-0 && (0);
-
-
-/***/ }),
-
 /***/ 4047:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -5279,7 +5279,7 @@ function isPlainObject(value) {
 }
 
 // pkg/dist-src/fetch-wrapper.js
-var import_request_error = __nccwpck_require__(6239);
+var import_request_error = __nccwpck_require__(537);
 
 // pkg/dist-src/get-buffer-response.js
 function getBufferResponse(response) {
@@ -33855,7 +33855,7 @@ function wrappy (fn, cb) {
 /***/ ((module, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1537);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3769);
 /**
  * The entrypoint for the action.
  */
@@ -33868,7 +33868,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 1537:
+/***/ 3769:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -34154,7 +34154,7 @@ throttling.VERSION = dist_bundle_VERSION;
 throttling.triggersNotification = triggersNotification;
 
 
-;// CONCATENATED MODULE: ./node_modules/@octokit/request-error/dist-src/index.js
+;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-retry/node_modules/@octokit/request-error/dist-src/index.js
 class RequestError extends Error {
   name;
   /**
@@ -34274,6 +34274,8 @@ function retry(octokit, octokitOptions) {
 retry.VERSION = plugin_retry_dist_bundle_VERSION;
 
 
+// EXTERNAL MODULE: ./node_modules/@octokit/request-error/dist-node/index.js
+var request_error_dist_node = __nccwpck_require__(537);
 // EXTERNAL MODULE: external "crypto"
 var external_crypto_ = __nccwpck_require__(6113);
 ;// CONCATENATED MODULE: ./src/utils.ts
@@ -34323,6 +34325,279 @@ class MapPrinter {
             core.info(`${key}${spacer}${value}`);
         }
     }
+}
+
+;// CONCATENATED MODULE: ./src/config.ts
+
+
+
+
+
+
+
+// @ts-expect-error: esm errror
+const MyOctokit = Octokit.plugin(requestLog, throttling, retry);
+var LogLevel;
+(function (LogLevel) {
+    LogLevel[LogLevel["ERROR"] = 1] = "ERROR";
+    LogLevel[LogLevel["WARN"] = 2] = "WARN";
+    LogLevel[LogLevel["INFO"] = 3] = "INFO";
+    LogLevel[LogLevel["DEBUG"] = 4] = "DEBUG";
+})(LogLevel || (LogLevel = {}));
+class Config {
+    isPrivateRepo = false;
+    owner = '';
+    repository = '';
+    package = '';
+    defaultPackageUsed = false;
+    deleteTags;
+    excludeTags;
+    deleteUntagged;
+    deleteGhostImages;
+    deletePartialImages;
+    keepNuntagged;
+    keepNtagged;
+    dryRun;
+    validate;
+    logLevel;
+    token;
+    octokit;
+    constructor(token) {
+        this.token = token;
+        this.logLevel = LogLevel.INFO;
+        this.octokit = new MyOctokit({
+            auth: token,
+            throttle: {
+                onRateLimit: (retryAfter, options, octokit, retryCount) => {
+                    core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
+                    if (retryCount < 1) {
+                        // only retries once
+                        core.info(`Octokit - retrying after ${retryAfter} seconds!`);
+                        return true;
+                    }
+                },
+                onSecondaryRateLimit: (retryAfter, options, octokit) => {
+                    // does not retry, only logs a warning
+                    core.info(`Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`);
+                }
+            },
+            log: {
+                debug: (message) => {
+                    if (this.logLevel >= LogLevel.DEBUG) {
+                        core.info(`[Octokit DEBUG] ${message}`);
+                    }
+                },
+                info: (message) => {
+                    if (this.logLevel >= LogLevel.DEBUG) {
+                        core.info(`[Octokit DEBUG] ${message}`);
+                    }
+                },
+                warn: (message) => {
+                    if (this.logLevel >= LogLevel.WARN) {
+                        core.info(`[Octokit WARN] ${message}`);
+                    }
+                },
+                error: (message) => {
+                    if (this.logLevel >= LogLevel.INFO) {
+                        core.info(`[Octokit ERROR] ${message}`);
+                    }
+                }
+            }
+        });
+    }
+    async getOwnerType() {
+        try {
+            const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
+            this.isPrivateRepo = result.data.private;
+            return result.data.owner.type;
+        }
+        catch (error) {
+            if (error instanceof request_error_dist_node.RequestError) {
+                if (error.status) {
+                    if (error.status === 404) {
+                        core.warning(`The repository is not found, check the owner value "${this.owner}" or the repository value "${this.repository}" are correct`);
+                    }
+                }
+            }
+            // rethrow the error
+            throw error;
+        }
+    }
+}
+function getConfig() {
+    const token = core.getInput('token', { required: true });
+    const config = new Config(token);
+    config.owner = core.getInput('owner');
+    config.repository = core.getInput('repository');
+    config.package = core.getInput('package');
+    // auto populate
+    const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
+    if (GITHUB_REPOSITORY) {
+        const parts = GITHUB_REPOSITORY.split('/');
+        if (parts.length === 2) {
+            if (!config.owner) {
+                config.owner = parts[0];
+            }
+            if (!config.package) {
+                config.package = parts[1];
+                config.defaultPackageUsed = true;
+            }
+            else {
+                config.defaultPackageUsed = false;
+            }
+            if (!config.repository) {
+                config.repository = parts[1];
+            }
+        }
+        else {
+            throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`);
+        }
+    }
+    else {
+        throw Error('GITHUB_REPOSITORY is not set');
+    }
+    if (core.getInput('tags') && core.getInput('delete-tags')) {
+        throw Error('tags and delete-tags cant be used at the same time, use either one');
+    }
+    if (core.getInput('tags')) {
+        config.deleteTags = core.getInput('tags');
+    }
+    else if (core.getInput('delete-tags')) {
+        config.deleteTags = core.getInput('delete-tags');
+    }
+    config.excludeTags = core.getInput('exclude-tags');
+    if (core.getInput('keep-n-tagged')) {
+        const n = parseInt(core.getInput('keep-n-tagged'));
+        if (isNaN(n)) {
+            throw new Error('keep-n-tagged is not number');
+        }
+        else if (n < 0) {
+            throw new Error('keep-n-tagged is negative');
+        }
+        else {
+            config.keepNtagged = n;
+        }
+    }
+    if (core.getInput('keep-n-untagged')) {
+        const n = parseInt(core.getInput('keep-n-untagged'));
+        if (isNaN(n)) {
+            throw new Error('keep-n-untagged is not number');
+        }
+        else if (n < 0) {
+            throw new Error('keep-n-untagged is negative');
+        }
+        else {
+            config.keepNuntagged = n;
+        }
+    }
+    if (core.getInput('delete-untagged')) {
+        config.deleteUntagged = core.getBooleanInput('delete-untagged');
+    }
+    else {
+        // default is deleteUntagged if no options are set
+        if (!core.getInput('tags') &&
+            !core.getInput('delete-tags') &&
+            !core.getInput('delete-ghost-images') &&
+            !core.getInput('delete-partial-images') &&
+            !core.getInput('keep-n-untagged') &&
+            !core.getInput('keep-n-tagged')) {
+            config.deleteUntagged = true;
+        }
+        else {
+            config.deleteUntagged = false;
+        }
+    }
+    if (config.keepNuntagged && core.getInput('delete-untagged')) {
+        throw new Error('delete-untagged and keep-n-untagged can not be set at the same time');
+    }
+    if (core.getInput('delete-ghost-images')) {
+        config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
+    }
+    else {
+        config.deleteGhostImages = false;
+    }
+    if (core.getInput('delete-partial-images')) {
+        config.deletePartialImages = core.getBooleanInput('delete-partial-images');
+    }
+    else {
+        config.deletePartialImages = false;
+    }
+    if (core.getInput('dry-run')) {
+        config.dryRun = core.getBooleanInput('dry-run');
+        if (config.dryRun) {
+            core.info('***** In dry run mode - No packages will be deleted *****');
+        }
+    }
+    else {
+        config.dryRun = false;
+    }
+    if (core.getInput('validate')) {
+        config.validate = core.getBooleanInput('validate');
+    }
+    else {
+        config.validate = false;
+    }
+    if (core.getInput('log-level')) {
+        const level = core.getInput('log-level').toLowerCase();
+        if (level === 'error') {
+            config.logLevel = LogLevel.ERROR;
+        }
+        else if (level === 'warn') {
+            config.logLevel = LogLevel.WARN;
+        }
+        else if (level === 'info') {
+            config.logLevel = LogLevel.INFO;
+        }
+        else if (level === 'debug') {
+            config.logLevel = LogLevel.DEBUG;
+        }
+    }
+    if (!config.owner) {
+        throw new Error('owner is not set');
+    }
+    if (!config.package) {
+        throw new Error('package is not set');
+    }
+    if (!config.repository) {
+        throw new Error('repository is not set');
+    }
+    const optionsMap = new MapPrinter();
+    optionsMap.add('private repository', `${config.isPrivateRepo}`);
+    optionsMap.add('project owner', `${config.owner}`);
+    optionsMap.add('repository', `${config.repository}`);
+    optionsMap.add('package', `${config.package}`);
+    if (config.deleteTags) {
+        optionsMap.add('delete-tags', config.deleteTags);
+    }
+    if (config.excludeTags) {
+        optionsMap.add('exclude-tags', config.excludeTags);
+    }
+    if (config.deleteUntagged != null) {
+        optionsMap.add('delete-untagged', `${config.deleteUntagged}`);
+    }
+    if (config.deleteGhostImages != null) {
+        optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`);
+    }
+    if (config.deletePartialImages != null) {
+        optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
+    }
+    if (config.keepNtagged != null) {
+        optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
+    }
+    if (config.keepNuntagged != null) {
+        optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`);
+    }
+    if (config.dryRun != null) {
+        optionsMap.add('dry-run', `${config.dryRun}`);
+    }
+    if (config.validate != null) {
+        optionsMap.add('validate', `${config.validate}`);
+    }
+    optionsMap.add('log-level', LogLevel[config.logLevel]);
+    core.startGroup('Runtime configuration');
+    optionsMap.print();
+    core.endGroup();
+    return config;
 }
 
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/bind.js
@@ -39426,268 +39701,6 @@ const {
 
 
 
-;// CONCATENATED MODULE: ./src/config.ts
-
-
-
-
-
-
-
-// @ts-expect-error: esm errror
-const MyOctokit = Octokit.plugin(requestLog, throttling, retry);
-var LogLevel;
-(function (LogLevel) {
-    LogLevel[LogLevel["ERROR"] = 1] = "ERROR";
-    LogLevel[LogLevel["WARN"] = 2] = "WARN";
-    LogLevel[LogLevel["INFO"] = 3] = "INFO";
-    LogLevel[LogLevel["DEBUG"] = 4] = "DEBUG";
-})(LogLevel || (LogLevel = {}));
-class Config {
-    isPrivateRepo = false;
-    owner = '';
-    repository = '';
-    package = '';
-    deleteTags;
-    excludeTags;
-    deleteUntagged;
-    deleteGhostImages;
-    deletePartialImages;
-    keepNuntagged;
-    keepNtagged;
-    dryRun;
-    validate;
-    logLevel;
-    token;
-    octokit;
-    constructor(token) {
-        this.token = token;
-        this.logLevel = LogLevel.INFO;
-        this.octokit = new MyOctokit({
-            auth: token,
-            throttle: {
-                onRateLimit: (retryAfter, options, octokit, retryCount) => {
-                    core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
-                    if (retryCount < 1) {
-                        // only retries once
-                        core.info(`Octokit - retrying after ${retryAfter} seconds!`);
-                        return true;
-                    }
-                },
-                onSecondaryRateLimit: (retryAfter, options, octokit) => {
-                    // does not retry, only logs a warning
-                    core.info(`Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`);
-                }
-            },
-            log: {
-                debug: (message) => {
-                    if (this.logLevel >= LogLevel.DEBUG) {
-                        core.info(`[Octokit DEBUG] ${message}`);
-                    }
-                },
-                info: (message) => {
-                    if (this.logLevel >= LogLevel.DEBUG) {
-                        core.info(`[Octokit DEBUG] ${message}`);
-                    }
-                },
-                warn: (message) => {
-                    if (this.logLevel >= LogLevel.WARN) {
-                        core.info(`[Octokit WARN] ${message}`);
-                    }
-                },
-                error: (message) => {
-                    if (this.logLevel >= LogLevel.INFO) {
-                        core.info(`[Octokit ERROR] ${message}`);
-                    }
-                }
-            }
-        });
-    }
-    async getOwnerType() {
-        try {
-            const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
-            this.isPrivateRepo = result.data.private;
-            return result.data.owner.type;
-        }
-        catch (error) {
-            if (axios_isAxiosError(error) && error.response) {
-                core.info(`${error.response}`);
-            }
-            throw error;
-        }
-    }
-}
-function getConfig() {
-    const token = core.getInput('token', { required: true });
-    const config = new Config(token);
-    config.repository = core.getInput('repository');
-    config.package = core.getInput('package');
-    // auto populate
-    const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
-    if (GITHUB_REPOSITORY) {
-        const parts = GITHUB_REPOSITORY.split('/');
-        if (parts.length === 2) {
-            if (!config.owner) {
-                config.owner = parts[0];
-            }
-            if (!config.package) {
-                config.package = parts[1];
-            }
-            if (!config.repository) {
-                config.repository = parts[1];
-            }
-        }
-        else {
-            throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`);
-        }
-    }
-    else {
-        throw Error('GITHUB_REPOSITORY is not set');
-    }
-    if (core.getInput('tags') && core.getInput('delete-tags')) {
-        throw Error('tags and delete-tags cant be used at the same time, use either one');
-    }
-    if (core.getInput('tags')) {
-        config.deleteTags = core.getInput('tags');
-    }
-    else if (core.getInput('delete-tags')) {
-        config.deleteTags = core.getInput('delete-tags');
-    }
-    config.excludeTags = core.getInput('exclude-tags');
-    if (core.getInput('keep-n-tagged')) {
-        const n = parseInt(core.getInput('keep-n-tagged'));
-        if (isNaN(n)) {
-            throw new Error('keep-n-tagged is not number');
-        }
-        else if (n < 0) {
-            throw new Error('keep-n-tagged is negative');
-        }
-        else {
-            config.keepNtagged = n;
-        }
-    }
-    if (core.getInput('keep-n-untagged')) {
-        const n = parseInt(core.getInput('keep-n-untagged'));
-        if (isNaN(n)) {
-            throw new Error('keep-n-untagged is not number');
-        }
-        else if (n < 0) {
-            throw new Error('keep-n-untagged is negative');
-        }
-        else {
-            config.keepNuntagged = n;
-        }
-    }
-    if (core.getInput('delete-untagged')) {
-        config.deleteUntagged = core.getBooleanInput('delete-untagged');
-    }
-    else {
-        // default is deleteUntagged if no options are set
-        if (!core.getInput('tags') &&
-            !core.getInput('delete-tags') &&
-            !core.getInput('delete-ghost-images') &&
-            !core.getInput('delete-partial-images') &&
-            !core.getInput('keep-n-untagged') &&
-            !core.getInput('keep-n-tagged')) {
-            config.deleteUntagged = true;
-        }
-        else {
-            config.deleteUntagged = false;
-        }
-    }
-    if (config.keepNuntagged && core.getInput('delete-untagged')) {
-        throw new Error('delete-untagged and keep-n-untagged can not be set at the same time');
-    }
-    if (core.getInput('delete-ghost-images')) {
-        config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
-    }
-    else {
-        config.deleteGhostImages = false;
-    }
-    if (core.getInput('delete-partial-images')) {
-        config.deletePartialImages = core.getBooleanInput('delete-partial-images');
-    }
-    else {
-        config.deletePartialImages = false;
-    }
-    if (core.getInput('dry-run')) {
-        config.dryRun = core.getBooleanInput('dry-run');
-        if (config.dryRun) {
-            core.info('***** In dry run mode - No packages will be deleted *****');
-        }
-    }
-    else {
-        config.dryRun = false;
-    }
-    if (core.getInput('validate')) {
-        config.validate = core.getBooleanInput('validate');
-    }
-    else {
-        config.validate = false;
-    }
-    if (core.getInput('log-level')) {
-        const level = core.getInput('log-level').toLowerCase();
-        if (level === 'error') {
-            config.logLevel = LogLevel.ERROR;
-        }
-        else if (level === 'warn') {
-            config.logLevel = LogLevel.WARN;
-        }
-        else if (level === 'info') {
-            config.logLevel = LogLevel.INFO;
-        }
-        else if (level === 'debug') {
-            config.logLevel = LogLevel.DEBUG;
-        }
-    }
-    if (!config.owner) {
-        throw new Error('owner is not set');
-    }
-    if (!config.package) {
-        throw new Error('package is not set');
-    }
-    if (!config.repository) {
-        throw new Error('repository is not set');
-    }
-    const optionsMap = new MapPrinter();
-    optionsMap.add('private repository', `${config.isPrivateRepo}`);
-    optionsMap.add('project owner', `${config.owner}`);
-    optionsMap.add('repository', `${config.repository}`);
-    optionsMap.add('package', `${config.package}`);
-    if (config.deleteTags) {
-        optionsMap.add('delete-tags', config.deleteTags);
-    }
-    if (config.excludeTags) {
-        optionsMap.add('exclude-tags', config.excludeTags);
-    }
-    if (config.deleteUntagged) {
-        optionsMap.add('delete-untagged', `${config.deleteUntagged}`);
-    }
-    if (config.deleteGhostImages) {
-        optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`);
-    }
-    if (config.deletePartialImages) {
-        optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
-    }
-    if (config.keepNtagged != null) {
-        optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
-    }
-    if (config.keepNuntagged != null) {
-        optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`);
-    }
-    if (config.dryRun) {
-        optionsMap.add('dry-run', `${config.dryRun}`);
-    }
-    if (config.validate) {
-        optionsMap.add('validate', `${config.validate}`);
-    }
-    optionsMap.add('log-level', LogLevel[config.logLevel]);
-    core.startGroup('Runtime configuration');
-    optionsMap.print();
-    core.endGroup();
-    return config;
-}
-
 // EXTERNAL MODULE: ./node_modules/is-retry-allowed/index.js
 var is_retry_allowed = __nccwpck_require__(841);
 ;// CONCATENATED MODULE: ./node_modules/axios-retry/dist/esm/index.js
@@ -40135,6 +40148,7 @@ class Registry {
 ;// CONCATENATED MODULE: ./src/github-package.ts
 
 
+
 /**
  * Provides access to a package via the GitHub Packages REST API.
  */
@@ -40168,63 +40182,80 @@ class GithubPackageRepo {
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
      */
     async loadPackages(output) {
-        // clear the maps for reloading
-        this.digest2Id.clear();
-        this.id2Package.clear();
-        this.tag2Digest.clear();
-        let getFunc = this.config.octokit.rest.packages
-            .getAllPackageVersionsForPackageOwnedByOrg;
-        let getParams;
-        if (this.repoType === 'User') {
-            getFunc = this.config.isPrivateRepo
-                ? this.config.octokit.rest.packages
-                    .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-                : this.config.octokit.rest.packages
-                    .getAllPackageVersionsForPackageOwnedByUser;
-            getParams = {
-                package_type: 'container',
-                package_name: this.config.package,
-                username: this.config.owner,
-                state: 'active',
-                per_page: 100
-            };
-        }
-        else {
-            getParams = {
-                package_type: 'container',
-                package_name: this.config.package,
-                org: this.config.owner,
-                state: 'active',
-                per_page: 100
-            };
-        }
-        for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
-            for (const packageVersion of response.data) {
-                this.digest2Id.set(packageVersion.name, packageVersion.id);
-                this.id2Package.set(packageVersion.id, packageVersion);
-                for (const tag of packageVersion.metadata.container.tags) {
-                    this.tag2Digest.set(tag, packageVersion.name);
+        try {
+            // clear the maps for reloading
+            this.digest2Id.clear();
+            this.id2Package.clear();
+            this.tag2Digest.clear();
+            let getFunc = this.config.octokit.rest.packages
+                .getAllPackageVersionsForPackageOwnedByOrg;
+            let getParams;
+            if (this.repoType === 'User') {
+                getFunc = this.config.isPrivateRepo
+                    ? this.config.octokit.rest.packages
+                        .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
+                    : this.config.octokit.rest.packages
+                        .getAllPackageVersionsForPackageOwnedByUser;
+                getParams = {
+                    package_type: 'container',
+                    package_name: this.config.package,
+                    username: this.config.owner,
+                    state: 'active',
+                    per_page: 100
+                };
+            }
+            else {
+                getParams = {
+                    package_type: 'container',
+                    package_name: this.config.package,
+                    org: this.config.owner,
+                    state: 'active',
+                    per_page: 100
+                };
+            }
+            for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
+                for (const packageVersion of response.data) {
+                    this.digest2Id.set(packageVersion.name, packageVersion.id);
+                    this.id2Package.set(packageVersion.id, packageVersion);
+                    for (const tag of packageVersion.metadata.container.tags) {
+                        this.tag2Digest.set(tag, packageVersion.name);
+                    }
                 }
             }
-        }
-        if (output && this.config.logLevel >= LogLevel.INFO) {
-            core.startGroup('Loaded Package Data');
-            for (const ghPackage of this.id2Package.values()) {
-                let tags = '';
-                for (const tag of ghPackage.metadata.container.tags) {
-                    tags += `${tag} `;
+            if (output && this.config.logLevel >= LogLevel.INFO) {
+                core.startGroup('Loaded Package Data');
+                for (const ghPackage of this.id2Package.values()) {
+                    let tags = '';
+                    for (const tag of ghPackage.metadata.container.tags) {
+                        tags += `${tag} `;
+                    }
+                    core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`);
                 }
-                core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`);
+                core.endGroup();
             }
-            core.endGroup();
+            if (output && this.config.logLevel === LogLevel.DEBUG) {
+                core.startGroup('Loaded Package Payloads');
+                for (const ghPackage of this.id2Package.values()) {
+                    const payload = JSON.stringify(ghPackage, null, 4);
+                    core.info(payload);
+                }
+                core.endGroup();
+            }
         }
-        if (output && this.config.logLevel === LogLevel.DEBUG) {
-            core.startGroup('Loaded Package Payloads');
-            for (const ghPackage of this.id2Package.values()) {
-                const payload = JSON.stringify(ghPackage, null, 4);
-                core.info(payload);
+        catch (error) {
+            if (error instanceof request_error_dist_node.RequestError) {
+                if (error.status) {
+                    if (error.status === 404) {
+                        if (this.config.defaultPackageUsed) {
+                            core.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
+                        }
+                        else {
+                            core.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
+                        }
+                    }
+                }
             }
-            core.endGroup();
+            throw error;
         }
     }
     /**

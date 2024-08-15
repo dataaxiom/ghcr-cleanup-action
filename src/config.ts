@@ -3,9 +3,9 @@ import { Octokit } from '@octokit/rest'
 import { throttling } from '@octokit/plugin-throttling'
 import { retry } from '@octokit/plugin-retry'
 import { requestLog } from '@octokit/plugin-request-log'
+import { RequestError } from '@octokit/request-error'
 import type { EndpointDefaults } from '@octokit/types'
 import { MapPrinter } from './utils.js'
-import { isAxiosError } from 'axios'
 
 // @ts-expect-error: esm errror
 const MyOctokit = Octokit.plugin(requestLog, throttling, retry)
@@ -22,6 +22,7 @@ export class Config {
   owner = ''
   repository = ''
   package = ''
+  defaultPackageUsed = false
   deleteTags?: string
   excludeTags?: string
   deleteUntagged?: boolean
@@ -102,9 +103,16 @@ export class Config {
       this.isPrivateRepo = result.data.private
       return result.data.owner.type
     } catch (error) {
-      if (isAxiosError(error) && error.response) {
-        core.info(`${error.response}`)
+      if (error instanceof RequestError) {
+        if (error.status) {
+          if (error.status === 404) {
+            core.warning(
+              `The repository is not found, check the owner value "${this.owner}" or the repository value "${this.repository}" are correct`
+            )
+          }
+        }
       }
+      // rethrow the error
       throw error
     }
   }
@@ -113,6 +121,7 @@ export class Config {
 export function getConfig(): Config {
   const token: string = core.getInput('token', { required: true })
   const config = new Config(token)
+  config.owner = core.getInput('owner')
   config.repository = core.getInput('repository')
   config.package = core.getInput('package')
 
@@ -126,6 +135,9 @@ export function getConfig(): Config {
       }
       if (!config.package) {
         config.package = parts[1]
+        config.defaultPackageUsed = true
+      } else {
+        config.defaultPackageUsed = false
       }
       if (!config.repository) {
         config.repository = parts[1]
@@ -256,13 +268,13 @@ export function getConfig(): Config {
   if (config.excludeTags) {
     optionsMap.add('exclude-tags', config.excludeTags)
   }
-  if (config.deleteUntagged) {
+  if (config.deleteUntagged != null) {
     optionsMap.add('delete-untagged', `${config.deleteUntagged}`)
   }
-  if (config.deleteGhostImages) {
+  if (config.deleteGhostImages != null) {
     optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`)
   }
-  if (config.deletePartialImages) {
+  if (config.deletePartialImages != null) {
     optionsMap.add('delete-partial-images', `${config.deletePartialImages}`)
   }
   if (config.keepNtagged != null) {
@@ -271,10 +283,10 @@ export function getConfig(): Config {
   if (config.keepNuntagged != null) {
     optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`)
   }
-  if (config.dryRun) {
+  if (config.dryRun != null) {
     optionsMap.add('dry-run', `${config.dryRun}`)
   }
-  if (config.validate) {
+  if (config.validate != null) {
     optionsMap.add('validate', `${config.validate}`)
   }
   optionsMap.add('log-level', LogLevel[config.logLevel])
