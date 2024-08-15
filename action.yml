@@ -75,10 +75,17 @@ inputs:
       Tags to exclude from deletion (comma seperated)
     required: false
 
+  older-than:
+    description: >
+      Only include packages to be processed that are older than this value. Use
+      the following format samples: 50 seconds, 15 days, 6 months, 2 years
+    required: false
+
   validate:
     description: >
       Validate all multi architecture images manifests by checking their digests
       are present in the registry
+    required: false
 
   dry-run:
     description: >

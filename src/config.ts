@@ -6,6 +6,7 @@ import { requestLog } from '@octokit/plugin-request-log'
 import { RequestError } from '@octokit/request-error'
 import type { EndpointDefaults } from '@octokit/types'
 import { MapPrinter } from './utils.js'
+import humanInterval from 'human-interval'
 
 // @ts-expect-error: esm errror
 const MyOctokit = Octokit.plugin(requestLog, throttling, retry)
@@ -25,6 +26,8 @@ export class Config {
   defaultPackageUsed = false
   deleteTags?: string
   excludeTags?: string
+  olderThanReadable?: string
+  olderThan?: number
   deleteUntagged?: boolean
   deleteGhostImages?: boolean
   deletePartialImages?: boolean
@@ -162,6 +165,11 @@ export function getConfig(): Config {
 
   config.excludeTags = core.getInput('exclude-tags')
 
+  if (core.getInput('older-than')) {
+    config.olderThan = humanInterval(core.getInput('older-than'))
+    config.olderThanReadable = core.getInput('older-than')
+  }
+
   if (core.getInput('keep-n-tagged')) {
     const n: number = parseInt(core.getInput('keep-n-tagged'))
     if (isNaN(n)) {
@@ -267,6 +275,9 @@ export function getConfig(): Config {
   }
   if (config.excludeTags) {
     optionsMap.add('exclude-tags', config.excludeTags)
+  }
+  if (config.olderThanReadable) {
+    optionsMap.add('older-than', config.olderThanReadable)
   }
   if (config.deleteUntagged != null) {
     optionsMap.add('delete-untagged', `${config.deleteUntagged}`)

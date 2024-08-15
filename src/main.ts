@@ -90,6 +90,35 @@ class CleanupAction {
         }
       }
     }
+
+    // only include older-than if set
+    if (this.config.olderThan) {
+      // get the package
+      core.startGroup(
+        `Including packages that are older than: ${this.config.olderThanReadable}`
+      )
+      for (const digest of this.filterSet) {
+        const ghPackage = this.githubPackageRepo.getPackageByDigest(digest)
+        if (ghPackage.updated_at) {
+          const cutOff = new Date(Date.now() - this.config.olderThan)
+          const packageDate = new Date(ghPackage.updated_at)
+          if (packageDate >= cutOff) {
+            // the package it newer then cutoff so remove it from filterSet
+            this.filterSet.delete(digest)
+          } else {
+            const tags =
+              this.githubPackageRepo.getPackageByDigest(digest).metadata
+                .container.tags
+            if (tags.length > 0) {
+              core.info(`${digest} ${tags}`)
+            } else {
+              core.info(digest)
+            }
+          }
+        }
+      }
+      core.endGroup()
+    }
   }
 
   /*

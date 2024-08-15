@@ -165,6 +165,16 @@ jobs:
             keep-n-untagged: 0
             exclude-tags: dummy
 
+          - title: '9a - Multi: Older Than Skip All Images'
+            purpose: 'Skip processing all images'
+            folder: '9a_multi-older-than-skip'
+            older-than: 30 years
+
+          - title: '9b - Multi: Older Than Normal Processing '
+            purpose: 'Normal processing all images'
+            folder: '9b_multi-older-than-process'
+            older-than: 1 second
+
     steps:
       # Setup for test execution
       - name: Checkout
@@ -216,6 +226,11 @@ jobs:
             EXCLUDE_TAGS="${{ matrix.tests.exclude-tags }}"
           fi
 
+          OLDER_THAN=""
+          if [ ! -z "${{ matrix.tests.older-than }}" ]; then
+            OLDER_THAN="${{ matrix.tests.older-than }}"
+          fi
+
           DRY_RUN=""
           if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
             DRY_RUN="TRUE"
@@ -238,28 +253,9 @@ jobs:
           echo "KEEP_N_TAGGED=$KEEP_N_TAGGED" >> $GITHUB_ENV
           echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED" >> $GITHUB_ENV
           echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
+          echo "OLDER_THAN=$OLDER_THAN" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
           echo "DELAY=$DELAY" >> $GITHUB_ENV
-
-      # - name: ' > Debug: Print Matrix Variables'
-      #   run: |
-      #     echo "delete-tags: ${{ matrix.tests.delete-tags }}"
-      #     echo "delete-untagged: ${{ matrix.tests.delete-untagged }}"
-      #     echo "delete-ghost-images: ${{ matrix.tests.delete-ghost-iamges }}"
-      #     echo "keep-n-tagged: ${{ matrix.tests.keep-n-tagged }}"
-      #     echo "keep-n-untagged: ${{ matrix.tests.keep-n-untagged }}"
-      #     echo "exclude-tags: ${{ matrix.tests.exclude-tags }}"
-      #     echo "dry-run: ${{ matrix.tests.dry-run }}"
-
-      # - name: ' > Debug: Print Env Variables'
-      #   run: |
-      #     echo "delete-tags: ${{ env.DELETE_TAGS }}"
-      #     echo "delete-untagged: ${{ env.DELETE_UNTAGGED }}"
-      #     echo "delete-ghost-images: ${{ env.DELETE_GHOST_IMAGES }}"
-      #     echo "keep-n-tagged: ${{ env.KEEP_N_TAGGED }}"
-      #     echo "keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}"
-      #     echo "exclude-tags: ${{ env.EXCLUDE_TAGS }}"
-      #     echo "dry-run: ${{ env.DRY_RUN }}"
 
       - name: ' > Priming Test Environment'
         run: |
@@ -277,6 +273,7 @@ jobs:
           keep-n-tagged: ${{ env.KEEP_N_TAGGED }}
           keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}
           exclude-tags: ${{ env.EXCLUDE_TAGS }}
+          older-than: ${{ env.OLDER_THAN }}
           dry-run: ${{ env.DRY_RUN }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
