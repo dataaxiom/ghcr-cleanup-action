@@ -656,7 +656,7 @@ class CleanupAction {
   }
 
   /*
-   * Perform the deletion by deleting all the digets in the deleteSet
+   * Deletes all the digets in the deleteSet from the package repository
    */
   async doDelete(): Promise<void> {
     // now delete the images

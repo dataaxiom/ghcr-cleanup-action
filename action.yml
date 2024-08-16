@@ -33,12 +33,6 @@ inputs:
       The package name. Defaults to the repository name
     required: false
 
-  log-level:
-    description: >
-      Log level (error/warn/info/debug)
-    required: false
-    default: warn
-
   # Clean-up Options
 
   delete-tags:

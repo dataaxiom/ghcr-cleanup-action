@@ -65,7 +65,7 @@ ensure it's permissions have been setup correctly, either by:
 | Option                | Required | Defaults  | Description                                                                                                |
 | --------------------- | :------: | --------- | ---------------------------------------------------------------------------------------------------------- |
 | delete-tags           |    no    |           | Comma separated list of tags to delete (supports wildcard syntax. Can abe abbreviated as `tags`)           |
-| exclude-tags       |    no    |           | Commma separated list of tags strictly to be preserved / excluded from deletion (supports wildcard syntax) |
+| exclude-tags          |    no    |           | Commma separated list of tags strictly to be preserved / excluded from deletion (supports wildcard syntax) |
 | keep-n-untagged       |    no    |           | Number of untagged images to keep, sorted by date                                                          |
 | keep-n-tagged         |    no    |           | Number of tagged images to keep, sorted by date                                                            |
 | delete-untagged       |    no    | depends\* | Delete untagged images (not belonging to multi-arch containers)                                            |
@@ -137,8 +137,8 @@ jobs:
 Keeps a number (keep-n-tagged) of tagged images and then deletes the rest. Tags
 are sorted by date. The number to be kept does not include items that will
 anyways be kept due to exclude-tags option. Example: If there are 100 tagged
-images, and user sets keep-n-tagged: 3 and exclude-tags: a, b in total 5
-images will be kept
+images, and user sets keep-n-tagged: 3 and exclude-tags: a, b in total 5 images
+will be kept
 
 ```yaml
 jobs:
@@ -214,8 +214,8 @@ jobs:
 
 ### Tag Wildcard
 
-The tags and exclude-tags options can use a wildcard syntax, using the ?, \*
-and \*\* characters. (Utilizes the wildcard-match library)
+The tags and exclude-tags options can use a wildcard syntax, using the ?, \* and
+\*\* characters. (Utilizes the wildcard-match library)
 
 ```yaml
 jobs:

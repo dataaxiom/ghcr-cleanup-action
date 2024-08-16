@@ -41419,7 +41419,7 @@ class CleanupAction {
         core.endGroup();
     }
     /*
-     * Perform the deletion by deleting all the digets in the deleteSet
+     * Deletes all the digets in the deleteSet from the package repository
      */
     async doDelete() {
         // now delete the images
