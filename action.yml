@@ -11,7 +11,7 @@ branding:
   color: blue
 
 inputs:
-  # General Settings
+  # General Options
   token:
     description: >
       Token to authenticate with the ghcr.io registry and the GitHub API
@@ -33,7 +33,7 @@ inputs:
       The package name. Defaults to the repository name
     required: false
 
-  # Clean-up Options
+  # Cleanup Options
 
   delete-tags:
     description: >
@@ -54,18 +54,18 @@ inputs:
 
   keep-n-untagged:
     description: >
-      Number of untagged images to keep (sorted by date)
+      Number of untagged images to keep (sorted by date, keeping newest)
     required: false
 
   keep-n-tagged:
     description: >
-      Number of tagged images to keep (sorted by date)
+      Number of tagged images to keep (sorted by date, keeping newest)
     required: false
 
   delete-untagged:
     description: >
-      Delete untagged images (not belonging to multi architectrue images).
-      Default option which is set to true when no other options set (true/false)
+      Delete all untagged images. This option is set to true when no other
+      delete or keep options are set (true/false)
     required: false
 
   delete-ghost-images:
@@ -82,9 +82,11 @@ inputs:
 
   older-than:
     description: >
-      Only include packages to be processed that are older than this value. Use
+      Only include packages for processing that are older than this value. Use
       the following format samples: 50 seconds, 15 days, 6 months, 2 years
     required: false
+
+  # Additional Options
 
   validate:
     description: >

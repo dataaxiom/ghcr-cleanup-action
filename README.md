@@ -7,35 +7,35 @@
 [![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
 
 A workflow action that cleans up images in the GitHub Container Registry
-(ghcr.io)
+(ghcr.io). With a focus on supporing multi-architecture images.
 
 It includes the following features:
 
 - Automatic GitHub user/organization repository support
-- Removing by tags, including untagging multi tagged images
-- Multi architecture image support
-- Referrers/Attestation support (OCIv1 tag approach)
+- Deleting images by tag names
+- Deleting untagged images
 - Keeping a number of untagged images
 - Keeping a number of tagged images
-- Supports wildcard syntax for tag/exclude tag options
-- Multi architecture & Referrers image validation mode
+- Untagging of multi tagged images
+- Multi architecture image support
+- Referrers/GitHub attestation support (OCIv1 tag approach)
+- Supports wildcard syntax for tag delete/exclude options
+- Retry and throttle support for the GitHub APIs calls
+- Validation mode, verifing multi architecture & referrers image contents
+
+To facilitate support for multi architecture images the action calls both the
+registry (ghcr.io) API in addition to the GitHub Package API. This is required
+to determine the relationships between all the image packages.
 
 ## Setup
 
-### Do a dry-run
-
-Test the cleanup action first by setting the "dry-run: true" option on the
-action and then reviewing the workflow log. This mode will simulate the cleanup
-action but will not delete any images/packages. This is especially important
-when using a wildcard syntax to select images.
-
-### Token Permissions
+### Setup token permissions
 
 To allow the injected GITHUB_TOKEN to have access to delete the images/packages
-ensure it's permissions have been setup correctly, either by:
+it requires it's permissions to have been setup correctly, either by:
 
-1. In project Settings > Actions > General set the Workflow permissions option
-   to "Read and write permissions"
+1. In GitHub project Settings > Actions > General, set the Workflow permissions
+   option to "Read and write permissions"
 1. Set the permissions directly in the workflow by setting the packages value to
    write.
 
@@ -48,41 +48,10 @@ ensure it's permissions have been setup correctly, either by:
          packages: write
    ```
 
-### Action Options
+### Define the action
 
-#### General Settings
-
-| Option     | Required | Defaults        | Description                                            |
-| ---------- | :------: | --------------- | ------------------------------------------------------ |
-| token      |   yes    |                 | Token used to connect with ghcr.io and the package API |
-| owner      |    no    | project owner   | The repository owner, can be organization or user type |
-| repository |    no    | repository name | The repository name                                    |
-| package    |    no    | repository name | The package name                                       |
-| log-level  |    no    | warn            | The log level (error/warn/info/debug)                  |
-
-#### Clean-up Options
-
-| Option                | Required | Defaults  | Description                                                                                                |
-| --------------------- | :------: | --------- | ---------------------------------------------------------------------------------------------------------- |
-| delete-tags           |    no    |           | Comma separated list of tags to delete (supports wildcard syntax. Can abe abbreviated as `tags`)           |
-| exclude-tags          |    no    |           | Commma separated list of tags strictly to be preserved / excluded from deletion (supports wildcard syntax) |
-| keep-n-untagged       |    no    |           | Number of untagged images to keep, sorted by date                                                          |
-| keep-n-tagged         |    no    |           | Number of tagged images to keep, sorted by date                                                            |
-| delete-untagged       |    no    | depends\* | Delete untagged images (not belonging to multi-arch containers)                                            |
-| delete-ghost-images   |    no    | false     | Delete multi architecture images where all underlying platform images are missing                          |
-| delete-partial-images |    no    | false     | Delete multi architecture images where some (but not all) underlying platform images are missing           |
-
-\* True when no other options set, else false
-
-The keep-n-untagged and keep-n-tagged options can not be set at the same time.
-
-## Main Execution Modes
-
-### Delete all untagged images
-
-To cleanup all untagged images in a image repository only the token is required
-to be set. It will use the current repository information to setup the owner and
-package name.
+The most basic setup with no delete or keep options deletes all untagged images
+from the repository. Add the action to a workflow file.
 
 ```yaml
 jobs:
@@ -91,12 +60,63 @@ jobs:
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
+          dry-run: true
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Delete specific tagged images
+### Do a dry-run first
 
-Set the tags option to delete specific tags
+It's recommended to test the cleanup action first by setting the `dry-run: true`
+option on the action and then reviewing the workflow log. This mode will
+simulate the cleanup action but will not delete any images/packages. This is
+especially important when using a wildcard syntax or the older-than option to
+select images.
+
+## Action Options
+
+### Repository Options
+
+| Option     | Required | Defaults        | Description                                                   |
+| ---------- | :------: | --------------- | ------------------------------------------------------------- |
+| token      |   yes    |                 | Token used to connect with ghcr.io and the package API        |
+| owner      |    no    | project owner   | The GitHub repository owner, can be organization or user type |
+| repository |    no    | repository name | The GitHub repository name                                    |
+| package    |    no    | repository name | The GitHub repository package name to operate on              |
+
+If the owner, repository or package options are not set then the values are
+automatically set from the project environment where the action is running.
+
+### Clean-up Options
+
+| Option                | Required | Defaults  | Description                                                                                               |
+| --------------------- | :------: | --------- | --------------------------------------------------------------------------------------------------------- |
+| delete-tags           |    no    |           | Comma separated list of tags to delete (supports wildcard syntax), can be abbreviated as `tags`           |
+| exclude-tags          |    no    |           | Comma separated list of tags strictly to be preserved / excluded from deletion (supports wildcard syntax) |
+| delete-untagged       |    no    | depends\* | Delete all untagged images                                                                                |
+| keep-n-untagged       |    no    |           | Number of untagged images to keep, sorted by date, keeping the latest                                     |
+| keep-n-tagged         |    no    |           | Number of tagged images to keep, sorted by date, keeping the latest                                       |
+| delete-ghost-images   |    no    | false     | Delete multi architecture images where all underlying platform images are missing                         |
+| delete-partial-images |    no    | false     | Delete multi architecture images where some (but not all) underlying platform images are missing          |
+| older-than            |    no    |           | Only include images for processing that are older then this interval (eg 5 days, 6 months or 1 year)      |
+
+\* If no delete or keep options are set on the action then the action defaults
+the option `delete-untagged` to "true" and will delete all untagged images.
+
+### Other Options
+
+| Option    | Required | Defaults | Description                                                          |
+| --------- | :------: | -------- | -------------------------------------------------------------------- |
+| dry-run   |    no    | false    | Simulate a cleanup action but does not make any changes (true/false) |
+| validate  |    no    | false    | Validate all multi architecture images in the registry after cleanup |
+| log-level |    no    | info     | The log level (error/warn/info/debug)                                |
+
+## Delete Options
+
+### `delete-tags`
+
+Comma separated list of tags to delete (supports wildcard syntax). Can be
+abbreviated as `tags`. Use this option to delete specific tags in the package
+repository.
 
 ```yaml
 jobs:
@@ -105,21 +125,106 @@ jobs:
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          delete-tags: mytag,mytag2 # same as tags: mytag,mytag2
+          delete-tags: mytag*,dev # same as tags: mytag*,dev
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-If the tag links to an image with multiple tags, the action will unlink the tag
-before is deleted, effetively untagging the image, but the underlying image will
-not be deleted unless all tags are deleted.
+If the tag links to an image with multiple tags the action will unlink the tag
+before is deleted, effectively untagging the image but the underlying image will
+not be deleted unless all of its tags are deleted.
 
-### Keep 'n' untagged images cleanup (keep-n-untagged)
+The option can make use of a simple wildcard syntax to match multiple images.
+See the [wildcard-match](https://github.com/axtgr/wildcard-match#readme) project
+for its syntax. It supports the ?, \* and \*\* wildcard characters.
 
-Keeps all tagged images and removes all untagged images except for the number of
-"keep-n-untagged" images (sorted by date). It supports multi-architecture images
-so the number of untagged images showing after running the action may be higher
-then the keep-n-untagged value set. May be combined with tags option to delete
-those tags too.
+### `delete-untagged`
+
+This option is same as the default mode, however this option can be combined
+with any of the other options (except for the `keep-n-untagged`)
+
+```yaml
+jobs:
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          delete-untagged: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### `exclude-tags`
+
+This option is used to exclude tagged images from been deleted. Use it to
+exclude tags when combined with other options. It takes priority over all other
+options.
+
+The option can make use of a simple wildcard syntax to match multiple images.
+See the [wildcard-match](https://github.com/axtgr/wildcard-match#readme) project
+for its syntax. It supports the ?, \* and \*\* wildcard characters.
+
+```yaml
+jobs:
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          exclude-tags: dev,latest,pr*
+          keep-n-tagged: 10
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### `older-than`
+
+To limit the action to images that are older than a certain time this setting
+can be used. Set this option to a relative date value from now. This option can
+be used with all of the delete and keep options narrowing their scope to which
+images they will process.
+
+The syntax supports the following units in the plural and singular forms:
+seconds, minutes, hours, days, weeks, months and years
+
+The option uses a simple human-interval syntax to match images. See the
+[human-interval](hhttps://github.com/agenda/human-interval/tree/master) project
+for more information.
+
+```yaml
+jobs:
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          olden-than: 1 year
+          keep-n-tagged: 10
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### `delete-ghost-images` and `delete-partial-images`
+
+These options cleanup invalid multi architecture images. The are intended more
+as a one-time-use in cleaning up repositories that have been corrupted.
+
+```yaml
+jobs:
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          delete-ghost-images: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Keep Options
+
+### `keep-n-untagged`
+
+Includes for deletion all untagged images but excludes (keeps) a number of them.
+The value of this option sets the number of untagged images to keep. Untagged
+images are sorted by date and the most recent untagged images are kept. May be
+combined with other delete options (except the `delete-untagged` option).
 
 ```yaml
 jobs:
@@ -132,13 +237,14 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Keep 'n' tagged images cleanup (keep-n-tagged)
+Setting `keep-n-untagged` to 0 has the same effect as setting the
+`delete-untagged` option to true, deleting all untagged images.
 
-Keeps a number (keep-n-tagged) of tagged images and then deletes the rest. Tags
-are sorted by date. The number to be kept does not include items that will
-anyways be kept due to exclude-tags option. Example: If there are 100 tagged
-images, and user sets keep-n-tagged: 3 and exclude-tags: a, b in total 5 images
-will be kept
+### `keep-n-tagged`
+
+Includes for deletion all tagged images but excludes (keeps) a number of them.
+The value of this option sets the number of tagged images to keep. Tagged images
+are sorted by date and the most recent tagged images are kept.
 
 ```yaml
 jobs:
@@ -151,9 +257,31 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-## Extra Samples
+## Samples Actions Setups
 
-### Delete image when pull request is closed
+### Complex example `keep-n-tagged`
+
+Simulates how to keep 10 tagged images as well as the dev image. Additionally
+deletes all untagged images. Also removes multi-arch containers that are missing
+some or all underlying packages.
+
+```yaml
+jobs:
+  - name: ghcr cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Clean up docker images'
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          dry-run: true
+          keep-n-tagged: 10
+          exclude-tags: dev
+          delete-untagged: true
+          delete-partial-images: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Delete an image when a pull request is closed
 
 ```yaml
 name: Cleanup Pull Request Images
@@ -172,7 +300,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Daily image cleanup
+### Daily image cleanup of untagged images
 
 ```yaml
 name: Daily Image Cleanup
@@ -195,8 +323,8 @@ jobs:
 ### Override default owner/repository/package
 
 The default settings will use the current project to determine the owner,
-repository and package name but for cross project and multiple package support
-these can be overriden by setting owner, repository and package values.
+repository and package names but for cross project and multiple package support
+these can be overridden by setting the owner, repository and package options.
 
 ```yaml
 jobs:
@@ -212,47 +340,24 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Tag Wildcard
+## Operations
 
-The tags and exclude-tags options can use a wildcard syntax, using the ?, \* and
-\*\* characters. (Utilizes the wildcard-match library)
+### Effect on image download counts
 
-```yaml
-jobs:
-  - name: ghcr cleanup action
-    runs-on: ubuntu-latest
-    steps:
-      - uses: dataaxiom/ghcr-cleanup-action@v1
-        with:
-          keep-n-tagged: 3
-          exclude-tags: 'v*,dev,latest'
-          token: ${{ secrets.GITHUB_TOKEN }}
-```
+To ensure the integrity of all images in the package repository. All of the
+image manifests are required to be downloaded and cross referenced each time the
+action is run. The effect of this is that it will increase the package download
+count showing in GitHub for all packages by one. The action does not download
+the underlying package itself, just the manifest. But GitHub uses that event to
+mark it as a download.
 
-### Keep 10 tagged images and "dev" image, and dry-run
+### Concurrency
 
-Simulates how to keep 10 tagged images as well as the dev-image. Additionally
-deletes all untagged images (not belonging to multi-arch containers). Also
-removes multi-arch containers that are missing some or all underlying packages.
-
-```yaml
-jobs:
-  - name: ghcr cleanup action
-    runs-on: ubuntu-latest
-    steps:
-      - name: 'Clean up docker images'
-        uses: dataaxiom/ghcr-cleanup-action@v1
-        with:
-          dry-run: true
-          keep-n-tagged: 10
-          exclude-tags: dev
-          delete-untagged: true
-          delete-ghost-images: true
-          delete-partial-images: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-## Notes
+The action is not designed to be run in parallel. Do to the nature of the
+cleanup process and determining what can be safely deleted it requires that no
+other package publishing or deleting process is occurring at the same time. It's
+recommended to use a GitHub concurrency group with this action in complex/busy
+repositories.
 
 ### Package Restoration
 
@@ -263,16 +368,9 @@ the workflow log where the ghcr-cleanup-action is run.
 
 [Restore User Package](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#restore-a-package-version-for-the-authenticated-user)
 
-### Ghost Images
-
-Multi architecture images which have no underlying platform packages are
-automatically removed for the keep-n-untagged and keep-n-tagged modes and not
-included in their count. Partially corrupt images are not removed by default,
-use the validate option to be able to identify and then fix them.
-
 ### Validate Option
 
-Set the validate option to true to enable a full scan of the image repository at
-the end of the execution to check that all multi architecture images have no
+Set the `validate` option to true to enable a full scan of the image repository
+at the end of the execution to check that all multi architecture images have no
 missing platform images. Warnings will be outputted if there are missing
 packages.
