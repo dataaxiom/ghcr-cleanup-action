@@ -73,14 +73,12 @@ inputs:
       Delete multi architecture images where all underlying platform images are
       missing (true/false)
     required: false
-    default: false
 
   delete-partial-images:
     description: >
       Delete multi architecture images where some (but not all) underlying
       platform images are missing (true/false)
     required: false
-    default: false
 
   older-than:
     description: >
