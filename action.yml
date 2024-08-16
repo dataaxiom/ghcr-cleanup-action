@@ -11,53 +11,51 @@ branding:
   color: blue
 
 inputs:
-  owner:
-    description: >
-      Owner of the package (user or organization)
-    required: false
-
-  repository:
-    description: >
-      The GitHub repository where the package is stored. Defaults to repository
-      name.
-    required: false
-
-  package:
-    description: >
-      The package name. Defaults to the repository name.
-    required: false
-
+  # General Settings
   token:
     description: >
       Token to authenticate with the ghcr.io registry and the GitHub API
     required: true
 
-  tags:
+  owner:
     description: >
-      Tags to delete (comma seperated) - Short form of delete-tags input option
+      Owner of the package (user or organization). Defaults to project owner
     required: false
+
+  repository:
+    description: >
+      The GitHub repository where the package is stored. Defaults to repository
+      name
+    required: false
+
+  package:
+    description: >
+      The package name. Defaults to the repository name
+    required: false
+
+  log-level:
+    description: >
+      Log level (error/warn/info/debug)
+    required: false
+    default: warn
+
+  # Clean-up Options
 
   delete-tags:
     description: >
-      Tags to delete (comma seperated)
+      Comma separated list of tags to delete. Suports wildcard syntax. Can be
+      abbreviated as `tags`
     required: false
 
-  delete-untagged:
+  tags:
     description: >
-      Delete untagged images (true/false). Default option which is set to true
-      when no other options set
+      Short form of `delete-tags` input option
     required: false
 
-  delete-ghost-images:
+  exclude-tags:
     description: >
-      Include for deletion multi architecture images where all underlying
-      platform images are missing (true/false).
-    required: false
-
-  delete-partial-images:
-    description: >
-      Include for deletion multi architecture images with partial underlying
-      platform images are missing (true/false).
+      Commma separated list of tags strictly to be preserved / excluded from
+      deletion. Suports wildcard syntax
     required: false
 
   keep-n-untagged:
@@ -70,10 +68,25 @@ inputs:
       Number of tagged images to keep (sorted by date)
     required: false
 
-  exclude-tags:
+  delete-untagged:
     description: >
-      Tags to exclude from deletion (comma seperated)
+      Delete untagged images (not belonging to multi architectrue images).
+      Default option which is set to true when no other options set (true/false)
     required: false
+
+  delete-ghost-images:
+    description: >
+      Delete multi architecture images where all underlying platform images are
+      missing (true/false)
+    required: false
+    default: false
+
+  delete-partial-images:
+    description: >
+      Delete multi architecture images where some (but not all) underlying
+      platform images are missing (true/false)
+    required: false
+    default: false
 
   older-than:
     description: >
