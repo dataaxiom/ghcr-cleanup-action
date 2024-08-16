@@ -1820,6 +1820,103 @@ function isLoopbackAddress(host) {
 
 /***/ }),
 
+/***/ 537:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// pkg/dist-src/index.js
+var dist_src_exports = {};
+__export(dist_src_exports, {
+  RequestError: () => RequestError
+});
+module.exports = __toCommonJS(dist_src_exports);
+var import_deprecation = __nccwpck_require__(8932);
+var import_once = __toESM(__nccwpck_require__(1223));
+var logOnceCode = (0, import_once.default)((deprecation) => console.warn(deprecation));
+var logOnceHeaders = (0, import_once.default)((deprecation) => console.warn(deprecation));
+var RequestError = class extends Error {
+  constructor(message, statusCode, options) {
+    super(message);
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+    this.name = "HttpError";
+    this.status = statusCode;
+    let headers;
+    if ("headers" in options && typeof options.headers !== "undefined") {
+      headers = options.headers;
+    }
+    if ("response" in options) {
+      this.response = options.response;
+      headers = options.response.headers;
+    }
+    const requestCopy = Object.assign({}, options.request);
+    if (options.request.headers.authorization) {
+      requestCopy.headers = Object.assign({}, options.request.headers, {
+        authorization: options.request.headers.authorization.replace(
+          / .*$/,
+          " [REDACTED]"
+        )
+      });
+    }
+    requestCopy.url = requestCopy.url.replace(/\bclient_secret=\w+/g, "client_secret=[REDACTED]").replace(/\baccess_token=\w+/g, "access_token=[REDACTED]");
+    this.request = requestCopy;
+    Object.defineProperty(this, "code", {
+      get() {
+        logOnceCode(
+          new import_deprecation.Deprecation(
+            "[@octokit/request-error] `error.code` is deprecated, use `error.status`."
+          )
+        );
+        return statusCode;
+      }
+    });
+    Object.defineProperty(this, "headers", {
+      get() {
+        logOnceHeaders(
+          new import_deprecation.Deprecation(
+            "[@octokit/request-error] `error.headers` is deprecated, use `error.response.headers`."
+          )
+        );
+        return headers || {};
+      }
+    });
+  }
+};
+// Annotate the CommonJS export names for ESM import in node:
+0 && (0);
+
+
+/***/ }),
+
 /***/ 7633:
 /***/ ((module) => {
 
@@ -5134,103 +5231,6 @@ legacyRestEndpointMethods.VERSION = VERSION;
 
 /***/ }),
 
-/***/ 6239:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
-  RequestError: () => RequestError
-});
-module.exports = __toCommonJS(dist_src_exports);
-var import_deprecation = __nccwpck_require__(8932);
-var import_once = __toESM(__nccwpck_require__(1223));
-var logOnceCode = (0, import_once.default)((deprecation) => console.warn(deprecation));
-var logOnceHeaders = (0, import_once.default)((deprecation) => console.warn(deprecation));
-var RequestError = class extends Error {
-  constructor(message, statusCode, options) {
-    super(message);
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
-    this.name = "HttpError";
-    this.status = statusCode;
-    let headers;
-    if ("headers" in options && typeof options.headers !== "undefined") {
-      headers = options.headers;
-    }
-    if ("response" in options) {
-      this.response = options.response;
-      headers = options.response.headers;
-    }
-    const requestCopy = Object.assign({}, options.request);
-    if (options.request.headers.authorization) {
-      requestCopy.headers = Object.assign({}, options.request.headers, {
-        authorization: options.request.headers.authorization.replace(
-          / .*$/,
-          " [REDACTED]"
-        )
-      });
-    }
-    requestCopy.url = requestCopy.url.replace(/\bclient_secret=\w+/g, "client_secret=[REDACTED]").replace(/\baccess_token=\w+/g, "access_token=[REDACTED]");
-    this.request = requestCopy;
-    Object.defineProperty(this, "code", {
-      get() {
-        logOnceCode(
-          new import_deprecation.Deprecation(
-            "[@octokit/request-error] `error.code` is deprecated, use `error.status`."
-          )
-        );
-        return statusCode;
-      }
-    });
-    Object.defineProperty(this, "headers", {
-      get() {
-        logOnceHeaders(
-          new import_deprecation.Deprecation(
-            "[@octokit/request-error] `error.headers` is deprecated, use `error.response.headers`."
-          )
-        );
-        return headers || {};
-      }
-    });
-  }
-};
-// Annotate the CommonJS export names for ESM import in node:
-0 && (0);
-
-
-/***/ }),
-
 /***/ 4047:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -5279,7 +5279,7 @@ function isPlainObject(value) {
 }
 
 // pkg/dist-src/fetch-wrapper.js
-var import_request_error = __nccwpck_require__(6239);
+var import_request_error = __nccwpck_require__(537);
 
 // pkg/dist-src/get-buffer-response.js
 function getBufferResponse(response) {
@@ -10078,6 +10078,61 @@ module.exports = (flag, argv = process.argv) => {
 
 /***/ }),
 
+/***/ 8958:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const numbered = __nccwpck_require__(2668);
+
+const units = {};
+units.second = 1000;
+units.minute = units.second * 60;
+units.hour = units.minute * 60;
+units.day = units.hour * 24;
+units.week = units.day * 7;
+units.month = units.day * 30;
+units.year = units.day * 365;
+
+const regexp = /(second|minute|hour|day|week|month|year)s?/;
+
+const humanInterval = time => {
+  if (!time || typeof time === 'number') {
+    return time;
+  }
+
+  let result = Number.NaN;
+
+  time = time.replace(/([^a-z\d.-]|and)+/g, ' ');
+
+  for (;;) {
+    const match = time.match(regexp);
+    if (!match) {
+      return result;
+    }
+
+    const matchedNumber = time.slice(0, match.index).trim();
+    const unit = units[match[1]];
+    let number = 1;
+    if (matchedNumber.length > 0) {
+      number = Number.parseFloat(matchedNumber);
+      if (Number.isNaN(number)) {
+        number = numbered.parse(matchedNumber);
+      }
+    }
+
+    if (Number.isNaN(result)) {
+      result = 0;
+    }
+
+    result += number * unit;
+    time = time.slice(match.index + match[0].length);
+  }
+};
+
+module.exports = humanInterval;
+
+
+/***/ }),
+
 /***/ 841:
 /***/ ((module) => {
 
@@ -10503,6 +10558,280 @@ function plural(ms, msAbs, n, name) {
   var isPlural = msAbs >= n * 1.5;
   return Math.round(ms / n) + ' ' + name + (isPlural ? 's' : '');
 }
+
+
+/***/ }),
+
+/***/ 2668:
+/***/ (function(module) {
+
+(function (root, factory) {
+  /* istanbul ignore else */
+  if ( true && module.exports) {
+    module.exports = factory();
+  } else if (typeof define === 'function' && define.amd) {
+    // AMD, registers as an anonymous module.
+    define(factory);
+  } else {
+    // Browser global.
+    root.numbered = factory();
+  }
+})(this, function () {
+  var NUMBER_MAP = {
+    '.': 'point',
+    '-': 'negative',
+    0: 'zero',
+    1: 'one',
+    2: 'two',
+    3: 'three',
+    4: 'four',
+    5: 'five',
+    6: 'six',
+    7: 'seven',
+    8: 'eight',
+    9: 'nine',
+    10: 'ten',
+    11: 'eleven',
+    12: 'twelve',
+    13: 'thirteen',
+    14: 'fourteen',
+    15: 'fifteen',
+    16: 'sixteen',
+    17: 'seventeen',
+    18: 'eighteen',
+    19: 'nineteen',
+    20: 'twenty',
+    30: 'thirty',
+    40: 'forty',
+    50: 'fifty',
+    60: 'sixty',
+    70: 'seventy',
+    80: 'eighty',
+    90: 'ninety'
+  };
+
+  // http://en.wikipedia.org/wiki/English_numerals#Cardinal_numbers
+  var CARDINAL_MAP = {
+    2: 'hundred',
+    3: 'thousand',
+    6: 'million',
+    9: 'billion',
+    12: 'trillion',
+    15: 'quadrillion',
+    18: 'quintillion',
+    21: 'sextillion',
+    24: 'septillion',
+    27: 'octillion',
+    30: 'nonillion',
+    33: 'decillion',
+    36: 'undecillion',
+    39: 'duodecillion',
+    42: 'tredecillion',
+    45: 'quattuordecillion',
+    48: 'quindecillion',
+    51: 'sexdecillion',
+    54: 'septendecillion',
+    57: 'octodecillion',
+    60: 'novemdecillion',
+    63: 'vigintillion',
+    100: 'googol',
+    303: 'centillion'
+  };
+
+  // Make a hash of words back to their numeric value.
+  var WORD_MAP = {
+    nil: 0,
+    naught: 0,
+    period: '.',
+    decimal: '.'
+  };
+
+  Object.keys(NUMBER_MAP).forEach(function (num) {
+    WORD_MAP[NUMBER_MAP[num]] = isNaN(+num) ? num : +num;
+  });
+
+  Object.keys(CARDINAL_MAP).forEach(function (num) {
+    WORD_MAP[CARDINAL_MAP[num]] = isNaN(+num) ? num : Math.pow(10, +num);
+  });
+
+  /**
+   * Returns the number of significant figures for the number.
+   *
+   * @param  {number} num
+   * @return {number}
+   */
+  function intervals (num) {
+    var match = String(num).match(/e\+(\d+)/);
+
+    if (match) return match[1];
+
+    return String(num).length - 1;
+  }
+
+  /**
+   * Calculate the value of the current stack.
+   *
+   * @param {Array}  stack
+   * @param {number} largest
+   */
+  function totalStack (stack, largest) {
+    var total = stack.reduceRight(function (prev, num, index) {
+      if (num > stack[index + 1]) {
+        return prev * num;
+      }
+
+      return prev + num;
+    }, 0);
+
+    return total * largest;
+  }
+
+  /**
+   * Accepts both a string and number type, and return the opposite.
+   *
+   * @param  {string|number} num
+   * @return {string|number}
+   */
+  function numbered (num) {
+    if (typeof num === 'string') return numbered.parse(num);
+    if (typeof num === 'number') return numbered.stringify(num);
+
+    throw new Error('Numbered can only parse strings or stringify numbers');
+  }
+
+  /**
+   * Turn a number into a string representation.
+   *
+   * @param  {number} num
+   * @return {string}
+   */
+  numbered.stringify = function (value) {
+    var num = Number(value);
+    var floor = Math.floor(num);
+
+    // If the number is in the numbers object, we quickly return.
+    if (NUMBER_MAP[num]) return NUMBER_MAP[num];
+
+    // If the number is a negative value.
+    if (num < 0) return NUMBER_MAP['-'] + ' ' + numbered.stringify(-num);
+
+    // Check if we have decimals.
+    if (floor !== num) {
+      var words = [numbered.stringify(floor), NUMBER_MAP['.']];
+      var chars = String(num).split('.').pop();
+
+      for (var i = 0; i < chars.length; i++) {
+        words.push(numbered.stringify(+chars[i]));
+      }
+
+      return words.join(' ');
+    }
+
+    var interval = intervals(num);
+
+    // It's below one hundred, but greater than nine.
+    if (interval === 1) {
+      return NUMBER_MAP[Math.floor(num / 10) * 10] + '-' + numbered.stringify(Math.floor(num % 10));
+    }
+
+    var sentence = [];
+
+    // Simple check to find the closest full number helper.
+    while (!CARDINAL_MAP[interval]) interval -= 1;
+
+    if (CARDINAL_MAP[interval]) {
+      var remaining = Math.floor(num % Math.pow(10, interval));
+
+      sentence.push(numbered.stringify(Math.floor(num / Math.pow(10, interval))));
+      sentence.push(CARDINAL_MAP[interval] + (remaining > 99 ? ',' : ''));
+
+      if (remaining) {
+        if (remaining < 100) sentence.push('and');
+
+        sentence.push(numbered.stringify(remaining));
+      }
+    }
+
+    return sentence.join(' ');
+  };
+
+  /**
+   * Turns a string representation of a number into a number type
+   * @param  {string} num
+   * @return {number}
+   */
+  numbered.parse = function (num) {
+    var modifier = 1;
+    var largest = 0;
+    var largestInterval = 0;
+    var zeros = 0; // Track leading zeros in a decimal.
+    var stack = [];
+
+    var total = num.split(/\W+/g)
+      .map(function (word) {
+        var num = word.toLowerCase();
+
+        return WORD_MAP[num] !== undefined ? WORD_MAP[num] : num;
+      })
+      .filter(function (num) {
+        if (num === '-') modifier = -1;
+        if (num === '.') return true; // Decimal points are a special case.
+
+        return typeof num === 'number';
+      })
+      .reduceRight(function (memo, num) {
+        var interval = intervals(num);
+
+        // Check the interval is smaller than the largest one, then create a stack.
+        if (typeof num === 'number' && interval < largestInterval) {
+          stack.push(num);
+          if (stack.length === 1) return memo - largest;
+          return memo;
+        }
+
+        memo += totalStack(stack, largest);
+        stack = []; // Reset the stack for more computations.
+
+        // If the number is a decimal, transform everything we have worked with.
+        if (num === '.') {
+          var decimals = zeros + String(memo).length;
+
+          zeros = 0;
+          largest = 0;
+          largestInterval = 0;
+
+          return memo * Math.pow(10, -decimals);
+        }
+
+        // Buffer encountered zeros.
+        if (num === 0) {
+          zeros += 1;
+          return memo;
+        }
+
+        // Shove the number on the front if the intervals match and the number whole.
+        if (memo >= 1 && interval === largestInterval) {
+          var output = '';
+
+          while (zeros > 0) {
+            zeros -= 1;
+            output += '0';
+          }
+
+          return Number(String(num) + output + String(memo));
+        }
+
+        largest = num;
+        largestInterval = intervals(largest);
+
+        return (memo + num) * Math.pow(10, zeros);
+      }, 0);
+
+    return modifier * (total + totalStack(stack, largest));
+  };
+
+  return numbered;
+});
 
 
 /***/ }),
@@ -34469,9 +34798,9 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(fs__WEBPACK_IMPORTED_MODULE_1__);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(2186);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_2__);
-/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(1634);
+/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(6434);
 /* harmony import */ var _github_package_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(1693);
-/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(5719);
+/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(6669);
 /* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(2081);
 /* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_6__);
 /**
@@ -34598,7 +34927,7 @@ async function run() {
         throw Error('args is not setup');
     }
     assertString(args.token);
-    const config = new _config_js__WEBPACK_IMPORTED_MODULE_3__/* .Config */ .D(args.token);
+    const config = new _config_js__WEBPACK_IMPORTED_MODULE_3__/* .Config */ .De(args.token);
     if (args.owner) {
         assertString(args.owner);
         config.owner = args.owner;
@@ -34645,12 +34974,17 @@ async function run() {
     const githubPackageRepo = new _github_package_js__WEBPACK_IMPORTED_MODULE_4__/* .GithubPackageRepo */ .l(config);
     await githubPackageRepo.init();
     const dummyDigest = 'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f';
-    if (args.mode === 'prime') {
+    if (args.mode === 'prime-dummy') {
+        // just push the dummy image
+        pushImage(`busybox@${dummyDigest}`, // 1.31
+        `ghcr.io/${config.owner}/${config.package}:dummy`, undefined, args.token);
+    }
+    else if (args.mode === 'prime') {
         // push dummy image - repo once it's created and has an iamge it requires atleast one image
         pushImage(`busybox@${dummyDigest}`, // 1.31
         `ghcr.io/${config.owner}/${config.package}:dummy`, undefined, args.token);
         // load after dummy to make sure the package exists on first clone/setup
-        await githubPackageRepo.loadPackages();
+        await githubPackageRepo.loadPackages(false);
         // remove all the existing images - except for the dummy image
         for (const digest of githubPackageRepo.getDigests()) {
             if (digest !== dummyDigest) {
@@ -34663,14 +34997,14 @@ async function run() {
         // prime the test images
         await loadImages(args.directory, config.owner, config.package, config.token, delay);
         if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/prime-delete`)) {
-            await githubPackageRepo.loadPackages();
+            await githubPackageRepo.loadPackages(false);
             // make any deletions
             await deleteDigests(args.directory, githubPackageRepo);
         }
     }
     else if (args.mode === 'validate') {
         // test the repo after the test
-        await githubPackageRepo.loadPackages();
+        await githubPackageRepo.loadPackages(false);
         let error = false;
         // load the expected digests
         if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/expected-digests`)) {
@@ -34741,7 +35075,7 @@ async function run() {
     }
     else if (args.mode === 'save-expected') {
         // save the expected tag dynamically
-        await githubPackageRepo.loadPackages();
+        await githubPackageRepo.loadPackages(false);
         const tags = new Set();
         for (const digest of githubPackageRepo.getDigests()) {
             const ghPackage = githubPackageRepo.getPackageByDigest(digest);
@@ -34753,16 +35087,23 @@ async function run() {
             // find the digests in use for the supplied tag
             const digest = await registry.getTagDigest(tag);
             fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`);
+            // is it a multi arch image
+            const manifest = await registry.getManifestByTag(tag);
+            if (manifest.manifests) {
+                for (const manifestDigest of manifest.manifests) {
+                    fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifestDigest.digest}\n`);
+                }
+            }
             // is there a refferrer digest
             const referrerTag = digest.replace('sha256:', 'sha256-');
-            if (tags.has(tag)) {
+            if (tags.has(referrerTag)) {
                 fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`);
                 const referrerDigest = await registry.getTagDigest(referrerTag);
                 fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${referrerDigest}\n`);
                 const referrerManifest = await registry.getManifestByDigest(referrerDigest);
                 if (referrerManifest.manifests) {
-                    for (const manifest of referrerManifest.manifests) {
-                        fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifest.digest}\n`);
+                    for (const manifestDigest of referrerManifest.manifests) {
+                        fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifestDigest.digest}\n`);
                     }
                 }
             }
@@ -34780,13 +35121,14 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 1634:
+/***/ 6434:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
-  "D": () => (/* binding */ Config)
+  "De": () => (/* binding */ Config),
+  "in": () => (/* binding */ LogLevel)
 });
 
 // UNUSED EXPORTS: getConfig
@@ -35058,7 +35400,7 @@ throttling.VERSION = dist_bundle_VERSION;
 throttling.triggersNotification = triggersNotification;
 
 
-;// CONCATENATED MODULE: ./node_modules/@octokit/request-error/dist-src/index.js
+;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-retry/node_modules/@octokit/request-error/dist-src/index.js
 class RequestError extends Error {
   name;
   /**
@@ -35178,7 +35520,16 @@ function retry(octokit, octokitOptions) {
 retry.VERSION = plugin_retry_dist_bundle_VERSION;
 
 
+// EXTERNAL MODULE: ./node_modules/@octokit/request-error/dist-node/index.js
+var request_error_dist_node = __nccwpck_require__(537);
+// EXTERNAL MODULE: ./src/utils.ts
+var utils = __nccwpck_require__(1314);
+// EXTERNAL MODULE: ./node_modules/human-interval/index.js
+var human_interval = __nccwpck_require__(8958);
 ;// CONCATENATED MODULE: ./src/config.ts
+
+
+
 
 
 
@@ -35198,13 +35549,16 @@ class Config {
     owner = '';
     repository = '';
     package = '';
-    tags;
+    defaultPackageUsed = false;
+    deleteTags;
     excludeTags;
+    olderThanReadable;
+    olderThan;
     deleteUntagged;
-    keepNuntagged;
-    keepNtagged;
     deleteGhostImages;
     deletePartialImages;
+    keepNuntagged;
+    keepNtagged;
     dryRun;
     validate;
     logLevel;
@@ -35212,56 +35566,70 @@ class Config {
     octokit;
     constructor(token) {
         this.token = token;
-        this.logLevel = LogLevel.WARN;
+        this.logLevel = LogLevel.INFO;
         this.octokit = new MyOctokit({
             auth: token,
             throttle: {
                 onRateLimit: (retryAfter, options, octokit, retryCount) => {
-                    octokit.log.warn(`Request quota exhausted for request ${options.method} ${options.url}`);
+                    lib_core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
                     if (retryCount < 1) {
                         // only retries once
-                        octokit.log.info(`Retrying after ${retryAfter} seconds!`);
+                        lib_core.info(`Octokit - retrying after ${retryAfter} seconds!`);
                         return true;
                     }
                 },
                 onSecondaryRateLimit: (retryAfter, options, octokit) => {
                     // does not retry, only logs a warning
-                    octokit.log.warn(`SecondaryRateLimit detected for request ${options.method} ${options.url}`);
+                    lib_core.info(`Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`);
                 }
             },
             log: {
                 debug: (message) => {
                     if (this.logLevel >= LogLevel.DEBUG) {
-                        console.log(`[DEBUG] ${message}`);
+                        lib_core.info(`[Octokit DEBUG] ${message}`);
                     }
                 },
                 info: (message) => {
-                    if (this.logLevel >= LogLevel.INFO) {
-                        console.log(`[INFO] ${message}`);
+                    if (this.logLevel >= LogLevel.DEBUG) {
+                        lib_core.info(`[Octokit DEBUG] ${message}`);
                     }
                 },
                 warn: (message) => {
                     if (this.logLevel >= LogLevel.WARN) {
-                        console.log(`[WARN] ${message}`);
+                        lib_core.info(`[Octokit WARN] ${message}`);
                     }
                 },
                 error: (message) => {
                     if (this.logLevel >= LogLevel.INFO) {
-                        console.log(`[INFO] ${message}`);
+                        lib_core.info(`[Octokit ERROR] ${message}`);
                     }
                 }
             }
         });
     }
     async getOwnerType() {
-        const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
-        this.isPrivateRepo = result.data.private;
-        return result.data.owner.type;
+        try {
+            const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
+            this.isPrivateRepo = result.data.private;
+            return result.data.owner.type;
+        }
+        catch (error) {
+            if (error instanceof request_error_dist_node.RequestError) {
+                if (error.status) {
+                    if (error.status === 404) {
+                        lib_core.warning(`The repository is not found, check the owner value "${this.owner}" or the repository value "${this.repository}" are correct`);
+                    }
+                }
+            }
+            // rethrow the error
+            throw error;
+        }
     }
 }
 function getConfig() {
     const token = core.getInput('token', { required: true });
     const config = new Config(token);
+    config.owner = core.getInput('owner');
     config.repository = core.getInput('repository');
     config.package = core.getInput('package');
     // auto populate
@@ -35274,6 +35642,10 @@ function getConfig() {
             }
             if (!config.package) {
                 config.package = parts[1];
+                config.defaultPackageUsed = true;
+            }
+            else {
+                config.defaultPackageUsed = false;
             }
             if (!config.repository) {
                 config.repository = parts[1];
@@ -35290,26 +35662,38 @@ function getConfig() {
         throw Error('tags and delete-tags cant be used at the same time, use either one');
     }
     if (core.getInput('tags')) {
-        config.tags = core.getInput('tags');
+        config.deleteTags = core.getInput('tags');
     }
     else if (core.getInput('delete-tags')) {
-        config.tags = core.getInput('delete-tags');
+        config.deleteTags = core.getInput('delete-tags');
     }
     config.excludeTags = core.getInput('exclude-tags');
-    if (core.getInput('keep-n-untagged')) {
-        if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
-            throw new Error('keep-n-untagged is not number');
-        }
-        else {
-            config.keepNuntagged = parseInt(core.getInput('keep-n-untagged'));
-        }
+    if (core.getInput('older-than')) {
+        config.olderThan = humanInterval(core.getInput('older-than'));
+        config.olderThanReadable = core.getInput('older-than');
     }
     if (core.getInput('keep-n-tagged')) {
-        if (isNaN(parseInt(core.getInput('keep-n-tagged')))) {
+        const n = parseInt(core.getInput('keep-n-tagged'));
+        if (isNaN(n)) {
             throw new Error('keep-n-tagged is not number');
         }
+        else if (n < 0) {
+            throw new Error('keep-n-tagged is negative');
+        }
         else {
-            config.keepNtagged = parseInt(core.getInput('keep-n-tagged'));
+            config.keepNtagged = n;
+        }
+    }
+    if (core.getInput('keep-n-untagged')) {
+        const n = parseInt(core.getInput('keep-n-untagged'));
+        if (isNaN(n)) {
+            throw new Error('keep-n-untagged is not number');
+        }
+        else if (n < 0) {
+            throw new Error('keep-n-untagged is negative');
+        }
+        else {
+            config.keepNuntagged = n;
         }
     }
     if (core.getInput('delete-untagged')) {
@@ -35318,6 +35702,9 @@ function getConfig() {
     else {
         // default is deleteUntagged if no options are set
         if (!core.getInput('tags') &&
+            !core.getInput('delete-tags') &&
+            !core.getInput('delete-ghost-images') &&
+            !core.getInput('delete-partial-images') &&
             !core.getInput('keep-n-untagged') &&
             !core.getInput('keep-n-tagged')) {
             config.deleteUntagged = true;
@@ -35326,16 +35713,25 @@ function getConfig() {
             config.deleteUntagged = false;
         }
     }
+    if (config.keepNuntagged && core.getInput('delete-untagged')) {
+        throw new Error('delete-untagged and keep-n-untagged can not be set at the same time');
+    }
     if (core.getInput('delete-ghost-images')) {
         config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
+    }
+    else {
+        config.deleteGhostImages = false;
     }
     if (core.getInput('delete-partial-images')) {
         config.deletePartialImages = core.getBooleanInput('delete-partial-images');
     }
+    else {
+        config.deletePartialImages = false;
+    }
     if (core.getInput('dry-run')) {
         config.dryRun = core.getBooleanInput('dry-run');
         if (config.dryRun) {
-            core.info('in dry run mode - no packages will be deleted');
+            core.info('***** In dry run mode - No packages will be deleted *****');
         }
     }
     else {
@@ -35371,6 +35767,45 @@ function getConfig() {
     if (!config.repository) {
         throw new Error('repository is not set');
     }
+    const optionsMap = new MapPrinter();
+    optionsMap.add('private repository', `${config.isPrivateRepo}`);
+    optionsMap.add('project owner', `${config.owner}`);
+    optionsMap.add('repository', `${config.repository}`);
+    optionsMap.add('package', `${config.package}`);
+    if (config.deleteTags) {
+        optionsMap.add('delete-tags', config.deleteTags);
+    }
+    if (config.excludeTags) {
+        optionsMap.add('exclude-tags', config.excludeTags);
+    }
+    if (config.olderThanReadable) {
+        optionsMap.add('older-than', config.olderThanReadable);
+    }
+    if (config.deleteUntagged != null) {
+        optionsMap.add('delete-untagged', `${config.deleteUntagged}`);
+    }
+    if (config.deleteGhostImages != null) {
+        optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`);
+    }
+    if (config.deletePartialImages != null) {
+        optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
+    }
+    if (config.keepNtagged != null) {
+        optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
+    }
+    if (config.keepNuntagged != null) {
+        optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`);
+    }
+    if (config.dryRun != null) {
+        optionsMap.add('dry-run', `${config.dryRun}`);
+    }
+    if (config.validate != null) {
+        optionsMap.add('validate', `${config.validate}`);
+    }
+    optionsMap.add('log-level', LogLevel[config.logLevel]);
+    core.startGroup('Runtime configuration');
+    optionsMap.print();
+    core.endGroup();
     return config;
 }
 
@@ -35385,6 +35820,11 @@ function getConfig() {
 /* harmony export */ });
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(6434);
+/* harmony import */ var _octokit_request_error__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(537);
+/* harmony import */ var _octokit_request_error__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(_octokit_request_error__WEBPACK_IMPORTED_MODULE_2__);
+
+
 
 /**
  * Provides access to a package via the GitHub Packages REST API.
@@ -35418,45 +35858,81 @@ class GithubPackageRepo {
     /**
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
      */
-    async loadPackages() {
-        // clear the maps for reloading
-        this.digest2Id.clear();
-        this.id2Package.clear();
-        this.tag2Digest.clear();
-        let getFunc = this.config.octokit.rest.packages
-            .getAllPackageVersionsForPackageOwnedByOrg;
-        let getParams;
-        if (this.repoType === 'User') {
-            getFunc = this.config.isPrivateRepo
-                ? this.config.octokit.rest.packages
-                    .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-                : this.config.octokit.rest.packages
-                    .getAllPackageVersionsForPackageOwnedByUser;
-            getParams = {
-                package_type: 'container',
-                package_name: this.config.package,
-                username: this.config.owner,
-                state: 'active',
-                per_page: 100
-            };
-        }
-        else {
-            getParams = {
-                package_type: 'container',
-                package_name: this.config.package,
-                org: this.config.owner,
-                state: 'active',
-                per_page: 100
-            };
-        }
-        for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
-            for (const packageVersion of response.data) {
-                this.digest2Id.set(packageVersion.name, packageVersion.id);
-                this.id2Package.set(packageVersion.id, packageVersion);
-                for (const tag of packageVersion.metadata.container.tags) {
-                    this.tag2Digest.set(tag, packageVersion.name);
+    async loadPackages(output) {
+        try {
+            // clear the maps for reloading
+            this.digest2Id.clear();
+            this.id2Package.clear();
+            this.tag2Digest.clear();
+            let getFunc = this.config.octokit.rest.packages
+                .getAllPackageVersionsForPackageOwnedByOrg;
+            let getParams;
+            if (this.repoType === 'User') {
+                getFunc = this.config.isPrivateRepo
+                    ? this.config.octokit.rest.packages
+                        .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
+                    : this.config.octokit.rest.packages
+                        .getAllPackageVersionsForPackageOwnedByUser;
+                getParams = {
+                    package_type: 'container',
+                    package_name: this.config.package,
+                    username: this.config.owner,
+                    state: 'active',
+                    per_page: 100
+                };
+            }
+            else {
+                getParams = {
+                    package_type: 'container',
+                    package_name: this.config.package,
+                    org: this.config.owner,
+                    state: 'active',
+                    per_page: 100
+                };
+            }
+            for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
+                for (const packageVersion of response.data) {
+                    this.digest2Id.set(packageVersion.name, packageVersion.id);
+                    this.id2Package.set(packageVersion.id, packageVersion);
+                    for (const tag of packageVersion.metadata.container.tags) {
+                        this.tag2Digest.set(tag, packageVersion.name);
+                    }
                 }
             }
+            if (output && this.config.logLevel >= _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel.INFO */ ["in"].INFO) {
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup('Loaded Package Data');
+                for (const ghPackage of this.id2Package.values()) {
+                    let tags = '';
+                    for (const tag of ghPackage.metadata.container.tags) {
+                        tags += `${tag} `;
+                    }
+                    _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(`${ghPackage.id} ${ghPackage.name} ${tags}`);
+                }
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__.endGroup();
+            }
+            if (output && this.config.logLevel === _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel.DEBUG */ ["in"].DEBUG) {
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup('Loaded Package Payloads');
+                for (const ghPackage of this.id2Package.values()) {
+                    const payload = JSON.stringify(ghPackage, null, 4);
+                    _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(payload);
+                }
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__.endGroup();
+            }
+        }
+        catch (error) {
+            if (error instanceof _octokit_request_error__WEBPACK_IMPORTED_MODULE_2__.RequestError) {
+                if (error.status) {
+                    if (error.status === 404) {
+                        if (this.config.defaultPackageUsed) {
+                            _actions_core__WEBPACK_IMPORTED_MODULE_0__.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
+                        }
+                        else {
+                            _actions_core__WEBPACK_IMPORTED_MODULE_0__.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
+                        }
+                    }
+                }
+            }
+            throw error;
         }
     }
     /**
@@ -35551,7 +36027,7 @@ class GithubPackageRepo {
 
 /***/ }),
 
-/***/ 5719:
+/***/ 6669:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -37760,7 +38236,7 @@ var follow_redirects = __nccwpck_require__(7707);
 // EXTERNAL MODULE: external "zlib"
 var external_zlib_ = __nccwpck_require__(9796);
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/env/data.js
-const VERSION = "1.7.3";
+const VERSION = "1.7.4";
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/parseProtocol.js
 
 
@@ -38532,7 +39008,7 @@ const buildAddressEntry = (address, family) => resolveFamily(utils.isObject(addr
 
     // Parse url
     const fullPath = buildFullPath(config.baseURL, config.url);
-    const parsed = new URL(fullPath, 'http://localhost');
+    const parsed = new URL(fullPath, utils.hasBrowserEnv ? platform.origin : undefined);
     const protocol = parsed.protocol || supportedProtocols[0];
 
     if (protocol === 'data:') {
@@ -40877,39 +41353,8 @@ axiosRetry.linearDelay = linearDelay;
 axiosRetry.isRetryableError = isRetryableError;
 /* harmony default export */ const esm = (axiosRetry);
 
-// EXTERNAL MODULE: external "crypto"
-var external_crypto_ = __nccwpck_require__(6113);
-;// CONCATENATED MODULE: ./src/utils.ts
-
-function calcDigest(manifest) {
-    return `sha256:${(0,external_crypto_.createHash)('sha256').update(manifest).digest('hex').toLowerCase()}`;
-}
-function parseChallenge(challenge) {
-    const attributes = new Map();
-    if (challenge.startsWith('Bearer ')) {
-        challenge = challenge.replace('Bearer ', '');
-        const parts = challenge.split(',');
-        for (const part of parts) {
-            const values = part.split('=');
-            let value = values[1];
-            if (value.startsWith('"') && value.endsWith('"')) {
-                value = value.substring(1, value.length - 1);
-            }
-            attributes.set(values[0], value);
-        }
-    }
-    return attributes;
-}
-function isValidChallenge(attributes) {
-    let valid = false;
-    if (attributes.has('realm') &&
-        attributes.has('service') &&
-        attributes.has('scope')) {
-        valid = true;
-    }
-    return valid;
-}
-
+// EXTERNAL MODULE: ./src/utils.ts
+var src_utils = __nccwpck_require__(1314);
 ;// CONCATENATED MODULE: ./src/registry.ts
 
 
@@ -40957,8 +41402,8 @@ class Registry {
             if (axios_isAxiosError(error) && error.response) {
                 if (error.response?.status === 401) {
                     const challenge = error.response?.headers['www-authenticate'];
-                    const attributes = parseChallenge(challenge);
-                    if (isValidChallenge(attributes)) {
+                    const attributes = (0,src_utils/* parseChallenge */.L4)(challenge);
+                    if ((0,src_utils/* isValidChallenge */.Qf)(attributes)) {
                         const auth = lib_axios.create();
                         esm(auth, { retries: 3 });
                         const tokenResponse = await auth.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
@@ -41057,7 +41502,7 @@ class Registry {
                     }
                 ]
             });
-            const digest = calcDigest(response?.data);
+            const digest = (0,src_utils/* calcDigest */.QB)(response?.data);
             const obj = JSON.parse(response?.data);
             this.manifestCache.set(digest, obj);
             this.digestByTagCache.set(tag, digest);
@@ -41073,10 +41518,7 @@ class Registry {
      */
     async putManifest(tag, manifest, multiArch) {
         if (!this.config.dryRun) {
-            let contentType = 'application/vnd.oci.image.manifest.v1+json';
-            if (multiArch) {
-                contentType = 'application/vnd.oci.image.index.v1+json';
-            }
+            const contentType = manifest.mediaType;
             const config = {
                 headers: {
                     'Content-Type': contentType
@@ -41090,10 +41532,10 @@ class Registry {
             }
             catch (error) {
                 if (axios_isAxiosError(error) && error.response) {
-                    if (error.response?.status === 401) {
+                    if (error.response.status === 401) {
                         const challenge = error.response?.headers['www-authenticate'];
-                        const attributes = parseChallenge(challenge);
-                        if (isValidChallenge(attributes)) {
+                        const attributes = (0,src_utils/* parseChallenge */.L4)(challenge);
+                        if ((0,src_utils/* isValidChallenge */.Qf)(attributes)) {
                             // crude
                             const tokenResponse = await auth.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
                                 auth: {
@@ -41110,6 +41552,9 @@ class Registry {
                     else {
                         throw error;
                     }
+                }
+                else {
+                    throw error;
                 }
             }
             if (putToken) {
@@ -41144,6 +41589,70 @@ class Registry {
             // save it for later use
             this.referrersCache.set(digest, obj);
             return obj;
+        }
+    }
+}
+
+
+/***/ }),
+
+/***/ 1314:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   "L4": () => (/* binding */ parseChallenge),
+/* harmony export */   "QB": () => (/* binding */ calcDigest),
+/* harmony export */   "Qf": () => (/* binding */ isValidChallenge)
+/* harmony export */ });
+/* unused harmony export MapPrinter */
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var crypto__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(6113);
+/* harmony import */ var crypto__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(crypto__WEBPACK_IMPORTED_MODULE_1__);
+
+
+function calcDigest(manifest) {
+    return `sha256:${(0,crypto__WEBPACK_IMPORTED_MODULE_1__.createHash)('sha256').update(manifest).digest('hex').toLowerCase()}`;
+}
+function parseChallenge(challenge) {
+    const attributes = new Map();
+    if (challenge.startsWith('Bearer ')) {
+        challenge = challenge.replace('Bearer ', '');
+        const parts = challenge.split(',');
+        for (const part of parts) {
+            const values = part.split('=');
+            let value = values[1];
+            if (value.startsWith('"') && value.endsWith('"')) {
+                value = value.substring(1, value.length - 1);
+            }
+            attributes.set(values[0], value);
+        }
+    }
+    return attributes;
+}
+function isValidChallenge(attributes) {
+    let valid = false;
+    if (attributes.has('realm') &&
+        attributes.has('service') &&
+        attributes.has('scope')) {
+        valid = true;
+    }
+    return valid;
+}
+class MapPrinter {
+    entries = new Map();
+    maxLength = 1;
+    add(entry, defaultValue) {
+        if (entry.length > this.maxLength) {
+            this.maxLength = entry.length;
+        }
+        this.entries.set(entry, defaultValue);
+    }
+    print() {
+        const column = this.maxLength + 10;
+        for (const [key, value] of this.entries) {
+            const spacer = ''.padEnd(column - key.length, ' ');
+            core.info(`${key}${spacer}${value}`);
         }
     }
 }

@@ -1820,6 +1820,103 @@ function isLoopbackAddress(host) {
 
 /***/ }),
 
+/***/ 537:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// pkg/dist-src/index.js
+var dist_src_exports = {};
+__export(dist_src_exports, {
+  RequestError: () => RequestError
+});
+module.exports = __toCommonJS(dist_src_exports);
+var import_deprecation = __nccwpck_require__(8932);
+var import_once = __toESM(__nccwpck_require__(1223));
+var logOnceCode = (0, import_once.default)((deprecation) => console.warn(deprecation));
+var logOnceHeaders = (0, import_once.default)((deprecation) => console.warn(deprecation));
+var RequestError = class extends Error {
+  constructor(message, statusCode, options) {
+    super(message);
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+    this.name = "HttpError";
+    this.status = statusCode;
+    let headers;
+    if ("headers" in options && typeof options.headers !== "undefined") {
+      headers = options.headers;
+    }
+    if ("response" in options) {
+      this.response = options.response;
+      headers = options.response.headers;
+    }
+    const requestCopy = Object.assign({}, options.request);
+    if (options.request.headers.authorization) {
+      requestCopy.headers = Object.assign({}, options.request.headers, {
+        authorization: options.request.headers.authorization.replace(
+          / .*$/,
+          " [REDACTED]"
+        )
+      });
+    }
+    requestCopy.url = requestCopy.url.replace(/\bclient_secret=\w+/g, "client_secret=[REDACTED]").replace(/\baccess_token=\w+/g, "access_token=[REDACTED]");
+    this.request = requestCopy;
+    Object.defineProperty(this, "code", {
+      get() {
+        logOnceCode(
+          new import_deprecation.Deprecation(
+            "[@octokit/request-error] `error.code` is deprecated, use `error.status`."
+          )
+        );
+        return statusCode;
+      }
+    });
+    Object.defineProperty(this, "headers", {
+      get() {
+        logOnceHeaders(
+          new import_deprecation.Deprecation(
+            "[@octokit/request-error] `error.headers` is deprecated, use `error.response.headers`."
+          )
+        );
+        return headers || {};
+      }
+    });
+  }
+};
+// Annotate the CommonJS export names for ESM import in node:
+0 && (0);
+
+
+/***/ }),
+
 /***/ 7633:
 /***/ ((module) => {
 
@@ -5134,103 +5231,6 @@ legacyRestEndpointMethods.VERSION = VERSION;
 
 /***/ }),
 
-/***/ 6239:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// pkg/dist-src/index.js
-var dist_src_exports = {};
-__export(dist_src_exports, {
-  RequestError: () => RequestError
-});
-module.exports = __toCommonJS(dist_src_exports);
-var import_deprecation = __nccwpck_require__(8932);
-var import_once = __toESM(__nccwpck_require__(1223));
-var logOnceCode = (0, import_once.default)((deprecation) => console.warn(deprecation));
-var logOnceHeaders = (0, import_once.default)((deprecation) => console.warn(deprecation));
-var RequestError = class extends Error {
-  constructor(message, statusCode, options) {
-    super(message);
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
-    this.name = "HttpError";
-    this.status = statusCode;
-    let headers;
-    if ("headers" in options && typeof options.headers !== "undefined") {
-      headers = options.headers;
-    }
-    if ("response" in options) {
-      this.response = options.response;
-      headers = options.response.headers;
-    }
-    const requestCopy = Object.assign({}, options.request);
-    if (options.request.headers.authorization) {
-      requestCopy.headers = Object.assign({}, options.request.headers, {
-        authorization: options.request.headers.authorization.replace(
-          / .*$/,
-          " [REDACTED]"
-        )
-      });
-    }
-    requestCopy.url = requestCopy.url.replace(/\bclient_secret=\w+/g, "client_secret=[REDACTED]").replace(/\baccess_token=\w+/g, "access_token=[REDACTED]");
-    this.request = requestCopy;
-    Object.defineProperty(this, "code", {
-      get() {
-        logOnceCode(
-          new import_deprecation.Deprecation(
-            "[@octokit/request-error] `error.code` is deprecated, use `error.status`."
-          )
-        );
-        return statusCode;
-      }
-    });
-    Object.defineProperty(this, "headers", {
-      get() {
-        logOnceHeaders(
-          new import_deprecation.Deprecation(
-            "[@octokit/request-error] `error.headers` is deprecated, use `error.response.headers`."
-          )
-        );
-        return headers || {};
-      }
-    });
-  }
-};
-// Annotate the CommonJS export names for ESM import in node:
-0 && (0);
-
-
-/***/ }),
-
 /***/ 4047:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -5279,7 +5279,7 @@ function isPlainObject(value) {
 }
 
 // pkg/dist-src/fetch-wrapper.js
-var import_request_error = __nccwpck_require__(6239);
+var import_request_error = __nccwpck_require__(537);
 
 // pkg/dist-src/get-buffer-response.js
 function getBufferResponse(response) {
@@ -10078,6 +10078,61 @@ module.exports = (flag, argv = process.argv) => {
 
 /***/ }),
 
+/***/ 8958:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const numbered = __nccwpck_require__(2668);
+
+const units = {};
+units.second = 1000;
+units.minute = units.second * 60;
+units.hour = units.minute * 60;
+units.day = units.hour * 24;
+units.week = units.day * 7;
+units.month = units.day * 30;
+units.year = units.day * 365;
+
+const regexp = /(second|minute|hour|day|week|month|year)s?/;
+
+const humanInterval = time => {
+  if (!time || typeof time === 'number') {
+    return time;
+  }
+
+  let result = Number.NaN;
+
+  time = time.replace(/([^a-z\d.-]|and)+/g, ' ');
+
+  for (;;) {
+    const match = time.match(regexp);
+    if (!match) {
+      return result;
+    }
+
+    const matchedNumber = time.slice(0, match.index).trim();
+    const unit = units[match[1]];
+    let number = 1;
+    if (matchedNumber.length > 0) {
+      number = Number.parseFloat(matchedNumber);
+      if (Number.isNaN(number)) {
+        number = numbered.parse(matchedNumber);
+      }
+    }
+
+    if (Number.isNaN(result)) {
+      result = 0;
+    }
+
+    result += number * unit;
+    time = time.slice(match.index + match[0].length);
+  }
+};
+
+module.exports = humanInterval;
+
+
+/***/ }),
+
 /***/ 841:
 /***/ ((module) => {
 
@@ -10503,6 +10558,280 @@ function plural(ms, msAbs, n, name) {
   var isPlural = msAbs >= n * 1.5;
   return Math.round(ms / n) + ' ' + name + (isPlural ? 's' : '');
 }
+
+
+/***/ }),
+
+/***/ 2668:
+/***/ (function(module) {
+
+(function (root, factory) {
+  /* istanbul ignore else */
+  if ( true && module.exports) {
+    module.exports = factory();
+  } else if (typeof define === 'function' && define.amd) {
+    // AMD, registers as an anonymous module.
+    define(factory);
+  } else {
+    // Browser global.
+    root.numbered = factory();
+  }
+})(this, function () {
+  var NUMBER_MAP = {
+    '.': 'point',
+    '-': 'negative',
+    0: 'zero',
+    1: 'one',
+    2: 'two',
+    3: 'three',
+    4: 'four',
+    5: 'five',
+    6: 'six',
+    7: 'seven',
+    8: 'eight',
+    9: 'nine',
+    10: 'ten',
+    11: 'eleven',
+    12: 'twelve',
+    13: 'thirteen',
+    14: 'fourteen',
+    15: 'fifteen',
+    16: 'sixteen',
+    17: 'seventeen',
+    18: 'eighteen',
+    19: 'nineteen',
+    20: 'twenty',
+    30: 'thirty',
+    40: 'forty',
+    50: 'fifty',
+    60: 'sixty',
+    70: 'seventy',
+    80: 'eighty',
+    90: 'ninety'
+  };
+
+  // http://en.wikipedia.org/wiki/English_numerals#Cardinal_numbers
+  var CARDINAL_MAP = {
+    2: 'hundred',
+    3: 'thousand',
+    6: 'million',
+    9: 'billion',
+    12: 'trillion',
+    15: 'quadrillion',
+    18: 'quintillion',
+    21: 'sextillion',
+    24: 'septillion',
+    27: 'octillion',
+    30: 'nonillion',
+    33: 'decillion',
+    36: 'undecillion',
+    39: 'duodecillion',
+    42: 'tredecillion',
+    45: 'quattuordecillion',
+    48: 'quindecillion',
+    51: 'sexdecillion',
+    54: 'septendecillion',
+    57: 'octodecillion',
+    60: 'novemdecillion',
+    63: 'vigintillion',
+    100: 'googol',
+    303: 'centillion'
+  };
+
+  // Make a hash of words back to their numeric value.
+  var WORD_MAP = {
+    nil: 0,
+    naught: 0,
+    period: '.',
+    decimal: '.'
+  };
+
+  Object.keys(NUMBER_MAP).forEach(function (num) {
+    WORD_MAP[NUMBER_MAP[num]] = isNaN(+num) ? num : +num;
+  });
+
+  Object.keys(CARDINAL_MAP).forEach(function (num) {
+    WORD_MAP[CARDINAL_MAP[num]] = isNaN(+num) ? num : Math.pow(10, +num);
+  });
+
+  /**
+   * Returns the number of significant figures for the number.
+   *
+   * @param  {number} num
+   * @return {number}
+   */
+  function intervals (num) {
+    var match = String(num).match(/e\+(\d+)/);
+
+    if (match) return match[1];
+
+    return String(num).length - 1;
+  }
+
+  /**
+   * Calculate the value of the current stack.
+   *
+   * @param {Array}  stack
+   * @param {number} largest
+   */
+  function totalStack (stack, largest) {
+    var total = stack.reduceRight(function (prev, num, index) {
+      if (num > stack[index + 1]) {
+        return prev * num;
+      }
+
+      return prev + num;
+    }, 0);
+
+    return total * largest;
+  }
+
+  /**
+   * Accepts both a string and number type, and return the opposite.
+   *
+   * @param  {string|number} num
+   * @return {string|number}
+   */
+  function numbered (num) {
+    if (typeof num === 'string') return numbered.parse(num);
+    if (typeof num === 'number') return numbered.stringify(num);
+
+    throw new Error('Numbered can only parse strings or stringify numbers');
+  }
+
+  /**
+   * Turn a number into a string representation.
+   *
+   * @param  {number} num
+   * @return {string}
+   */
+  numbered.stringify = function (value) {
+    var num = Number(value);
+    var floor = Math.floor(num);
+
+    // If the number is in the numbers object, we quickly return.
+    if (NUMBER_MAP[num]) return NUMBER_MAP[num];
+
+    // If the number is a negative value.
+    if (num < 0) return NUMBER_MAP['-'] + ' ' + numbered.stringify(-num);
+
+    // Check if we have decimals.
+    if (floor !== num) {
+      var words = [numbered.stringify(floor), NUMBER_MAP['.']];
+      var chars = String(num).split('.').pop();
+
+      for (var i = 0; i < chars.length; i++) {
+        words.push(numbered.stringify(+chars[i]));
+      }
+
+      return words.join(' ');
+    }
+
+    var interval = intervals(num);
+
+    // It's below one hundred, but greater than nine.
+    if (interval === 1) {
+      return NUMBER_MAP[Math.floor(num / 10) * 10] + '-' + numbered.stringify(Math.floor(num % 10));
+    }
+
+    var sentence = [];
+
+    // Simple check to find the closest full number helper.
+    while (!CARDINAL_MAP[interval]) interval -= 1;
+
+    if (CARDINAL_MAP[interval]) {
+      var remaining = Math.floor(num % Math.pow(10, interval));
+
+      sentence.push(numbered.stringify(Math.floor(num / Math.pow(10, interval))));
+      sentence.push(CARDINAL_MAP[interval] + (remaining > 99 ? ',' : ''));
+
+      if (remaining) {
+        if (remaining < 100) sentence.push('and');
+
+        sentence.push(numbered.stringify(remaining));
+      }
+    }
+
+    return sentence.join(' ');
+  };
+
+  /**
+   * Turns a string representation of a number into a number type
+   * @param  {string} num
+   * @return {number}
+   */
+  numbered.parse = function (num) {
+    var modifier = 1;
+    var largest = 0;
+    var largestInterval = 0;
+    var zeros = 0; // Track leading zeros in a decimal.
+    var stack = [];
+
+    var total = num.split(/\W+/g)
+      .map(function (word) {
+        var num = word.toLowerCase();
+
+        return WORD_MAP[num] !== undefined ? WORD_MAP[num] : num;
+      })
+      .filter(function (num) {
+        if (num === '-') modifier = -1;
+        if (num === '.') return true; // Decimal points are a special case.
+
+        return typeof num === 'number';
+      })
+      .reduceRight(function (memo, num) {
+        var interval = intervals(num);
+
+        // Check the interval is smaller than the largest one, then create a stack.
+        if (typeof num === 'number' && interval < largestInterval) {
+          stack.push(num);
+          if (stack.length === 1) return memo - largest;
+          return memo;
+        }
+
+        memo += totalStack(stack, largest);
+        stack = []; // Reset the stack for more computations.
+
+        // If the number is a decimal, transform everything we have worked with.
+        if (num === '.') {
+          var decimals = zeros + String(memo).length;
+
+          zeros = 0;
+          largest = 0;
+          largestInterval = 0;
+
+          return memo * Math.pow(10, -decimals);
+        }
+
+        // Buffer encountered zeros.
+        if (num === 0) {
+          zeros += 1;
+          return memo;
+        }
+
+        // Shove the number on the front if the intervals match and the number whole.
+        if (memo >= 1 && interval === largestInterval) {
+          var output = '';
+
+          while (zeros > 0) {
+            zeros -= 1;
+            output += '0';
+          }
+
+          return Number(String(num) + output + String(memo));
+        }
+
+        largest = num;
+        largestInterval = intervals(largest);
+
+        return (memo + num) * Math.pow(10, zeros);
+      }, 0);
+
+    return modifier * (total + totalStack(stack, largest));
+  };
+
+  return numbered;
+});
 
 
 /***/ }),
@@ -33855,7 +34184,7 @@ function wrappy (fn, cb) {
 /***/ ((module, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1537);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3769);
 /**
  * The entrypoint for the action.
  */
@@ -33868,7 +34197,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 1537:
+/***/ 3769:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -34154,7 +34483,7 @@ throttling.VERSION = dist_bundle_VERSION;
 throttling.triggersNotification = triggersNotification;
 
 
-;// CONCATENATED MODULE: ./node_modules/@octokit/request-error/dist-src/index.js
+;// CONCATENATED MODULE: ./node_modules/@octokit/plugin-retry/node_modules/@octokit/request-error/dist-src/index.js
 class RequestError extends Error {
   name;
   /**
@@ -34274,7 +34603,66 @@ function retry(octokit, octokitOptions) {
 retry.VERSION = plugin_retry_dist_bundle_VERSION;
 
 
+// EXTERNAL MODULE: ./node_modules/@octokit/request-error/dist-node/index.js
+var request_error_dist_node = __nccwpck_require__(537);
+// EXTERNAL MODULE: external "crypto"
+var external_crypto_ = __nccwpck_require__(6113);
+;// CONCATENATED MODULE: ./src/utils.ts
+
+
+function calcDigest(manifest) {
+    return `sha256:${(0,external_crypto_.createHash)('sha256').update(manifest).digest('hex').toLowerCase()}`;
+}
+function parseChallenge(challenge) {
+    const attributes = new Map();
+    if (challenge.startsWith('Bearer ')) {
+        challenge = challenge.replace('Bearer ', '');
+        const parts = challenge.split(',');
+        for (const part of parts) {
+            const values = part.split('=');
+            let value = values[1];
+            if (value.startsWith('"') && value.endsWith('"')) {
+                value = value.substring(1, value.length - 1);
+            }
+            attributes.set(values[0], value);
+        }
+    }
+    return attributes;
+}
+function isValidChallenge(attributes) {
+    let valid = false;
+    if (attributes.has('realm') &&
+        attributes.has('service') &&
+        attributes.has('scope')) {
+        valid = true;
+    }
+    return valid;
+}
+class MapPrinter {
+    entries = new Map();
+    maxLength = 1;
+    add(entry, defaultValue) {
+        if (entry.length > this.maxLength) {
+            this.maxLength = entry.length;
+        }
+        this.entries.set(entry, defaultValue);
+    }
+    print() {
+        const column = this.maxLength + 10;
+        for (const [key, value] of this.entries) {
+            const spacer = ''.padEnd(column - key.length, ' ');
+            core.info(`${key}${spacer}${value}`);
+        }
+    }
+}
+
+// EXTERNAL MODULE: ./node_modules/human-interval/index.js
+var human_interval = __nccwpck_require__(8958);
+var human_interval_default = /*#__PURE__*/__nccwpck_require__.n(human_interval);
 ;// CONCATENATED MODULE: ./src/config.ts
+
+
+
 
 
 
@@ -34294,13 +34682,16 @@ class Config {
     owner = '';
     repository = '';
     package = '';
-    tags;
+    defaultPackageUsed = false;
+    deleteTags;
     excludeTags;
+    olderThanReadable;
+    olderThan;
     deleteUntagged;
-    keepNuntagged;
-    keepNtagged;
     deleteGhostImages;
     deletePartialImages;
+    keepNuntagged;
+    keepNtagged;
     dryRun;
     validate;
     logLevel;
@@ -34308,56 +34699,70 @@ class Config {
     octokit;
     constructor(token) {
         this.token = token;
-        this.logLevel = LogLevel.WARN;
+        this.logLevel = LogLevel.INFO;
         this.octokit = new MyOctokit({
             auth: token,
             throttle: {
                 onRateLimit: (retryAfter, options, octokit, retryCount) => {
-                    octokit.log.warn(`Request quota exhausted for request ${options.method} ${options.url}`);
+                    core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
                     if (retryCount < 1) {
                         // only retries once
-                        octokit.log.info(`Retrying after ${retryAfter} seconds!`);
+                        core.info(`Octokit - retrying after ${retryAfter} seconds!`);
                         return true;
                     }
                 },
                 onSecondaryRateLimit: (retryAfter, options, octokit) => {
                     // does not retry, only logs a warning
-                    octokit.log.warn(`SecondaryRateLimit detected for request ${options.method} ${options.url}`);
+                    core.info(`Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`);
                 }
             },
             log: {
                 debug: (message) => {
                     if (this.logLevel >= LogLevel.DEBUG) {
-                        console.log(`[DEBUG] ${message}`);
+                        core.info(`[Octokit DEBUG] ${message}`);
                     }
                 },
                 info: (message) => {
-                    if (this.logLevel >= LogLevel.INFO) {
-                        console.log(`[INFO] ${message}`);
+                    if (this.logLevel >= LogLevel.DEBUG) {
+                        core.info(`[Octokit DEBUG] ${message}`);
                     }
                 },
                 warn: (message) => {
                     if (this.logLevel >= LogLevel.WARN) {
-                        console.log(`[WARN] ${message}`);
+                        core.info(`[Octokit WARN] ${message}`);
                     }
                 },
                 error: (message) => {
                     if (this.logLevel >= LogLevel.INFO) {
-                        console.log(`[INFO] ${message}`);
+                        core.info(`[Octokit ERROR] ${message}`);
                     }
                 }
             }
         });
     }
     async getOwnerType() {
-        const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
-        this.isPrivateRepo = result.data.private;
-        return result.data.owner.type;
+        try {
+            const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
+            this.isPrivateRepo = result.data.private;
+            return result.data.owner.type;
+        }
+        catch (error) {
+            if (error instanceof request_error_dist_node.RequestError) {
+                if (error.status) {
+                    if (error.status === 404) {
+                        core.warning(`The repository is not found, check the owner value "${this.owner}" or the repository value "${this.repository}" are correct`);
+                    }
+                }
+            }
+            // rethrow the error
+            throw error;
+        }
     }
 }
 function getConfig() {
     const token = core.getInput('token', { required: true });
     const config = new Config(token);
+    config.owner = core.getInput('owner');
     config.repository = core.getInput('repository');
     config.package = core.getInput('package');
     // auto populate
@@ -34370,6 +34775,10 @@ function getConfig() {
             }
             if (!config.package) {
                 config.package = parts[1];
+                config.defaultPackageUsed = true;
+            }
+            else {
+                config.defaultPackageUsed = false;
             }
             if (!config.repository) {
                 config.repository = parts[1];
@@ -34386,26 +34795,38 @@ function getConfig() {
         throw Error('tags and delete-tags cant be used at the same time, use either one');
     }
     if (core.getInput('tags')) {
-        config.tags = core.getInput('tags');
+        config.deleteTags = core.getInput('tags');
     }
     else if (core.getInput('delete-tags')) {
-        config.tags = core.getInput('delete-tags');
+        config.deleteTags = core.getInput('delete-tags');
     }
     config.excludeTags = core.getInput('exclude-tags');
-    if (core.getInput('keep-n-untagged')) {
-        if (isNaN(parseInt(core.getInput('keep-n-untagged')))) {
-            throw new Error('keep-n-untagged is not number');
-        }
-        else {
-            config.keepNuntagged = parseInt(core.getInput('keep-n-untagged'));
-        }
+    if (core.getInput('older-than')) {
+        config.olderThan = human_interval_default()(core.getInput('older-than'));
+        config.olderThanReadable = core.getInput('older-than');
     }
     if (core.getInput('keep-n-tagged')) {
-        if (isNaN(parseInt(core.getInput('keep-n-tagged')))) {
+        const n = parseInt(core.getInput('keep-n-tagged'));
+        if (isNaN(n)) {
             throw new Error('keep-n-tagged is not number');
         }
+        else if (n < 0) {
+            throw new Error('keep-n-tagged is negative');
+        }
         else {
-            config.keepNtagged = parseInt(core.getInput('keep-n-tagged'));
+            config.keepNtagged = n;
+        }
+    }
+    if (core.getInput('keep-n-untagged')) {
+        const n = parseInt(core.getInput('keep-n-untagged'));
+        if (isNaN(n)) {
+            throw new Error('keep-n-untagged is not number');
+        }
+        else if (n < 0) {
+            throw new Error('keep-n-untagged is negative');
+        }
+        else {
+            config.keepNuntagged = n;
         }
     }
     if (core.getInput('delete-untagged')) {
@@ -34414,6 +34835,9 @@ function getConfig() {
     else {
         // default is deleteUntagged if no options are set
         if (!core.getInput('tags') &&
+            !core.getInput('delete-tags') &&
+            !core.getInput('delete-ghost-images') &&
+            !core.getInput('delete-partial-images') &&
             !core.getInput('keep-n-untagged') &&
             !core.getInput('keep-n-tagged')) {
             config.deleteUntagged = true;
@@ -34422,16 +34846,25 @@ function getConfig() {
             config.deleteUntagged = false;
         }
     }
+    if (config.keepNuntagged && core.getInput('delete-untagged')) {
+        throw new Error('delete-untagged and keep-n-untagged can not be set at the same time');
+    }
     if (core.getInput('delete-ghost-images')) {
         config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
+    }
+    else {
+        config.deleteGhostImages = false;
     }
     if (core.getInput('delete-partial-images')) {
         config.deletePartialImages = core.getBooleanInput('delete-partial-images');
     }
+    else {
+        config.deletePartialImages = false;
+    }
     if (core.getInput('dry-run')) {
         config.dryRun = core.getBooleanInput('dry-run');
         if (config.dryRun) {
-            core.info('in dry run mode - no packages will be deleted');
+            core.info('***** In dry run mode - No packages will be deleted *****');
         }
     }
     else {
@@ -34467,6 +34900,45 @@ function getConfig() {
     if (!config.repository) {
         throw new Error('repository is not set');
     }
+    const optionsMap = new MapPrinter();
+    optionsMap.add('private repository', `${config.isPrivateRepo}`);
+    optionsMap.add('project owner', `${config.owner}`);
+    optionsMap.add('repository', `${config.repository}`);
+    optionsMap.add('package', `${config.package}`);
+    if (config.deleteTags) {
+        optionsMap.add('delete-tags', config.deleteTags);
+    }
+    if (config.excludeTags) {
+        optionsMap.add('exclude-tags', config.excludeTags);
+    }
+    if (config.olderThanReadable) {
+        optionsMap.add('older-than', config.olderThanReadable);
+    }
+    if (config.deleteUntagged != null) {
+        optionsMap.add('delete-untagged', `${config.deleteUntagged}`);
+    }
+    if (config.deleteGhostImages != null) {
+        optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`);
+    }
+    if (config.deletePartialImages != null) {
+        optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
+    }
+    if (config.keepNtagged != null) {
+        optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
+    }
+    if (config.keepNuntagged != null) {
+        optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`);
+    }
+    if (config.dryRun != null) {
+        optionsMap.add('dry-run', `${config.dryRun}`);
+    }
+    if (config.validate != null) {
+        optionsMap.add('validate', `${config.validate}`);
+    }
+    optionsMap.add('log-level', LogLevel[config.logLevel]);
+    core.startGroup('Runtime configuration');
+    optionsMap.print();
+    core.endGroup();
     return config;
 }
 
@@ -36660,7 +37132,7 @@ var follow_redirects = __nccwpck_require__(7707);
 // EXTERNAL MODULE: external "zlib"
 var external_zlib_ = __nccwpck_require__(9796);
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/env/data.js
-const data_VERSION = "1.7.3";
+const data_VERSION = "1.7.4";
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/parseProtocol.js
 
 
@@ -37432,7 +37904,7 @@ const buildAddressEntry = (address, family) => resolveFamily(utils.isObject(addr
 
     // Parse url
     const fullPath = buildFullPath(config.baseURL, config.url);
-    const parsed = new URL(fullPath, 'http://localhost');
+    const parsed = new URL(fullPath, utils.hasBrowserEnv ? platform.origin : undefined);
     const protocol = parsed.protocol || supportedProtocols[0];
 
     if (protocol === 'data:') {
@@ -39777,39 +40249,6 @@ axiosRetry.linearDelay = linearDelay;
 axiosRetry.isRetryableError = isRetryableError;
 /* harmony default export */ const esm = (axiosRetry);
 
-// EXTERNAL MODULE: external "crypto"
-var external_crypto_ = __nccwpck_require__(6113);
-;// CONCATENATED MODULE: ./src/utils.ts
-
-function calcDigest(manifest) {
-    return `sha256:${(0,external_crypto_.createHash)('sha256').update(manifest).digest('hex').toLowerCase()}`;
-}
-function parseChallenge(challenge) {
-    const attributes = new Map();
-    if (challenge.startsWith('Bearer ')) {
-        challenge = challenge.replace('Bearer ', '');
-        const parts = challenge.split(',');
-        for (const part of parts) {
-            const values = part.split('=');
-            let value = values[1];
-            if (value.startsWith('"') && value.endsWith('"')) {
-                value = value.substring(1, value.length - 1);
-            }
-            attributes.set(values[0], value);
-        }
-    }
-    return attributes;
-}
-function isValidChallenge(attributes) {
-    let valid = false;
-    if (attributes.has('realm') &&
-        attributes.has('service') &&
-        attributes.has('scope')) {
-        valid = true;
-    }
-    return valid;
-}
-
 ;// CONCATENATED MODULE: ./src/registry.ts
 
 
@@ -39973,10 +40412,7 @@ class Registry {
      */
     async putManifest(tag, manifest, multiArch) {
         if (!this.config.dryRun) {
-            let contentType = 'application/vnd.oci.image.manifest.v1+json';
-            if (multiArch) {
-                contentType = 'application/vnd.oci.image.index.v1+json';
-            }
+            const contentType = manifest.mediaType;
             const config = {
                 headers: {
                     'Content-Type': contentType
@@ -39990,7 +40426,7 @@ class Registry {
             }
             catch (error) {
                 if (axios_isAxiosError(error) && error.response) {
-                    if (error.response?.status === 401) {
+                    if (error.response.status === 401) {
                         const challenge = error.response?.headers['www-authenticate'];
                         const attributes = parseChallenge(challenge);
                         if (isValidChallenge(attributes)) {
@@ -40010,6 +40446,9 @@ class Registry {
                     else {
                         throw error;
                     }
+                }
+                else {
+                    throw error;
                 }
             }
             if (putToken) {
@@ -40050,6 +40489,8 @@ class Registry {
 
 ;// CONCATENATED MODULE: ./src/github-package.ts
 
+
+
 /**
  * Provides access to a package via the GitHub Packages REST API.
  */
@@ -40082,45 +40523,81 @@ class GithubPackageRepo {
     /**
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
      */
-    async loadPackages() {
-        // clear the maps for reloading
-        this.digest2Id.clear();
-        this.id2Package.clear();
-        this.tag2Digest.clear();
-        let getFunc = this.config.octokit.rest.packages
-            .getAllPackageVersionsForPackageOwnedByOrg;
-        let getParams;
-        if (this.repoType === 'User') {
-            getFunc = this.config.isPrivateRepo
-                ? this.config.octokit.rest.packages
-                    .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-                : this.config.octokit.rest.packages
-                    .getAllPackageVersionsForPackageOwnedByUser;
-            getParams = {
-                package_type: 'container',
-                package_name: this.config.package,
-                username: this.config.owner,
-                state: 'active',
-                per_page: 100
-            };
-        }
-        else {
-            getParams = {
-                package_type: 'container',
-                package_name: this.config.package,
-                org: this.config.owner,
-                state: 'active',
-                per_page: 100
-            };
-        }
-        for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
-            for (const packageVersion of response.data) {
-                this.digest2Id.set(packageVersion.name, packageVersion.id);
-                this.id2Package.set(packageVersion.id, packageVersion);
-                for (const tag of packageVersion.metadata.container.tags) {
-                    this.tag2Digest.set(tag, packageVersion.name);
+    async loadPackages(output) {
+        try {
+            // clear the maps for reloading
+            this.digest2Id.clear();
+            this.id2Package.clear();
+            this.tag2Digest.clear();
+            let getFunc = this.config.octokit.rest.packages
+                .getAllPackageVersionsForPackageOwnedByOrg;
+            let getParams;
+            if (this.repoType === 'User') {
+                getFunc = this.config.isPrivateRepo
+                    ? this.config.octokit.rest.packages
+                        .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
+                    : this.config.octokit.rest.packages
+                        .getAllPackageVersionsForPackageOwnedByUser;
+                getParams = {
+                    package_type: 'container',
+                    package_name: this.config.package,
+                    username: this.config.owner,
+                    state: 'active',
+                    per_page: 100
+                };
+            }
+            else {
+                getParams = {
+                    package_type: 'container',
+                    package_name: this.config.package,
+                    org: this.config.owner,
+                    state: 'active',
+                    per_page: 100
+                };
+            }
+            for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
+                for (const packageVersion of response.data) {
+                    this.digest2Id.set(packageVersion.name, packageVersion.id);
+                    this.id2Package.set(packageVersion.id, packageVersion);
+                    for (const tag of packageVersion.metadata.container.tags) {
+                        this.tag2Digest.set(tag, packageVersion.name);
+                    }
                 }
             }
+            if (output && this.config.logLevel >= LogLevel.INFO) {
+                core.startGroup('Loaded Package Data');
+                for (const ghPackage of this.id2Package.values()) {
+                    let tags = '';
+                    for (const tag of ghPackage.metadata.container.tags) {
+                        tags += `${tag} `;
+                    }
+                    core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`);
+                }
+                core.endGroup();
+            }
+            if (output && this.config.logLevel === LogLevel.DEBUG) {
+                core.startGroup('Loaded Package Payloads');
+                for (const ghPackage of this.id2Package.values()) {
+                    const payload = JSON.stringify(ghPackage, null, 4);
+                    core.info(payload);
+                }
+                core.endGroup();
+            }
+        }
+        catch (error) {
+            if (error instanceof request_error_dist_node.RequestError) {
+                if (error.status) {
+                    if (error.status === 404) {
+                        if (this.config.defaultPackageUsed) {
+                            core.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
+                        }
+                        else {
+                            core.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
+                        }
+                    }
+                }
+            }
+            throw error;
         }
     }
     /**
@@ -40432,13 +40909,13 @@ class CleanupAction {
         this.deleteSet.clear();
         this.deleted.clear();
         // prime the list of current packages
-        await this.githubPackageRepo.loadPackages();
+        await this.githubPackageRepo.loadPackages(true);
         // extract values from the load
         this.filterSet = this.githubPackageRepo.getDigests();
         this.tagsInUse = this.githubPackageRepo.getTags();
         // build digestUsedBy map
         await this.loadDigestUsedByMap();
-        // remove children from filterSet - manifest image children, refferers
+        // remove children from filterSet - manifest image children, referrers
         await this.trimChildren();
         // find excluded tags using matcher
         this.excludeTags = [];
@@ -40455,6 +40932,33 @@ class CleanupAction {
                 }
             }
         }
+        // only include older-than if set
+        if (this.config.olderThan) {
+            // get the package
+            core.startGroup(`Including packages that are older than: ${this.config.olderThanReadable}`);
+            for (const digest of this.filterSet) {
+                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                if (ghPackage.updated_at) {
+                    const cutOff = new Date(Date.now() - this.config.olderThan);
+                    const packageDate = new Date(ghPackage.updated_at);
+                    if (packageDate >= cutOff) {
+                        // the package it newer then cutoff so remove it from filterSet
+                        this.filterSet.delete(digest);
+                    }
+                    else {
+                        const tags = this.githubPackageRepo.getPackageByDigest(digest).metadata
+                            .container.tags;
+                        if (tags.length > 0) {
+                            core.info(`${digest} ${tags}`);
+                        }
+                        else {
+                            core.info(digest);
+                        }
+                    }
+                }
+            }
+            core.endGroup();
+        }
     }
     /*
      * Builds a map child images back to their parents
@@ -40462,9 +40966,14 @@ class CleanupAction {
      */
     async loadDigestUsedByMap() {
         this.digestUsedBy.clear();
+        // used if debug logging
+        const manfiests = new Map();
         const digests = this.githubPackageRepo.getDigests();
         for (const digest of digests) {
             const manifest = await this.registry.getManifestByDigest(digest);
+            if (this.config.logLevel >= LogLevel.INFO) {
+                manfiests.set(digest, manifest);
+            }
             // we only map multi-arch images
             if (manifest.manifests) {
                 for (const imageManifest of manifest.manifests) {
@@ -40480,10 +40989,18 @@ class CleanupAction {
                 }
             }
         }
+        if (this.config.logLevel === LogLevel.DEBUG) {
+            core.startGroup('Image Manfiests');
+            for (const [digest, manifest] of manfiests) {
+                const encoded = JSON.stringify(manifest, null, 4);
+                core.info(`${digest}:${encoded}`);
+            }
+            core.endGroup();
+        }
     }
     /*
-     * Remove all multi architecture platform images from the filterSet it's including
-     * refferrer image if present. Filting/processing occurs on  top level images.
+     * Remove all multi architecture platform images from the filterSet including its
+     * referrer image if present. Filtering/processing only occurs on top level images.
      */
     async trimChildren() {
         const digests = this.githubPackageRepo.getDigests();
@@ -40491,9 +41008,7 @@ class CleanupAction {
             const manifest = await this.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
                 for (const imageManifest of manifest.manifests) {
-                    if (digests.has(imageManifest.digest)) {
-                        this.filterSet.delete(imageManifest.digest);
-                    }
+                    this.filterSet.delete(imageManifest.digest);
                 }
             }
             // process any referrers - OCI v1 via tag currently
@@ -40506,10 +41021,7 @@ class CleanupAction {
                 const referrerManifest = await this.registry.getManifestByTag(referrerTag);
                 if (referrerManifest.manifests) {
                     for (const manifestEntry of referrerManifest.manifests) {
-                        if (digests.has(manifestEntry.digest)) {
-                            // get the id and trim it as it's in use
-                            this.filterSet.delete(manifestEntry.digest);
-                        }
+                        this.filterSet.delete(manifestEntry.digest);
                     }
                 }
             }
@@ -40517,7 +41029,7 @@ class CleanupAction {
     }
     // validate manifests list packages
     async validate() {
-        core.info('validating multi-architecture/referrers images:');
+        core.info('Validating multi-architecture/referrers images:');
         // cycle thru digests checking them
         let error = false;
         const processedManifests = new Set();
@@ -40558,20 +41070,32 @@ class CleanupAction {
             core.info(' no errors found');
         }
     }
-    buildLabel(imageManifest) {
+    async buildLabel(imageManifest) {
         // build the 'label'
         let label = '';
         if (imageManifest.platform) {
             if (imageManifest.platform.architecture) {
                 label = imageManifest.platform.architecture;
             }
-            if (imageManifest.platform.variant) {
-                label += `/${imageManifest.platform.variant}`;
+            if (label !== 'unknown') {
+                if (imageManifest.platform.variant) {
+                    label += `/${imageManifest.platform.variant}`;
+                }
+                label = `architecture: ${label}`;
             }
-            label = `architecture: ${label}`;
+            else {
+                // check if it's a buildx attestation
+                const manifest = await this.registry.getManifestByDigest(imageManifest.digest);
+                // kinda crude
+                if (manifest.layers) {
+                    if (manifest.layers[0].mediaType === 'application/vnd.in-toto+json') {
+                        label = 'application/vnd.in-toto+json';
+                    }
+                }
+            }
         }
         else if (imageManifest.artifactType) {
-            // check if it's a attestation
+            // check if it's a github attestation
             if (imageManifest.artifactType.startsWith('application/vnd.dev.sigstore.bundle')) {
                 label = 'sigstore attestation';
             }
@@ -40589,7 +41113,7 @@ class CleanupAction {
             await this.githubPackageRepo.deletePackageVersion(ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
             this.deleted.add(ghPackage.name);
             this.numberImagesDeleted += 1;
-            // if manifest based image now delete it's children
+            // if manifests based image now delete it's children
             if (manifest.manifests) {
                 this.numberMultiImagesDeleted += 1;
                 for (const imageManifest of manifest.manifests) {
@@ -40601,12 +41125,14 @@ class CleanupAction {
                             if (parents) {
                                 if (parents.size === 1 && parents.has(ghPackage.name)) {
                                     // it's only referenced from this image so delete it
-                                    await this.githubPackageRepo.deletePackageVersion(manifestPackage.id, manifestPackage.name, [], this.buildLabel(imageManifest));
+                                    await this.githubPackageRepo.deletePackageVersion(manifestPackage.id, manifestPackage.name, [], await this.buildLabel(imageManifest));
                                     this.deleted.add(manifestPackage.name);
                                     this.numberImagesDeleted += 1;
+                                    // remove the parent - no other references to it
+                                    this.digestUsedBy.delete(manifestPackage.name);
                                 }
                                 else {
-                                    core.info(` skipping deletion of ${ghPackage.name} as it's in use by another image`);
+                                    core.info(` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`);
                                     // skip the deletion since it's in use by another image - just remove the usedBy reference
                                     parents.delete(ghPackage.name);
                                 }
@@ -40618,7 +41144,7 @@ class CleanupAction {
                         }
                     }
                     else {
-                        core.info(` image digest ${imageManifest.digest} not found in repository, skipping`);
+                        core.info(` skipping digest ${imageManifest.digest}, not found`);
                     }
                 }
             }
@@ -40634,11 +41160,81 @@ class CleanupAction {
             }
         }
     }
+    async deleteGhostImages() {
+        core.startGroup('Finding Ghost Images');
+        let foundGhostImage = false;
+        for (const digest of this.filterSet) {
+            let ghostImage = false;
+            // is a ghost image if all of the child manifests don't exist
+            const manfiest = await this.registry.getManifestByDigest(digest);
+            if (manfiest.manifests) {
+                let missing = 0;
+                for (const imageManfiest of manfiest.manifests) {
+                    if (!this.githubPackageRepo.getIdByDigest(imageManfiest.digest)) {
+                        missing += 1;
+                    }
+                }
+                if (missing === manfiest.manifests.length) {
+                    ghostImage = true;
+                    foundGhostImage = true;
+                }
+            }
+            if (ghostImage) {
+                // setup the ghost image to be deleted
+                this.filterSet.delete(digest);
+                this.deleteSet.add(digest);
+                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                if (ghPackage.metadata.container.tags.length > 0) {
+                    core.info(`${digest} ${ghPackage.metadata.container.tags}`);
+                }
+                else {
+                    core.info(`${digest}`);
+                }
+            }
+        }
+        if (!foundGhostImage) {
+            core.info('no ghost images found');
+        }
+        core.endGroup();
+    }
+    async deletePartialImages() {
+        core.startGroup('Finding Partial Images');
+        let partialImagesFound = false;
+        for (const digest of this.filterSet) {
+            let partialImage = false;
+            // is a partial image if some of the child manifests don't exist
+            const manfiest = await this.registry.getManifestByDigest(digest);
+            if (manfiest.manifests) {
+                for (const imageManfiest of manfiest.manifests) {
+                    if (!this.githubPackageRepo.getIdByDigest(imageManfiest.digest)) {
+                        partialImage = true;
+                        partialImagesFound = true;
+                        break;
+                    }
+                }
+            }
+            if (partialImage) {
+                // setup the partial image to be deleted
+                this.filterSet.delete(digest);
+                this.deleteSet.add(digest);
+                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                if (ghPackage.metadata.container.tags.length > 0) {
+                    core.info(`${digest} ${ghPackage.metadata.container.tags}`);
+                }
+                else {
+                    core.info(`${digest}`);
+                }
+            }
+        }
+        if (!partialImagesFound) {
+            core.info('no partial images found');
+        }
+        core.endGroup();
+    }
     async deleteByTag() {
-        if (this.config.tags) {
-            core.info(`deleting tagged images: ${this.config.tags}`);
-            // find the tags the match wildcard patterns
-            const isTagMatch = wildcardMatch(this.config.tags.split(','));
+        if (this.config.deleteTags) {
+            // find the tags that match wildcard patterns
+            const isTagMatch = wildcardMatch(this.config.deleteTags.split(','));
             const matchTags = [];
             // build match list from filterSet
             for (const digest of this.filterSet) {
@@ -40650,26 +41246,44 @@ class CleanupAction {
                 }
             }
             if (matchTags.length > 0) {
-                core.info(` found matching images to delete: ${matchTags}`);
+                // build seperate sets for the untagging events and the standard deletions
+                const untaggingTags = new Set();
+                const standardTags = new Set();
+                // first process untagging events - do a pre scan to check if in this mode
                 for (const tag of matchTags) {
                     if (!this.excludeTags.includes(tag)) {
                         // get the package
-                        const manifest = await this.registry.getManifestByTag(tag);
                         const manifestDigest = await this.registry.getTagDigest(tag);
                         const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
-                        // if the image only has one tag - delete it
+                        if (ghPackage.metadata.container.tags.length > 1) {
+                            untaggingTags.add(tag);
+                        }
+                        else if (ghPackage.metadata.container.tags.length === 1) {
+                            standardTags.add(tag);
+                        }
+                    }
+                }
+                if (untaggingTags.size > 0) {
+                    core.startGroup(`Untagged images: ${this.config.deleteTags}`);
+                    for (const tag of untaggingTags) {
+                        // lets recheck there is more than 1 tag, else add it to standard set for later deletion
+                        // it could be situation where all tags are being deleted
+                        const manifestDigest = await this.registry.getTagDigest(tag);
+                        const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
                         if (ghPackage.metadata.container.tags.length === 1) {
-                            await this.deleteImage(ghPackage);
+                            standardTags.add(tag);
                         }
                         else {
-                            // preform a "ghcr.io" image deleltion
+                            core.info(`${tag}`);
+                            // get the package
+                            const manifest = await this.registry.getManifestByTag(tag);
+                            // preform a "ghcr.io" image deletion
                             // as the registry doesn't support manifest deletion directly
                             // we instead assign the tag to a different manifest first
                             // then we delete it
-                            core.info(`untagging ${tag}`);
                             // clone the manifest
                             const newManifest = JSON.parse(JSON.stringify(manifest));
-                            // create a fake manifest to seperate the tag
+                            // create a fake manifest to separate the tag
                             if (newManifest.manifests) {
                                 // a multi architecture image
                                 newManifest.manifests = [];
@@ -40682,7 +41296,7 @@ class CleanupAction {
                             // the tag will have a new digest now so delete the cached version
                             this.registry.deleteTag(tag);
                             // reload package ids to find the new package id
-                            await this.githubPackageRepo.loadPackages();
+                            await this.githubPackageRepo.loadPackages(false);
                             // reload the manifest
                             const untaggedDigest = await this.registry.getTagDigest(tag);
                             const id = this.githubPackageRepo.getIdByDigest(untaggedDigest);
@@ -40695,58 +41309,35 @@ class CleanupAction {
                             }
                         }
                     }
+                    core.endGroup();
                 }
-            }
-        }
-    }
-    async deleteGhostImages() {
-        for (const digest of this.filterSet) {
-            let ghostImage = false;
-            // is a ghost image if all of the child manifests dont exist
-            const manfiest = await this.registry.getManifestByDigest(digest);
-            if (manfiest.manifests) {
-                let missing = 0;
-                for (const imageManfiest of manfiest.manifests) {
-                    if (!this.githubPackageRepo.getIdByDigest(imageManfiest.digest)) {
-                        missing += 1;
+                // reload the state
+                if (untaggingTags.size > 0) {
+                    core.info('Reloading action due to untagging');
+                    await this.reload();
+                }
+                if (standardTags.size > 0) {
+                    core.startGroup(`Find tagged images to delete: ${this.config.deleteTags}`);
+                    for (const tag of standardTags) {
+                        core.info(tag);
+                        // get the package
+                        const manifestDigest = await this.registry.getTagDigest(tag);
+                        this.deleteSet.add(manifestDigest);
+                        this.filterSet.delete(manifestDigest);
                     }
-                }
-                if (missing === manfiest.manifests.length) {
-                    ghostImage = true;
+                    core.endGroup();
                 }
             }
-            if (ghostImage) {
-                // setup the ghost image to be deleted
-                core.info(`image ${digest} is cued up for deletion as it doesn't contain any of it's platform images`);
-                this.filterSet.delete(digest);
-                this.deleteSet.add(digest);
-            }
-        }
-    }
-    async deletePartialImages() {
-        for (const digest of this.filterSet) {
-            let partialImage = false;
-            // is a partial image if some of the child manifests dont exist
-            const manfiest = await this.registry.getManifestByDigest(digest);
-            if (manfiest.manifests) {
-                for (const imageManfiest of manfiest.manifests) {
-                    if (!this.githubPackageRepo.getIdByDigest(imageManfiest.digest)) {
-                        partialImage = true;
-                        break;
-                    }
-                }
-            }
-            if (partialImage) {
-                // setup the partial image to be deleted
-                core.info(`image ${digest} is cued up for deletion as it doesn't contain all of it's platform images`);
-                this.filterSet.delete(digest);
-                this.deleteSet.add(digest);
+            else {
+                core.startGroup(`Finding tagged images to delete: ${this.config.deleteTags}`);
+                core.info('no matching tags found');
+                core.endGroup();
             }
         }
     }
     async keepNuntagged() {
-        if (this.config.keepNuntagged && this.config.keepNuntagged !== 0) {
-            core.info(`deleting untagged images, keeping ${this.config.keepNuntagged} versions`);
+        if (this.config.keepNuntagged != null) {
+            core.startGroup(`Finding untagged images to delete, keeping ${this.config.keepNuntagged} versions`);
             // create a temporary array of untagged images to process on
             const unTaggedPackages = [];
             // find untagged images in the filterSet
@@ -40768,21 +41359,19 @@ class CleanupAction {
                     for (const deletePackage of deletePackages) {
                         this.deleteSet.add(deletePackage.name);
                         this.filterSet.delete(deletePackage.name);
+                        core.info(`${deletePackage.name}`);
                     }
                 }
             }
-        }
-    }
-    async delete() {
-        // now delete the images
-        for (const deleteDigest of this.deleteSet) {
-            const deleteImage = this.githubPackageRepo.getPackageByDigest(deleteDigest);
-            await this.deleteImage(deleteImage);
+            else {
+                core.info('no untagged images found to delete');
+            }
+            core.endGroup();
         }
     }
     async keepNtagged() {
         if (this.config.keepNtagged != null) {
-            core.info(`deleting tagged images, keeping ${this.config.keepNtagged} versions`);
+            core.startGroup(`Finding tagged images to delete, keeping ${this.config.keepNtagged} versions`);
             // create a temporary array of tagged images to process on
             const taggedPackages = [];
             // only copy images with tags
@@ -40803,40 +41392,65 @@ class CleanupAction {
                 for (const deletePackage of deletePackages) {
                     this.deleteSet.add(deletePackage.name);
                     this.filterSet.delete(deletePackage.name);
+                    const ghPackage = this.githubPackageRepo.getPackageByDigest(deletePackage.name);
+                    core.info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
                 }
             }
+            else {
+                core.info('no tagged images found to delete');
+            }
+            core.endGroup();
         }
     }
+    /*
+     * Add to deleteSet all digests which have no tags
+     */
     async deleteUntagged() {
-        core.info('deleting all untagged images');
+        core.startGroup('Finding all untagged images');
         // find untagged images in the filterSet
         for (const digest of this.filterSet) {
             const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
             if (ghPackage.metadata.container.tags.length === 0) {
-                this.deleteSet.add(ghPackage.name);
-                // not currently removing from filterSet (in loop)
+                this.deleteSet.add(digest);
+                this.filterSet.delete(digest);
+                core.info(`${digest}`);
             }
+        }
+        core.endGroup();
+    }
+    /*
+     * Perform the deletion by deleting all the digets in the deleteSet
+     */
+    async doDelete() {
+        // now delete the images
+        if (this.deleteSet.size > 0) {
+            core.info('Deleting packages');
+            for (const deleteDigest of this.deleteSet) {
+                const deleteImage = this.githubPackageRepo.getPackageByDigest(deleteDigest);
+                await this.deleteImage(deleteImage);
+            }
+        }
+        else {
+            core.info('Nothing to delete');
         }
     }
     async run() {
         try {
             // process tag deletions first - to support untagging
-            if (this.config.tags) {
+            if (this.config.deleteTags) {
                 await this.deleteByTag();
-                await this.reload();
-            }
-            if (this.config.deleteGhostImages) {
-                await this.deleteGhostImages();
             }
             if (this.config.deletePartialImages) {
                 await this.deletePartialImages();
+            }
+            else if (this.config.deleteGhostImages) {
+                await this.deleteGhostImages();
             }
             if (this.config.keepNtagged != null) {
                 // we are in the cleanup tagged images mode
                 await this.keepNtagged();
             }
-            // value 0 will be treated as boolean
-            if (this.config.keepNuntagged) {
+            if (this.config.keepNuntagged != null) {
                 // we are in the cleanup untagged images mode
                 await this.keepNuntagged();
             }
@@ -40845,17 +41459,18 @@ class CleanupAction {
                 await this.deleteUntagged();
             }
             // now preform the actual deletion
-            await this.delete();
+            await this.doDelete();
             if (this.config.validate) {
                 await this.reload();
                 await this.validate();
             }
-            core.info('cleanup statistics:');
+            core.startGroup('Cleanup statistics');
             // print action statistics
             if (this.numberMultiImagesDeleted > 0) {
-                core.info(` multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
+                core.info(`multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
             }
-            core.info(` total images deleted = ${this.numberImagesDeleted}`);
+            core.info(`total images deleted = ${this.numberImagesDeleted}`);
+            core.endGroup();
         }
         catch (error) {
             // Fail the workflow run if an error occurs
@@ -42790,6 +43405,18 @@ module.exports = JSON.parse('{"application/1d-interleaved-parityfec":{"source":"
 /******/ 			return fn.r ? promise : getResult();
 /******/ 		}, (err) => ((err ? reject(promise[webpackError] = err) : outerResolve(exports)), resolveQueue(queue)));
 /******/ 		queue && (queue.d = 0);
+/******/ 	};
+/******/ })();
+/******/ 
+/******/ /* webpack/runtime/compat get default export */
+/******/ (() => {
+/******/ 	// getDefaultExport function for compatibility with non-harmony modules
+/******/ 	__nccwpck_require__.n = (module) => {
+/******/ 		var getter = module && module.__esModule ?
+/******/ 			() => (module['default']) :
+/******/ 			() => (module);
+/******/ 		__nccwpck_require__.d(getter, { a: getter });
+/******/ 		return getter;
 /******/ 	};
 /******/ })();
 /******/ 

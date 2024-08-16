@@ -204,7 +204,15 @@ export async function run(): Promise<void> {
   const dummyDigest =
     'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f'
 
-  if (args.mode === 'prime') {
+  if (args.mode === 'prime-dummy') {
+    // just push the dummy image
+    pushImage(
+      `busybox@${dummyDigest}`, // 1.31
+      `ghcr.io/${config.owner}/${config.package}:dummy`,
+      undefined,
+      args.token
+    )
+  } else if (args.mode === 'prime') {
     // push dummy image - repo once it's created and has an iamge it requires atleast one image
     pushImage(
       `busybox@${dummyDigest}`, // 1.31
@@ -213,7 +221,7 @@ export async function run(): Promise<void> {
       args.token
     )
     // load after dummy to make sure the package exists on first clone/setup
-    await githubPackageRepo.loadPackages()
+    await githubPackageRepo.loadPackages(false)
 
     // remove all the existing images - except for the dummy image
     for (const digest of githubPackageRepo.getDigests()) {
@@ -235,14 +243,14 @@ export async function run(): Promise<void> {
     )
 
     if (fs.existsSync(`${args.directory}/prime-delete`)) {
-      await githubPackageRepo.loadPackages()
+      await githubPackageRepo.loadPackages(false)
 
       // make any deletions
       await deleteDigests(args.directory, githubPackageRepo)
     }
   } else if (args.mode === 'validate') {
     // test the repo after the test
-    await githubPackageRepo.loadPackages()
+    await githubPackageRepo.loadPackages(false)
 
     let error = false
 
@@ -320,7 +328,7 @@ export async function run(): Promise<void> {
     if (!error) console.info('test passed!')
   } else if (args.mode === 'save-expected') {
     // save the expected tag dynamically
-    await githubPackageRepo.loadPackages()
+    await githubPackageRepo.loadPackages(false)
 
     const tags = new Set<string>()
     for (const digest of githubPackageRepo.getDigests()) {
@@ -335,9 +343,20 @@ export async function run(): Promise<void> {
       const digest = await registry.getTagDigest(tag)
       fs.appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`)
 
+      // is it a multi arch image
+      const manifest = await registry.getManifestByTag(tag)
+      if (manifest.manifests) {
+        for (const manifestDigest of manifest.manifests) {
+          fs.appendFileSync(
+            `${args.directory}/expected-digests`,
+            `${manifestDigest.digest}\n`
+          )
+        }
+      }
+
       // is there a refferrer digest
       const referrerTag = digest.replace('sha256:', 'sha256-')
-      if (tags.has(tag)) {
+      if (tags.has(referrerTag)) {
         fs.appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`)
         const referrerDigest = await registry.getTagDigest(referrerTag)
         fs.appendFileSync(
@@ -347,10 +366,10 @@ export async function run(): Promise<void> {
         const referrerManifest =
           await registry.getManifestByDigest(referrerDigest)
         if (referrerManifest.manifests) {
-          for (const manifest of referrerManifest.manifests) {
+          for (const manifestDigest of referrerManifest.manifests) {
             fs.appendFileSync(
               `${args.directory}/expected-digests`,
-              `${manifest.digest}\n`
+              `${manifestDigest.digest}\n`
             )
           }
         }

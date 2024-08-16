@@ -1,3 +1,4 @@
+import * as core from '@actions/core'
 import { createHash } from 'crypto'
 
 export function calcDigest(manifest: string): string {
@@ -31,4 +32,24 @@ export function isValidChallenge(attributes: Map<string, string>): boolean {
     valid = true
   }
   return valid
+}
+
+export class MapPrinter {
+  entries: Map<string, string> = new Map<string, string>()
+  maxLength = 1
+
+  add(entry: string, defaultValue: string): void {
+    if (entry.length > this.maxLength) {
+      this.maxLength = entry.length
+    }
+    this.entries.set(entry, defaultValue)
+  }
+
+  print(): void {
+    const column = this.maxLength + 10
+    for (const [key, value] of this.entries) {
+      const spacer = ''.padEnd(column - key.length, ' ')
+      core.info(`${key}${spacer}${value}`)
+    }
+  }
 }

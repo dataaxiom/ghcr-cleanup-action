@@ -88,17 +88,27 @@ inputs:
     required: false
     default: false
 
+  older-than:
+    description: >
+      Only include packages to be processed that are older than this value. Use
+      the following format samples: 50 seconds, 15 days, 6 months, 2 years
+    required: false
+
   validate:
     description: >
       Validate all multi architecture images manifests by checking their digests
       are present in the registry
-    default: false
+    required: false
 
   dry-run:
     description: >
       Simulate action - does not remove any packages
     required: false
-    default: false
+
+  log-level:
+    description: >
+      Log level (error/warn/info/debug)
+    required: false
 
 runs:
   using: node20

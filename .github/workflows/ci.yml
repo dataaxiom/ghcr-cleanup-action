@@ -13,7 +13,10 @@ permissions:
 
 concurrency:
   group: ci-tests
-  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   general-tests:
@@ -67,12 +70,12 @@ jobs:
           - title: '2a - Single: Tagged'
             purpose: 'Removes images with specific tag (single arch)'
             folder: '2a_single-tagged'
-            tags: 'uclibc-1.35,uclibc-1.36'
+            delete-tags: 'uclibc-1.35,uclibc-1.36'
 
           - title: '2b - Multi: Tagged'
             purpose: 'Removes images with specific tag (multi arch)'
             folder: '2b_multi-tagged'
-            tags: 'uclibc-1.35,uclibc-1.36'
+            delete-tags: 'uclibc-1.35,uclibc-1.36'
 
           - title: '3a - Single: Keep N Tagged'
             purpose:
@@ -112,7 +115,65 @@ jobs:
           - title: '6a - Missing Digests: Tagged'
             purpose: 'Looks for missing digests'
             folder: '6a_missing-digests-tagged'
-            tags: 'uclibc-1.34'
+            delete-tags: 'uclibc-1.34'
+
+          - title: '6b - Ghost Images'
+            purpose: 'Deletes Ghost images'
+            folder: '6b_ghost-images'
+            delete-ghost-images: true
+
+          - title: '6c - Partial Images'
+            purpose: 'Deletes Partial images'
+            folder: '6c_partial-images'
+            delete-partial-images: true
+
+          - title: '7a - Single: Untagging Images'
+            purpose: 'Untagging multi tagged images (single arch)'
+            folder: '7a_single-untagging'
+            delete-tags: tag1,tag2
+
+          - title: '7b - Single: Untagging All Images'
+            purpose: 'Untagging all multi tagged images (single arch)'
+            folder: '7b_single-untagging-all'
+            delete-tags: tag1,tag2,tag3
+
+          - title: '7c - Multi: Untagging Images'
+            purpose: 'Untagging multi tagged images (multi arch)'
+            folder: '7c_multi-untagging'
+            delete-tags: tag2,tag3
+
+          - title: '8a - Multi: Complex'
+            purpose: 'Complex combined Test (multi arch)'
+            folder: '8a_multi-complex'
+            keep-n-tagged: 1
+            delete-untagged: true
+            delete-tags: uclibc-1.34
+            exclude-tags: dummy
+
+          - title: '8b - Multi: Complex'
+            purpose: 'Complex combined Test (multi arch)'
+            folder: '8b_multi-complex'
+            keep-n-tagged: 1
+            keep-n-untagged: 1
+            delete-tags: uclibc-1.34
+            exclude-tags: dummy
+
+          - title: '8c - Multi: Complex'
+            purpose: 'Complex combined Test (multi arch)'
+            folder: '8c_multi-complex'
+            keep-n-tagged: 0
+            keep-n-untagged: 0
+            exclude-tags: dummy
+
+          - title: '9a - Multi: Older Than Skip All Images'
+            purpose: 'Skip processing all images'
+            folder: '9a_multi-older-than-skip'
+            older-than: 30 years
+
+          - title: '9b - Multi: Older Than Normal Processing '
+            purpose: 'Normal processing all images'
+            folder: '9b_multi-older-than-process'
+            older-than: 1 second
 
     steps:
       # Setup for test execution
@@ -130,9 +191,24 @@ jobs:
         run: |
           echo "Purpose of test: ${{ matrix.tests.purpose }}"
 
-          TAGS=""
-          if [ ! -z "${{ matrix.tests.tags }}" ]; then
-            TAGS="${{ matrix.tests.tags }}"
+          DELETE_TAGS=""
+          if [ ! -z "${{ matrix.tests.delete-tags }}" ]; then
+            DELETE_TAGS="${{ matrix.tests.delete-tags }}"
+          fi
+
+          DELETE_UNTAGGED=""
+          if [ ! -z "${{ matrix.tests.delete-untagged }}" ]; then
+            DELETE_UNTAGGED="${{ matrix.tests.delete-untagged }}"
+          fi
+
+          DELETE_GHOST_IMAGES=""
+          if [ ! -z "${{ matrix.tests.delete-ghost-images }}" ]; then
+            DELETE_GHOST_IMAGES="${{ matrix.tests.delete-ghost-images }}"
+          fi
+
+          DELETE_PARTIAL_IMAGES=""
+          if [ ! -z "${{ matrix.tests.delete-partial-images }}" ]; then
+            DELETE_PARTIAL_IMAGES="${{ matrix.tests.delete-partial-images }}"
           fi
 
           KEEP_N_TAGGED=""
@@ -150,6 +226,11 @@ jobs:
             EXCLUDE_TAGS="${{ matrix.tests.exclude-tags }}"
           fi
 
+          OLDER_THAN=""
+          if [ ! -z "${{ matrix.tests.older-than }}" ]; then
+            OLDER_THAN="${{ matrix.tests.older-than }}"
+          fi
+
           DRY_RUN=""
           if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
             DRY_RUN="TRUE"
@@ -165,28 +246,16 @@ jobs:
             DELAY="3000"
           fi
 
-          echo "TAGS=$TAGS" >> $GITHUB_ENV
+          echo "DELETE_TAGS=$DELETE_TAGS" >> $GITHUB_ENV
+          echo "DELETE_UNTAGGED=$DELETE_UNTAGGED" >> $GITHUB_ENV
+          echo "DELETE_GHOST_IMAGES=$DELETE_GHOST_IMAGES" >> $GITHUB_ENV
+          echo "DELETE_PARTIAL_IMAGES=$DELETE_PARTIAL_IMAGES" >> $GITHUB_ENV
           echo "KEEP_N_TAGGED=$KEEP_N_TAGGED" >> $GITHUB_ENV
           echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED" >> $GITHUB_ENV
           echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
+          echo "OLDER_THAN=$OLDER_THAN" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
           echo "DELAY=$DELAY" >> $GITHUB_ENV
-
-      # - name: ' > Debug: Print Matrix Variables'
-      #   run: |
-      #     echo "tags: ${{ matrix.tests.tags }}"
-      #     echo "keep-n-tagged: ${{ matrix.tests.keep-n-tagged }}"
-      #     echo "keep-n-untagged: ${{ matrix.tests.keep-n-untagged }}"
-      #     echo "exclude-tags: ${{ matrix.tests.exclude-tags }}"
-      #     echo "dry-run: ${{ matrix.tests.dry-run }}"
-
-      # - name: ' > Debug: Print Env Variables'
-      #   run: |
-      #     echo "tags: ${{ env.TAGS }}"
-      #     echo "keep-n-tagged: ${{ env.KEEP_N_TAGGED }}"
-      #     echo "keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}"
-      #     echo "exclude-tags: ${{ env.EXCLUDE_TAGS }}"
-      #     echo "dry-run: ${{ env.DRY_RUN }}"
 
       - name: ' > Priming Test Environment'
         run: |
@@ -197,10 +266,14 @@ jobs:
       - name: ' > Running Workflow'
         uses: ./
         with:
-          tags: ${{ env.TAGS }}
+          delete-tags: ${{ env.DELETE_TAGS }}
+          delete-untagged: ${{ env.DELETE_UNTAGGED }}
+          delete-ghost-images: ${{ env.DELETE_GHOST_IMAGES }}
+          delete-partial-images: ${{ env.DELETE_PARTIAL_IMAGES }}
           keep-n-tagged: ${{ env.KEEP_N_TAGGED }}
           keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}
           exclude-tags: ${{ env.EXCLUDE_TAGS }}
+          older-than: ${{ env.OLDER_THAN }}
           dry-run: ${{ env.DRY_RUN }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -210,11 +283,9 @@ jobs:
             --directory tests/${{ matrix.tests.folder }} \
             --mode validate
 
-  attestation-tests:
-    name: Attestation Tests
+  github-attestation-tests:
+    name: Github Referrer/Attestation Tests
     runs-on: ubuntu-latest
-    concurrency:
-      group: attestation-tests-group
     env:
       REGISTRY: ghcr.io
     needs: integration-tests
@@ -322,3 +393,116 @@ jobs:
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/attestation-untagged --mode validate
+
+  shared-image-tagged-test:
+    name: Shared Images Tagged Test
+    runs-on: ubuntu-latest
+    needs: github-attestation-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prime Test - Shared Images Tagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-tagged --mode prime
+
+      - name: Create builder
+        run: docker buildx create --name mybuilder --use --bootstrap
+
+      - name: Build multi-platform image1
+        run:
+          docker buildx build --cache-to
+          "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
+          "type=registry,ref=$IMAGE-cache:latest" --platform
+          linux/amd64,linux/arm64 --push -t "$IMAGE:image1"
+          tests/shared-images-tagged
+
+      - name: Build multi-platform image2
+        run:
+          docker buildx build --cache-to
+          "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
+          "type=registry,ref=$IMAGE-cache:latest" --platform
+          linux/amd64,linux/arm64 --push -t "$IMAGE:image2"
+          tests/shared-images-tagged
+
+      - name: Save Digests - Shared Images Tagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-tagged --mode save-expected --tag image2
+
+      - name: Run Test - Shared Images Tagged Test
+        uses: ./
+        with:
+          validate: true
+          delete-tags: image1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate Test Results - Shared Images Tagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-tagged --mode validate
+
+  shared-image-untagged-test:
+    name: Shared Images Untagged Test
+    runs-on: ubuntu-latest
+    needs: shared-image-tagged-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prime Test - Shared Images Untagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-untagged --mode prime
+
+      - name: Create builder
+        run: docker buildx create --name mybuilder --use --bootstrap
+
+      - name: Build multi-platform dummy
+        run:
+          docker buildx build --cache-to
+          "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
+          "type=registry,ref=$IMAGE-cache:latest" --platform
+          linux/amd64,linux/arm64 --push -t "$IMAGE:dummy"
+          tests/shared-images-untagged
+
+      - name: Build multi-platform dummy
+        run:
+          docker buildx build --cache-to
+          "type=registry,ref=$IMAGE-cache:latest,mode=max" --cache-from
+          "type=registry,ref=$IMAGE-cache:latest" --platform
+          linux/amd64,linux/arm64 --push -t "$IMAGE:dummy"
+          tests/shared-images-untagged
+
+      - name: Reload dummy - Shared Images Untagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-untagged --mode prime-dummy
+
+      - name: Run Test - Shared Images Untagged Test
+        uses: ./
+        with:
+          validate: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate Test Results - Shared Images Untagged Test
+        run:
+          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
+          tests/shared-images-untagged --mode validate
