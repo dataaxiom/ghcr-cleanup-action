@@ -648,8 +648,8 @@ class CleanupAction {
       const ghPackage = this.githubPackageRepo.getPackageByDigest(digest)
       if (ghPackage.metadata.container.tags.length === 0) {
         this.deleteSet.add(digest)
+        this.filterSet.delete(digest)
         core.info(`${digest}`)
-        // not currently removing from filterSet (in loop) and it's the end of processing chain
       }
     }
     core.endGroup()
