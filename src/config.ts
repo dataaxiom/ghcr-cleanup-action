@@ -167,7 +167,23 @@ export function getConfig(): Config {
 
   if (core.getInput('older-than')) {
     config.olderThan = humanInterval(core.getInput('older-than'))
+    // save the text version of it
     config.olderThanReadable = core.getInput('older-than')
+
+    if (config.olderThan != null && isNaN(config.olderThan)) {
+      // check if it has an interval type
+      const regexp = /(second|minute|hour|day|week|month|year)s?/
+      const match = config.olderThanReadable.match(regexp)
+      if (match) {
+        throw Error(
+          `older-than value "${config.olderThanReadable}" is not a valid interval`
+        )
+      } else {
+        throw Error(
+          `older-than value "${config.olderThanReadable}" is not a valid interval, it's missing an interval such as second, minute, hour, day, week or year`
+        )
+      }
+    }
   }
 
   if (core.getInput('keep-n-tagged')) {
@@ -276,8 +292,14 @@ export function getConfig(): Config {
   if (config.excludeTags) {
     optionsMap.add('exclude-tags', config.excludeTags)
   }
-  if (config.olderThanReadable) {
-    optionsMap.add('older-than', config.olderThanReadable)
+  if (config.olderThan) {
+    try {
+      const cutOff = new Date(Date.now() - config.olderThan)
+      optionsMap.add('older-than', cutOff.toUTCString())
+    } catch (error) {
+      core.info('error processing older-than value')
+      throw error
+    }
   }
   if (config.deleteUntagged != null) {
     optionsMap.add('delete-untagged', `${config.deleteUntagged}`)
