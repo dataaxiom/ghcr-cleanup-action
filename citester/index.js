@@ -35731,14 +35731,8 @@ function getConfig() {
     if (core.getInput('delete-ghost-images')) {
         config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
     }
-    else {
-        config.deleteGhostImages = false;
-    }
     if (core.getInput('delete-partial-images')) {
         config.deletePartialImages = core.getBooleanInput('delete-partial-images');
-    }
-    else {
-        config.deletePartialImages = false;
     }
     if (core.getInput('dry-run')) {
         config.dryRun = core.getBooleanInput('dry-run');
