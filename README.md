@@ -191,7 +191,7 @@ be used with all of the delete and keep options narrowing their scope to which
 images they will process.
 
 The syntax supports the following units in the plural and singular forms:
-seconds, minutes, hours, days, weeks, months and years
+seconds, minutes, hours, days, weeks, months and years.
 
 The option uses a simple human-interval syntax to match images. See the
 [human-interval](https://github.com/agenda/human-interval/tree/master) project
@@ -266,7 +266,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-## Samples Action Setups
+## Sample Action Setups
 
 ### Complex example `keep-n-tagged`
 
