@@ -36967,14 +36967,8 @@ retry.VERSION = plugin_retry_dist_bundle_VERSION;
 
 // EXTERNAL MODULE: ./node_modules/@octokit/request-error/dist-node/index.js
 var request_error_dist_node = __nccwpck_require__(537);
-// EXTERNAL MODULE: external "crypto"
-var external_crypto_ = __nccwpck_require__(6113);
 ;// CONCATENATED MODULE: ./src/utils.ts
 
-
-function calcDigest(manifest) {
-    return `sha256:${(0,external_crypto_.createHash)('sha256').update(manifest).digest('hex').toLowerCase()}`;
-}
 function parseChallenge(challenge) {
     const attributes = new Map();
     if (challenge.startsWith('Bearer ')) {
@@ -42640,21 +42634,22 @@ var lib = __nccwpck_require__(7370);
 class Registry {
     // The action configuration
     config;
+    // Reference to the package cache
+    githubPackageRepo;
     // http client library instance
     axios;
     // cache of loaded manifests, by digest
     manifestCache = new Map();
-    // map of tag digests
-    digestByTagCache = new Map();
     // map of referrer manifests
-    referrersCache = new Map();
+    //referrersCache = new Map<string, any>()
     /**
      * Constructor
      *
      * @param config The action configuration
      */
-    constructor(config) {
+    constructor(config, githubPackageRepo) {
         this.config = config;
+        this.githubPackageRepo = githubPackageRepo;
         this.axios = lib_axios.create({
             baseURL: 'https://ghcr.io/'
         });
@@ -42746,57 +42741,15 @@ class Registry {
         }
     }
     /**
-     * Delete the associated cached digest for tag
-     *
-     * @param tag - The tag to delete
-     */
-    deleteTag(tag) {
-        this.digestByTagCache.delete(tag);
-    }
-    /**
-     * Retrieves tag for the given digest
-     *
-     * @param tag - The tag to lookup
-     * @returns A Promise that resolves to the retrieved digest
-     */
-    async getTagDigest(tag) {
-        if (!this.digestByTagCache.has(tag)) {
-            // load it
-            await this.getManifestByTag(tag);
-        }
-        const digest = this.digestByTagCache.get(tag);
-        if (digest) {
-            return digest;
-        }
-        else {
-            throw new Error(`couln't find digest for tag ${tag}`);
-        }
-    }
-    /**
      * Retrieves a manifest by its tag
      *
      * @param tag - The tag of the manifest to retrieve
      * @returns A Promise that resolves to the retrieved manifest
      */
     async getManifestByTag(tag) {
-        const cacheDigest = this.digestByTagCache.get(tag);
-        if (cacheDigest) {
-            // get the digest to look up the manifest
-            return this.manifestCache.get(cacheDigest);
-        }
-        else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const digest = calcDigest(response?.data);
-            const obj = JSON.parse(response?.data);
-            this.manifestCache.set(digest, obj);
-            this.digestByTagCache.set(tag, digest);
-            return obj;
+        const tagDigest = this.githubPackageRepo.getDigestByTag(tag);
+        if (tagDigest) {
+            return await this.getManifestByDigest(tagDigest);
         }
     }
     /**
@@ -42859,26 +42812,6 @@ class Registry {
             else {
                 throw new Error('no token set to upload manifest');
             }
-        }
-    }
-    // TODO
-    // ghcr.io not yet supporting referrers api?
-    async getReferrersManifest(digest) {
-        if (this.referrersCache.has(digest)) {
-            return this.referrersCache.get(digest);
-        }
-        else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/referrers/${digest}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const obj = JSON.parse(response?.data);
-            // save it for later use
-            this.referrersCache.set(digest, obj);
-            return obj;
         }
     }
 }
@@ -43294,8 +43227,8 @@ class CleanupAction {
     numberImagesDeleted = 0;
     constructor() {
         this.config = getConfig();
-        this.registry = new Registry(this.config);
         this.githubPackageRepo = new GithubPackageRepo(this.config);
+        this.registry = new Registry(this.config, this.githubPackageRepo);
     }
     async init() {
         await this.registry.login();
@@ -43412,12 +43345,14 @@ class CleanupAction {
             if (this.tagsInUse.has(referrerTag) &&
                 !this.excludeTags.includes(referrerTag)) {
                 // find the digest and children and remove them
-                const referrerDigest = await this.registry.getTagDigest(referrerTag);
-                this.filterSet.delete(referrerDigest);
-                const referrerManifest = await this.registry.getManifestByTag(referrerTag);
-                if (referrerManifest.manifests) {
-                    for (const manifestEntry of referrerManifest.manifests) {
-                        this.filterSet.delete(manifestEntry.digest);
+                const referrerDigest = this.githubPackageRepo.getDigestByTag(referrerTag);
+                if (referrerDigest) {
+                    this.filterSet.delete(referrerDigest);
+                    const referrerManifest = await this.registry.getManifestByTag(referrerTag);
+                    if (referrerManifest.manifests) {
+                        for (const manifestEntry of referrerManifest.manifests) {
+                            this.filterSet.delete(manifestEntry.digest);
+                        }
                     }
                 }
             }
@@ -43549,10 +43484,12 @@ class CleanupAction {
             if (this.tagsInUse.has(attestationTag) &&
                 !this.excludeTags.includes(attestationTag)) {
                 // find the package
-                const manifestDigest = await this.registry.getTagDigest(attestationTag);
-                const attestationPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
-                // recursively delete it
-                await this.deleteImage(attestationPackage);
+                const manifestDigest = this.githubPackageRepo.getDigestByTag(attestationTag);
+                if (manifestDigest) {
+                    const attestationPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
+                    // recursively delete it
+                    await this.deleteImage(attestationPackage);
+                }
             }
         }
     }
@@ -43649,13 +43586,15 @@ class CleanupAction {
                 for (const tag of matchTags) {
                     if (!this.excludeTags.includes(tag)) {
                         // get the package
-                        const manifestDigest = await this.registry.getTagDigest(tag);
-                        const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
-                        if (ghPackage.metadata.container.tags.length > 1) {
-                            untaggingTags.add(tag);
-                        }
-                        else if (ghPackage.metadata.container.tags.length === 1) {
-                            standardTags.add(tag);
+                        const manifestDigest = this.githubPackageRepo.getDigestByTag(tag);
+                        if (manifestDigest) {
+                            const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
+                            if (ghPackage.metadata.container.tags.length > 1) {
+                                untaggingTags.add(tag);
+                            }
+                            else if (ghPackage.metadata.container.tags.length === 1) {
+                                standardTags.add(tag);
+                            }
                         }
                     }
                 }
@@ -43664,44 +43603,46 @@ class CleanupAction {
                     for (const tag of untaggingTags) {
                         // lets recheck there is more than 1 tag, else add it to standard set for later deletion
                         // it could be situation where all tags are being deleted
-                        const manifestDigest = await this.registry.getTagDigest(tag);
-                        const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
-                        if (ghPackage.metadata.container.tags.length === 1) {
-                            standardTags.add(tag);
-                        }
-                        else {
-                            core.info(`${tag}`);
-                            // get the package
-                            const manifest = await this.registry.getManifestByTag(tag);
-                            // preform a "ghcr.io" image deletion
-                            // as the registry doesn't support manifest deletion directly
-                            // we instead assign the tag to a different manifest first
-                            // then we delete it
-                            // clone the manifest
-                            const newManifest = JSON.parse(JSON.stringify(manifest));
-                            // create a fake manifest to separate the tag
-                            if (newManifest.manifests) {
-                                // a multi architecture image
-                                newManifest.manifests = [];
-                                await this.registry.putManifest(tag, newManifest, true);
+                        const manifestDigest = this.githubPackageRepo.getDigestByTag(tag);
+                        if (manifestDigest) {
+                            const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
+                            if (ghPackage.metadata.container.tags.length === 1) {
+                                standardTags.add(tag);
                             }
                             else {
-                                newManifest.layers = [];
-                                await this.registry.putManifest(tag, newManifest, false);
-                            }
-                            // the tag will have a new digest now so delete the cached version
-                            this.registry.deleteTag(tag);
-                            // reload package ids to find the new package id
-                            await this.githubPackageRepo.loadPackages(false);
-                            // reload the manifest
-                            const untaggedDigest = await this.registry.getTagDigest(tag);
-                            const id = this.githubPackageRepo.getIdByDigest(untaggedDigest);
-                            if (id) {
-                                await this.githubPackageRepo.deletePackageVersion(id, untaggedDigest, [tag]);
-                                this.numberImagesDeleted += 1;
-                            }
-                            else {
-                                core.info(`couldn't find newly created package with digest ${untaggedDigest} to delete`);
+                                core.info(`${tag}`);
+                                // get the package
+                                const manifest = await this.registry.getManifestByTag(tag);
+                                // preform a "ghcr.io" image deletion
+                                // as the registry doesn't support manifest deletion directly
+                                // we instead assign the tag to a different manifest first
+                                // then we delete it
+                                // clone the manifest
+                                const newManifest = JSON.parse(JSON.stringify(manifest));
+                                // create a fake manifest to separate the tag
+                                if (newManifest.manifests) {
+                                    // a multi architecture image
+                                    newManifest.manifests = [];
+                                    await this.registry.putManifest(tag, newManifest, true);
+                                }
+                                else {
+                                    newManifest.layers = [];
+                                    await this.registry.putManifest(tag, newManifest, false);
+                                }
+                                // reload package ids to find the new package id/digest
+                                await this.githubPackageRepo.loadPackages(false);
+                                // reload the manifest
+                                const untaggedDigest = this.githubPackageRepo.getDigestByTag(tag);
+                                if (untaggedDigest) {
+                                    const id = this.githubPackageRepo.getIdByDigest(untaggedDigest);
+                                    if (id) {
+                                        await this.githubPackageRepo.deletePackageVersion(id, untaggedDigest, [tag]);
+                                        this.numberImagesDeleted += 1;
+                                    }
+                                    else {
+                                        core.info(`couldn't find newly created package with digest ${untaggedDigest} to delete`);
+                                    }
+                                }
                             }
                         }
                     }
@@ -43717,9 +43658,11 @@ class CleanupAction {
                     for (const tag of standardTags) {
                         core.info(tag);
                         // get the package
-                        const manifestDigest = await this.registry.getTagDigest(tag);
-                        this.deleteSet.add(manifestDigest);
-                        this.filterSet.delete(manifestDigest);
+                        const manifestDigest = this.githubPackageRepo.getDigestByTag(tag);
+                        if (manifestDigest) {
+                            this.deleteSet.add(manifestDigest);
+                            this.filterSet.delete(manifestDigest);
+                        }
                     }
                     core.endGroup();
                 }

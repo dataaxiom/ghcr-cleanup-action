@@ -3,8 +3,9 @@ import { Config, LogLevel } from './config.js'
 import axios, { AxiosInstance, isAxiosError } from 'axios'
 import axiosRetry from 'axios-retry'
 import * as AxiosLogger from 'axios-logger'
-import { calcDigest, isValidChallenge, parseChallenge } from './utils.js'
+import { isValidChallenge, parseChallenge } from './utils.js'
 import { setGlobalConfig } from 'axios-logger'
+import { GithubPackageRepo } from './github-package.js'
 
 /**
  * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
@@ -13,25 +14,26 @@ export class Registry {
   // The action configuration
   config: Config
 
+  // Reference to the package cache
+  githubPackageRepo: GithubPackageRepo
+
   // http client library instance
   axios: AxiosInstance
 
   // cache of loaded manifests, by digest
   manifestCache = new Map<string, any>()
 
-  // map of tag digests
-  digestByTagCache = new Map<string, string>()
-
   // map of referrer manifests
-  referrersCache = new Map<string, any>()
+  //referrersCache = new Map<string, any>()
 
   /**
    * Constructor
    *
    * @param config The action configuration
    */
-  constructor(config: Config) {
+  constructor(config: Config, githubPackageRepo: GithubPackageRepo) {
     this.config = config
+    this.githubPackageRepo = githubPackageRepo
     this.axios = axios.create({
       baseURL: 'https://ghcr.io/'
     })
@@ -131,60 +133,15 @@ export class Registry {
   }
 
   /**
-   * Delete the associated cached digest for tag
-   *
-   * @param tag - The tag to delete
-   */
-  deleteTag(tag: string): void {
-    this.digestByTagCache.delete(tag)
-  }
-
-  /**
-   * Retrieves tag for the given digest
-   *
-   * @param tag - The tag to lookup
-   * @returns A Promise that resolves to the retrieved digest
-   */
-  async getTagDigest(tag: string): Promise<string> {
-    if (!this.digestByTagCache.has(tag)) {
-      // load it
-      await this.getManifestByTag(tag)
-    }
-    const digest = this.digestByTagCache.get(tag)
-    if (digest) {
-      return digest
-    } else {
-      throw new Error(`couln't find digest for tag ${tag}`)
-    }
-  }
-
-  /**
    * Retrieves a manifest by its tag
    *
    * @param tag - The tag of the manifest to retrieve
    * @returns A Promise that resolves to the retrieved manifest
    */
   async getManifestByTag(tag: string): Promise<any> {
-    const cacheDigest = this.digestByTagCache.get(tag)
-    if (cacheDigest) {
-      // get the digest to look up the manifest
-      return this.manifestCache.get(cacheDigest)
-    } else {
-      const response = await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`,
-        {
-          transformResponse: [
-            data => {
-              return data
-            }
-          ]
-        }
-      )
-      const digest = calcDigest(response?.data)
-      const obj = JSON.parse(response?.data)
-      this.manifestCache.set(digest, obj)
-      this.digestByTagCache.set(tag, digest)
-      return obj
+    const tagDigest = this.githubPackageRepo.getDigestByTag(tag)
+    if (tagDigest) {
+      return await this.getManifestByDigest(tagDigest)
     }
   }
 
@@ -264,7 +221,7 @@ export class Registry {
 
   // TODO
   // ghcr.io not yet supporting referrers api?
-  async getReferrersManifest(digest: string): Promise<any> {
+  /*async getReferrersManifest(digest: string): Promise<any> {
     if (this.referrersCache.has(digest)) {
       return this.referrersCache.get(digest)
     } else {
@@ -283,5 +240,5 @@ export class Registry {
       this.referrersCache.set(digest, obj)
       return obj
     }
-  }
+  } */
 }

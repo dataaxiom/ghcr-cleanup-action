@@ -37331,10 +37331,10 @@ async function run() {
         }
     }
     config.owner = config.owner?.toLowerCase();
-    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_5__/* .Registry */ .B(config);
-    await registry.login();
     const githubPackageRepo = new _github_package_js__WEBPACK_IMPORTED_MODULE_4__/* .GithubPackageRepo */ .l(config);
     await githubPackageRepo.init();
+    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_5__/* .Registry */ .B(config, githubPackageRepo);
+    await registry.login();
     const dummyDigest = 'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f';
     if (args.mode === 'prime-dummy') {
         // just push the dummy image
@@ -37447,27 +37447,37 @@ async function run() {
         }
         if (tag) {
             // find the digests in use for the supplied tag
-            const digest = await registry.getTagDigest(tag);
-            fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`);
-            // is it a multi arch image
-            const manifest = await registry.getManifestByTag(tag);
-            if (manifest.manifests) {
-                for (const manifestDigest of manifest.manifests) {
-                    fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifestDigest.digest}\n`);
-                }
-            }
-            // is there a refferrer digest
-            const referrerTag = digest.replace('sha256:', 'sha256-');
-            if (tags.has(referrerTag)) {
-                fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`);
-                const referrerDigest = await registry.getTagDigest(referrerTag);
-                fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${referrerDigest}\n`);
-                const referrerManifest = await registry.getManifestByDigest(referrerDigest);
-                if (referrerManifest.manifests) {
-                    for (const manifestDigest of referrerManifest.manifests) {
+            const digest = githubPackageRepo.getDigestByTag(tag);
+            if (digest) {
+                fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`);
+                // is it a multi arch image
+                const manifest = await registry.getManifestByTag(tag);
+                if (manifest.manifests) {
+                    for (const manifestDigest of manifest.manifests) {
                         fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifestDigest.digest}\n`);
                     }
                 }
+                // is there a refferrer digest
+                const referrerTag = digest.replace('sha256:', 'sha256-');
+                if (tags.has(referrerTag)) {
+                    fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`);
+                    const referrerDigest = githubPackageRepo.getDigestByTag(referrerTag);
+                    if (referrerDigest) {
+                        fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${referrerDigest}\n`);
+                        const referrerManifest = await registry.getManifestByDigest(referrerDigest);
+                        if (referrerManifest.manifests) {
+                            for (const manifestDigest of referrerManifest.manifests) {
+                                fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifestDigest.digest}\n`);
+                            }
+                        }
+                    }
+                    else {
+                        _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`no tag found for referrer digest ${digest}`);
+                    }
+                }
+            }
+            else {
+                _actions_core__WEBPACK_IMPORTED_MODULE_2__.setFailed(`no tag found for digest ${digest}`);
             }
         }
         else {
@@ -43750,21 +43760,22 @@ var src_utils = __nccwpck_require__(1314);
 class Registry {
     // The action configuration
     config;
+    // Reference to the package cache
+    githubPackageRepo;
     // http client library instance
     axios;
     // cache of loaded manifests, by digest
     manifestCache = new Map();
-    // map of tag digests
-    digestByTagCache = new Map();
     // map of referrer manifests
-    referrersCache = new Map();
+    //referrersCache = new Map<string, any>()
     /**
      * Constructor
      *
      * @param config The action configuration
      */
-    constructor(config) {
+    constructor(config, githubPackageRepo) {
         this.config = config;
+        this.githubPackageRepo = githubPackageRepo;
         this.axios = lib_axios.create({
             baseURL: 'https://ghcr.io/'
         });
@@ -43856,57 +43867,15 @@ class Registry {
         }
     }
     /**
-     * Delete the associated cached digest for tag
-     *
-     * @param tag - The tag to delete
-     */
-    deleteTag(tag) {
-        this.digestByTagCache.delete(tag);
-    }
-    /**
-     * Retrieves tag for the given digest
-     *
-     * @param tag - The tag to lookup
-     * @returns A Promise that resolves to the retrieved digest
-     */
-    async getTagDigest(tag) {
-        if (!this.digestByTagCache.has(tag)) {
-            // load it
-            await this.getManifestByTag(tag);
-        }
-        const digest = this.digestByTagCache.get(tag);
-        if (digest) {
-            return digest;
-        }
-        else {
-            throw new Error(`couln't find digest for tag ${tag}`);
-        }
-    }
-    /**
      * Retrieves a manifest by its tag
      *
      * @param tag - The tag of the manifest to retrieve
      * @returns A Promise that resolves to the retrieved manifest
      */
     async getManifestByTag(tag) {
-        const cacheDigest = this.digestByTagCache.get(tag);
-        if (cacheDigest) {
-            // get the digest to look up the manifest
-            return this.manifestCache.get(cacheDigest);
-        }
-        else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const digest = (0,src_utils/* calcDigest */.QB)(response?.data);
-            const obj = JSON.parse(response?.data);
-            this.manifestCache.set(digest, obj);
-            this.digestByTagCache.set(tag, digest);
-            return obj;
+        const tagDigest = this.githubPackageRepo.getDigestByTag(tag);
+        if (tagDigest) {
+            return await this.getManifestByDigest(tagDigest);
         }
     }
     /**
@@ -43971,26 +43940,6 @@ class Registry {
             }
         }
     }
-    // TODO
-    // ghcr.io not yet supporting referrers api?
-    async getReferrersManifest(digest) {
-        if (this.referrersCache.has(digest)) {
-            return this.referrersCache.get(digest);
-        }
-        else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/referrers/${digest}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const obj = JSON.parse(response?.data);
-            // save it for later use
-            this.referrersCache.set(digest, obj);
-            return obj;
-        }
-    }
 }
 
 
@@ -44001,19 +43950,12 @@ class Registry {
 
 /* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
 /* harmony export */   "L4": () => (/* binding */ parseChallenge),
-/* harmony export */   "QB": () => (/* binding */ calcDigest),
 /* harmony export */   "Qf": () => (/* binding */ isValidChallenge)
 /* harmony export */ });
 /* unused harmony export MapPrinter */
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var crypto__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(6113);
-/* harmony import */ var crypto__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(crypto__WEBPACK_IMPORTED_MODULE_1__);
 
-
-function calcDigest(manifest) {
-    return `sha256:${(0,crypto__WEBPACK_IMPORTED_MODULE_1__.createHash)('sha256').update(manifest).digest('hex').toLowerCase()}`;
-}
 function parseChallenge(challenge) {
     const attributes = new Map();
     if (challenge.startsWith('Bearer ')) {

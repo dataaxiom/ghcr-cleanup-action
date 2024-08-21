@@ -1,9 +1,4 @@
 import * as core from '@actions/core'
-import { createHash } from 'crypto'
-
-export function calcDigest(manifest: string): string {
-  return `sha256:${createHash('sha256').update(manifest).digest('hex').toLowerCase()}`
-}
 
 export function parseChallenge(challenge: string): Map<string, string> {
   const attributes = new Map<string, string>()

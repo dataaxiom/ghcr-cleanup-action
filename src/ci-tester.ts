@@ -195,11 +195,11 @@ export async function run(): Promise<void> {
 
   config.owner = config.owner?.toLowerCase()
 
-  const registry = new Registry(config)
-  await registry.login()
-
   const githubPackageRepo = new GithubPackageRepo(config)
   await githubPackageRepo.init()
+
+  const registry = new Registry(config, githubPackageRepo)
+  await registry.login()
 
   const dummyDigest =
     'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f'
@@ -340,39 +340,50 @@ export async function run(): Promise<void> {
 
     if (tag) {
       // find the digests in use for the supplied tag
-      const digest = await registry.getTagDigest(tag)
-      fs.appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`)
+      const digest = githubPackageRepo.getDigestByTag(tag)
+      if (digest) {
+        fs.appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`)
 
-      // is it a multi arch image
-      const manifest = await registry.getManifestByTag(tag)
-      if (manifest.manifests) {
-        for (const manifestDigest of manifest.manifests) {
-          fs.appendFileSync(
-            `${args.directory}/expected-digests`,
-            `${manifestDigest.digest}\n`
-          )
-        }
-      }
-
-      // is there a refferrer digest
-      const referrerTag = digest.replace('sha256:', 'sha256-')
-      if (tags.has(referrerTag)) {
-        fs.appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`)
-        const referrerDigest = await registry.getTagDigest(referrerTag)
-        fs.appendFileSync(
-          `${args.directory}/expected-digests`,
-          `${referrerDigest}\n`
-        )
-        const referrerManifest =
-          await registry.getManifestByDigest(referrerDigest)
-        if (referrerManifest.manifests) {
-          for (const manifestDigest of referrerManifest.manifests) {
+        // is it a multi arch image
+        const manifest = await registry.getManifestByTag(tag)
+        if (manifest.manifests) {
+          for (const manifestDigest of manifest.manifests) {
             fs.appendFileSync(
               `${args.directory}/expected-digests`,
               `${manifestDigest.digest}\n`
             )
           }
         }
+
+        // is there a refferrer digest
+        const referrerTag = digest.replace('sha256:', 'sha256-')
+        if (tags.has(referrerTag)) {
+          fs.appendFileSync(
+            `${args.directory}/expected-tags`,
+            `${referrerTag}\n`
+          )
+          const referrerDigest = githubPackageRepo.getDigestByTag(referrerTag)
+          if (referrerDigest) {
+            fs.appendFileSync(
+              `${args.directory}/expected-digests`,
+              `${referrerDigest}\n`
+            )
+            const referrerManifest =
+              await registry.getManifestByDigest(referrerDigest)
+            if (referrerManifest.manifests) {
+              for (const manifestDigest of referrerManifest.manifests) {
+                fs.appendFileSync(
+                  `${args.directory}/expected-digests`,
+                  `${manifestDigest.digest}\n`
+                )
+              }
+            }
+          } else {
+            core.setFailed(`no tag found for referrer digest ${digest}`)
+          }
+        }
+      } else {
+        core.setFailed(`no tag found for digest ${digest}`)
       }
     } else {
       core.setFailed('no tag supplied')
