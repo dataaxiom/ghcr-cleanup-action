@@ -6,8 +6,8 @@
 [![CodeQL](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/codeql-analysis.yml)
 [![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
 
-A workflow action that cleans up images in the GitHub Container Registry
-(ghcr.io). Its focus is on supporting multi-architecture images.
+A workflow action that deletes images in the GitHub Container Registry
+(ghcr.io). Its main focus is on supporting multi-architecture images.
 
 It includes the following features:
 
@@ -63,14 +63,15 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-The action calls both the registry (ghcr.io) and the GitHub Package APIs to
+The action calls both the registry API (ghcr.io) and the GitHub package API to
 facilitate support for multi-architecture images. This is required to determine
-the relationships between all the multi-architecture image contents. It
-downloads the manifest information for all images and maps the contents to the
-underlying packages, which appear as untagged in GitHub (as seen in the web
-interface). To safely delete untagged images the action determines first if the
-untagged package is actually in use by another image/package and skips these.
-Likewise to delete an image it needs to delete all of the underlying packages.
+the relationships between all of the multi-architecture image contents. It
+downloads the manifest descriptors of all images and maps their content to the
+underlying packages. Which for multi-architecture images appear as untagged in
+GitHub (as seen in the web interface). To safely delete untagged images the
+action determines first if the untagged package is actually in use by another
+image/package and skips these. Likewise to delete an image it needs to delete
+all of the underlying packages.
 
 ### Do a dry-run first
 
@@ -94,7 +95,7 @@ select images.
 If the owner, repository or package options are not set then the values are
 automatically set from the project environment where the action is running.
 
-### Clean-up Options
+### Cleanup Options
 
 | Option                | Required | Defaults  | Description                                                                                             |
 | --------------------- | :------: | --------- | ------------------------------------------------------------------------------------------------------- |
@@ -368,6 +369,13 @@ other package publishing or deleting process is occurring at the same time. It's
 recommended to use a GitHub concurrency group with this action in complex/busy
 repositories.
 
+### Validate Option
+
+Set the `validate` option to true to enable a full scan of the image repository
+at the end of the execution to check that all multi-architecture images have no
+missing platform images. Warnings will be outputted if there are missing
+packages.
+
 ### Package Restoration
 
 GitHub has a package restoration API capability. The package IDs are printed in
@@ -376,10 +384,3 @@ the workflow log where the ghcr-cleanup-action is run.
 [Restore Organization Package](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#restore-package-version-for-an-organization)
 
 [Restore User Package](https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28#restore-a-package-version-for-the-authenticated-user)
-
-### Validate Option
-
-Set the `validate` option to true to enable a full scan of the image repository
-at the end of the execution to check that all multi-architecture images have no
-missing platform images. Warnings will be outputted if there are missing
-packages.
