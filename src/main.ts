@@ -466,7 +466,7 @@ class CleanupAction {
         }
 
         if (untaggingTags.size > 0) {
-          core.startGroup(`Untagged images: ${this.config.deleteTags}`)
+          core.startGroup(`Untagging images: ${untaggingTags}`)
           for (const tag of untaggingTags) {
             // lets recheck there is more than 1 tag, else add it to standard set for later deletion
             // it could be situation where all tags are being deleted
@@ -642,6 +642,7 @@ class CleanupAction {
    */
   async deleteUntagged(): Promise<void> {
     core.startGroup('Finding all untagged images')
+    let untaggedImageFound = false
 
     // find untagged images in the filterSet
     for (const digest of this.filterSet) {
@@ -650,7 +651,11 @@ class CleanupAction {
         this.deleteSet.add(digest)
         this.filterSet.delete(digest)
         core.info(`${digest}`)
+        untaggedImageFound = true
       }
+    }
+    if (!untaggedImageFound) {
+      core.info('No untagged images found')
     }
     core.endGroup()
   }

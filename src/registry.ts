@@ -1,7 +1,10 @@
-import { Config } from './config.js'
+import * as core from '@actions/core'
+import { Config, LogLevel } from './config.js'
 import axios, { AxiosInstance, isAxiosError } from 'axios'
 import axiosRetry from 'axios-retry'
+import * as AxiosLogger from 'axios-logger'
 import { calcDigest, isValidChallenge, parseChallenge } from './utils.js'
+import { setGlobalConfig } from 'axios-logger'
 
 /**
  * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
@@ -34,7 +37,18 @@ export class Registry {
     })
     axiosRetry(this.axios, { retries: 3 })
     this.axios.defaults.headers.common['Accept'] =
-      'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json'
+      'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
+
+    setGlobalConfig({
+      data: false,
+      logger: core.info.bind(this)
+    })
+
+    // set the axios logging on if log level is debug
+    if (this.config.logLevel === LogLevel.DEBUG) {
+      this.axios.interceptors.request.use(AxiosLogger.requestLogger as any)
+      this.axios.interceptors.response.use(AxiosLogger.responseLogger as any)
+    }
   }
 
   /**
@@ -45,6 +59,9 @@ export class Registry {
    */
   async login(): Promise<void> {
     try {
+      if (this.config.logLevel === LogLevel.DEBUG) {
+        core.info('issuing an authentication challenge')
+      }
       // get token
       await this.axios.get(
         `/v2/${this.config.owner}/${this.config.package}/tags/list`
@@ -70,6 +87,9 @@ export class Registry {
             if (token) {
               this.axios.defaults.headers.common['Authorization'] =
                 `Bearer ${token}`
+              if (this.config.logLevel === LogLevel.DEBUG) {
+                core.info('authentication challenge succeded')
+              }
             } else {
               throw new Error(`ghcr.io login failed: ${token.response.data}`)
             }
