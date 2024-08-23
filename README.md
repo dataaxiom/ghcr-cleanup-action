@@ -6,8 +6,9 @@
 [![CodeQL](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/codeql-analysis.yml)
 [![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
 
-A workflow action that deletes images in the GitHub Container Registry
-(ghcr.io). Its main focus is on supporting multi-architecture images.
+A workflow action that deletes container images from the GitHub Container
+Registry (ghcr.io). Its primary focus is on supporting multi-architecture
+images.
 
 It includes the following features:
 
@@ -148,8 +149,13 @@ for its syntax. It supports the ?, \* and \*\* wildcard characters.
 
 ### `delete-untagged`
 
-This option is the same as the default mode, however, this option can be
-combined with any of the other options (except for the `keep-n-untagged`)
+This option deletes all untagged images from package repository. It is the same
+as the default mode, however, this option can be combined with any of the other
+options (except for the `keep-n-untagged`).
+
+Note: untagged here means untagged images not untagged packages in GitHub. So
+after running this option on repositories with multi-architecture images there
+will be potentially still untagged packages showing in GitHub.
 
 ```yaml
 jobs:
@@ -234,6 +240,8 @@ Includes for deletion all untagged images but excludes (keeps) a number of them.
 The value of this option sets the number of untagged images to keep. Untagged
 images are sorted by date and the most recent untagged images are kept. May be
 combined with other delete options (except the `delete-untagged` option).
+
+Note: untagged here means untagged images not untagged packages in GitHub.
 
 ```yaml
 jobs:
