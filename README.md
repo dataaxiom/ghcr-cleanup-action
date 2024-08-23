@@ -153,9 +153,9 @@ This option deletes all untagged images from package repository. It is the same
 as the default mode, however, this option can be combined with any of the other
 options (except for the `keep-n-untagged`).
 
-Note: untagged here means untagged images not untagged packages in GitHub. So
+Note: Untagged here means untagged images not untagged packages (in GitHub). So
 after running this option on repositories with multi-architecture images there
-will be potentially still untagged packages showing in GitHub.
+could still be untagged packages showing in GitHub.
 
 ```yaml
 jobs:
@@ -241,7 +241,7 @@ The value of this option sets the number of untagged images to keep. Untagged
 images are sorted by date and the most recent untagged images are kept. May be
 combined with other delete options (except the `delete-untagged` option).
 
-Note: untagged here means untagged images not untagged packages in GitHub.
+Note: Untagged here means untagged images not untagged packages in GitHub.
 
 ```yaml
 jobs:
