@@ -75,7 +75,8 @@ jobs:
           - title: '2b - Multi: Tagged'
             purpose: 'Removes images with specific tag (multi arch)'
             folder: '2b_multi-tagged'
-            delete-tags: 'uclibc-1.35,uclibc-1.36'
+            delete-tags: '^uclibc-1.3[56]$'
+            use-regex: true
 
           - title: '3a - Single: Keep N Tagged'
             purpose:
@@ -84,6 +85,7 @@ jobs:
             folder: '3a_single-keep-n-tagged'
             keep-n-tagged: 2
             exclude-tags: dummy
+            use-regex: true
 
           - title: '3b - Multi: Keep N Tagged'
             purpose:
@@ -233,12 +235,12 @@ jobs:
 
           DRY_RUN=""
           if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
-            DRY_RUN="TRUE"
+            DRY_RUN="${{ matrix.tests.dry-run }}"
           fi
 
-          DRY_RUN=""
-          if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
-            DRY_RUN="TRUE"
+          USE_REGEX=""
+          if [ ! -z "${{ matrix.tests.use-regex }}" ]; then
+            USE_REGEX="${{ matrix.tests.use-regex }}"
           fi
 
           DELAY="0"
@@ -255,6 +257,7 @@ jobs:
           echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
           echo "OLDER_THAN=$OLDER_THAN" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+          echo "USE_REGEX=$USE_REGEX" >> $GITHUB_ENV
           echo "DELAY=$DELAY" >> $GITHUB_ENV
 
       - name: ' > Priming Test Environment'
@@ -275,6 +278,7 @@ jobs:
           exclude-tags: ${{ env.EXCLUDE_TAGS }}
           older-than: ${{ env.OLDER_THAN }}
           dry-run: ${{ env.DRY_RUN }}
+          use-regex: ${{ env.USE_REGEX }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: ' > Validating Outcome'

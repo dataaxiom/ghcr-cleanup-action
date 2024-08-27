@@ -75,18 +75,32 @@ class CleanupAction {
     // remove children from filterSet - manifest image children, referrers
     await this.trimChildren()
 
-    // find excluded tags using matcher
+    // find excluded tags using regex or matcher
     this.excludeTags = []
     if (this.config.excludeTags) {
-      const isTagMatch = wcmatch(this.config.excludeTags.split(','))
-      for (const tag of this.tagsInUse) {
-        if (isTagMatch(tag)) {
-          // delete the tag from the filterSet
-          const digest = this.githubPackageRepo.getDigestByTag(tag)
-          if (digest) {
-            this.filterSet.delete(digest)
+      if (this.config.useRegex) {
+        const regex = new RegExp(this.config.excludeTags)
+        for (const tag of this.tagsInUse) {
+          if (regex.test(tag)) {
+            // delete the tag from the filterSet
+            const digest = this.githubPackageRepo.getDigestByTag(tag)
+            if (digest) {
+              this.filterSet.delete(digest)
+            }
+            this.excludeTags.push(tag)
           }
-          this.excludeTags.push(tag)
+        }
+      } else {
+        const isTagMatch = wcmatch(this.config.excludeTags.split(','))
+        for (const tag of this.tagsInUse) {
+          if (isTagMatch(tag)) {
+            // delete the tag from the filterSet
+            const digest = this.githubPackageRepo.getDigestByTag(tag)
+            if (digest) {
+              this.filterSet.delete(digest)
+            }
+            this.excludeTags.push(tag)
+          }
         }
       }
     }
@@ -439,15 +453,28 @@ class CleanupAction {
 
   async deleteByTag(): Promise<void> {
     if (this.config.deleteTags) {
-      // find the tags that match wildcard patterns
-      const isTagMatch = wcmatch(this.config.deleteTags.split(','))
       const matchTags = []
-      // build match list from filterSet
-      for (const digest of this.filterSet) {
-        const ghPackage = this.githubPackageRepo.getPackageByDigest(digest)
-        for (const tag of ghPackage.metadata.container.tags) {
-          if (isTagMatch(tag)) {
-            matchTags.push(tag)
+      if (this.config.useRegex) {
+        const regex = new RegExp(this.config.deleteTags)
+        // build match list from filterSet
+        for (const digest of this.filterSet) {
+          const ghPackage = this.githubPackageRepo.getPackageByDigest(digest)
+          for (const tag of ghPackage.metadata.container.tags) {
+            if (regex.test(tag)) {
+              matchTags.push(tag)
+            }
+          }
+        }
+      } else {
+        // find the tags that match wildcard patterns
+        const isTagMatch = wcmatch(this.config.deleteTags.split(','))
+        // build match list from filterSet
+        for (const digest of this.filterSet) {
+          const ghPackage = this.githubPackageRepo.getPackageByDigest(digest)
+          for (const tag of ghPackage.metadata.container.tags) {
+            if (isTagMatch(tag)) {
+              matchTags.push(tag)
+            }
           }
         }
       }

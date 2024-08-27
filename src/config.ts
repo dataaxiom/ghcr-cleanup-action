@@ -36,6 +36,7 @@ export class Config {
   dryRun?: boolean
   validate?: boolean
   logLevel: LogLevel
+  useRegex?: boolean
   token: string
   octokit: any
 
@@ -267,6 +268,12 @@ export function getConfig(): Config {
     }
   }
 
+  if (core.getInput('use-regex')) {
+    config.useRegex = core.getBooleanInput('use-regex')
+  } else {
+    config.useRegex = false
+  }
+
   if (!config.owner) {
     throw new Error('owner is not set')
   }
@@ -319,6 +326,10 @@ export function getConfig(): Config {
     optionsMap.add('validate', `${config.validate}`)
   }
   optionsMap.add('log-level', LogLevel[config.logLevel])
+
+  if (config.useRegex != null) {
+    optionsMap.add('use-regex', `${config.useRegex}`)
+  }
 
   core.startGroup('Runtime configuration')
   optionsMap.print()

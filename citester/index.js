@@ -37934,6 +37934,7 @@ class Config {
     dryRun;
     validate;
     logLevel;
+    useRegex;
     token;
     octokit;
     constructor(token) {
@@ -38136,6 +38137,12 @@ function getConfig() {
             config.logLevel = LogLevel.DEBUG;
         }
     }
+    if (core.getInput('use-regex')) {
+        config.useRegex = core.getBooleanInput('use-regex');
+    }
+    else {
+        config.useRegex = false;
+    }
     if (!config.owner) {
         throw new Error('owner is not set');
     }
@@ -38188,6 +38195,9 @@ function getConfig() {
         optionsMap.add('validate', `${config.validate}`);
     }
     optionsMap.add('log-level', LogLevel[config.logLevel]);
+    if (config.useRegex != null) {
+        optionsMap.add('use-regex', `${config.useRegex}`);
+    }
     core.startGroup('Runtime configuration');
     optionsMap.print();
     core.endGroup();

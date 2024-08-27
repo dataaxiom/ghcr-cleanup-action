@@ -8,7 +8,7 @@ author: Dataaxiom Inc
 
 branding:
   icon: trash-2
-  color: blue
+  color: green
 
 inputs:
   # General Options
@@ -71,13 +71,13 @@ inputs:
   delete-ghost-images:
     description: >
       Delete multi architecture images where all underlying platform images are
-      missing (true/false)
+      missing (true/false) Default: false
     required: false
 
   delete-partial-images:
     description: >
       Delete multi architecture images where some (but not all) underlying
-      platform images are missing (true/false)
+      platform images are missing (true/false) Default: false
     required: false
 
   older-than:
@@ -88,20 +88,26 @@ inputs:
 
   # Additional Options
 
+  use-regex:
+    description: >
+      Use regex expression in place of wildcard matcher for include-tag and
+      exclude-tag options (true/false) Default: false
+    required: false
+
   validate:
     description: >
       Validate all multi architecture images manifests by checking their digests
-      are present in the registry
+      are present in the registry (true/false) Default: false
     required: false
 
   dry-run:
     description: >
-      Simulate action - does not remove any packages
+      Simulate action - does not remove any packages (true/false) Default: false
     required: false
 
   log-level:
     description: >
-      Log level (error/warn/info/debug)
+      Log level (error/warn/info/debug) Default: info
     required: false
 
 runs:
