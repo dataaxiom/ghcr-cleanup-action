@@ -355,8 +355,8 @@ The default settings will use the current project to determine the owner,
 repository and package names but for cross-project and multiple package support
 these can be overridden by setting the owner, repository and package options.
 
-The example below uses a regular express as the selector for the `delete-tags`
-option.
+The example below uses a regular expression as the selector for the
+`delete-tags` option.
 
 ```yaml
 jobs:

@@ -37216,6 +37216,7 @@ async function loadImages(directory, owner, packageName, token, delay) {
     const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${directory}/prime`, 'utf-8');
     for (let line of fileContents.split('\n')) {
         const original = line;
+        line = line.trim();
         if (line.length > 0) {
             if (line.includes('//')) {
                 line = line.substring(0, line.indexOf('//'));
@@ -37261,6 +37262,7 @@ async function deleteDigests(directory, githubPackageRepo) {
     if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${directory}/prime-delete`)) {
         const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${directory}/prime-delete`, 'utf-8');
         for (let line of fileContents.split('\n')) {
+            line = line.trim();
             if (line.length > 0) {
                 if (line.includes('//')) {
                     line = line.substring(0, line.indexOf('//') - 1);
@@ -37377,6 +37379,7 @@ async function run() {
             const expectedDigests = new Set();
             const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${args.directory}/expected-digests`, 'utf-8');
             for (let line of fileContents.split('\n')) {
+                line = line.trim();
                 if (line.length > 0) {
                     if (line.includes('//')) {
                         line = line.substring(0, line.indexOf('//') - 1);
@@ -37409,6 +37412,7 @@ async function run() {
             const expectedTags = new Set();
             const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${args.directory}/expected-tags`, 'utf-8');
             for (let line of fileContents.split('\n')) {
+                line = line.trim();
                 if (line.length > 0) {
                     if (line.includes('//')) {
                         line = line.substring(0, line.indexOf('//'));

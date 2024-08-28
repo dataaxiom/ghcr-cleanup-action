@@ -69,6 +69,7 @@ async function loadImages(
   const fileContents = fs.readFileSync(`${directory}/prime`, 'utf-8')
   for (let line of fileContents.split('\n')) {
     const original = line
+    line = line.trim()
     if (line.length > 0) {
       if (line.includes('//')) {
         line = line.substring(0, line.indexOf('//'))
@@ -115,6 +116,7 @@ async function deleteDigests(
   if (fs.existsSync(`${directory}/prime-delete`)) {
     const fileContents = fs.readFileSync(`${directory}/prime-delete`, 'utf-8')
     for (let line of fileContents.split('\n')) {
+      line = line.trim()
       if (line.length > 0) {
         if (line.includes('//')) {
           line = line.substring(0, line.indexOf('//') - 1)
@@ -265,6 +267,7 @@ export async function run(): Promise<void> {
         'utf-8'
       )
       for (let line of fileContents.split('\n')) {
+        line = line.trim()
         if (line.length > 0) {
           if (line.includes('//')) {
             line = line.substring(0, line.indexOf('//') - 1)
@@ -301,6 +304,7 @@ export async function run(): Promise<void> {
         'utf-8'
       )
       for (let line of fileContents.split('\n')) {
+        line = line.trim()
         if (line.length > 0) {
           if (line.includes('//')) {
             line = line.substring(0, line.indexOf('//'))
