@@ -37161,7 +37161,7 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(2186);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_2__);
 /* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(6434);
-/* harmony import */ var _github_package_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(1693);
+/* harmony import */ var _package_repo_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(7357);
 /* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(6669);
 /* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(2081);
 /* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_6__);
@@ -37258,7 +37258,7 @@ async function loadImages(directory, owner, packageName, token, delay) {
         }
     }
 }
-async function deleteDigests(directory, githubPackageRepo) {
+async function deleteDigests(directory, targetPackage, packageRepo) {
     if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${directory}/prime-delete`)) {
         const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${directory}/prime-delete`, 'utf-8');
         for (let line of fileContents.split('\n')) {
@@ -37268,9 +37268,9 @@ async function deleteDigests(directory, githubPackageRepo) {
                     line = line.substring(0, line.indexOf('//') - 1);
                 }
                 line = line.trim();
-                const id = githubPackageRepo.getIdByDigest(line);
+                const id = packageRepo.getIdByDigest(line);
                 if (id) {
-                    await githubPackageRepo.deletePackageVersion(id, line, []);
+                    await packageRepo.deletePackageVersion(targetPackage, id, line, []);
                 }
             }
         }
@@ -37333,10 +37333,10 @@ async function run() {
         }
     }
     config.owner = config.owner?.toLowerCase();
-    const githubPackageRepo = new _github_package_js__WEBPACK_IMPORTED_MODULE_4__/* .GithubPackageRepo */ .l(config);
-    await githubPackageRepo.init();
-    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_5__/* .Registry */ .B(config, githubPackageRepo);
-    await registry.login();
+    await config.init();
+    const packageRepo = new _package_repo_js__WEBPACK_IMPORTED_MODULE_4__/* .PackageRepo */ .R(config);
+    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_5__/* .Registry */ .B(config, packageRepo);
+    await registry.login(config.package);
     const dummyDigest = 'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f';
     if (args.mode === 'prime-dummy') {
         // just push the dummy image
@@ -37348,27 +37348,27 @@ async function run() {
         pushImage(`busybox@${dummyDigest}`, // 1.31
         `ghcr.io/${config.owner}/${config.package}:dummy`, undefined, args.token);
         // load after dummy to make sure the package exists on first clone/setup
-        await githubPackageRepo.loadPackages(false);
+        await packageRepo.loadPackages(config.package, false);
         // remove all the existing images - except for the dummy image
-        for (const digest of githubPackageRepo.getDigests()) {
+        for (const digest of packageRepo.getDigests()) {
             if (digest !== dummyDigest) {
-                const id = githubPackageRepo.getIdByDigest(digest);
+                const id = packageRepo.getIdByDigest(digest);
                 if (id) {
-                    await githubPackageRepo.deletePackageVersion(id, digest, []);
+                    await packageRepo.deletePackageVersion(config.package, id, digest, []);
                 }
             }
         }
         // prime the test images
         await loadImages(args.directory, config.owner, config.package, config.token, delay);
         if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/prime-delete`)) {
-            await githubPackageRepo.loadPackages(false);
+            await packageRepo.loadPackages(config.package, false);
             // make any deletions
-            await deleteDigests(args.directory, githubPackageRepo);
+            await deleteDigests(args.directory, config.package, packageRepo);
         }
     }
     else if (args.mode === 'validate') {
         // test the repo after the test
-        await githubPackageRepo.loadPackages(false);
+        await packageRepo.loadPackages(config.package, false);
         let error = false;
         // load the expected digests
         if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/expected-digests`)) {
@@ -37388,9 +37388,9 @@ async function run() {
                     expectedDigests.add(line);
                 }
             }
-            const digests = githubPackageRepo.getDigests();
+            const digests = packageRepo.getDigests();
             for (const digest of expectedDigests) {
-                if (githubPackageRepo.getDigests().has(digest)) {
+                if (packageRepo.getDigests().has(digest)) {
                     digests.delete(digest);
                 }
                 else {
@@ -37421,7 +37421,7 @@ async function run() {
                     expectedTags.add(line);
                 }
             }
-            const regTags = githubPackageRepo.getTags();
+            const regTags = packageRepo.getTags();
             for (const expectedTag of expectedTags) {
                 if (regTags.has(expectedTag)) {
                     regTags.delete(expectedTag);
@@ -37441,17 +37441,17 @@ async function run() {
     }
     else if (args.mode === 'save-expected') {
         // save the expected tag dynamically
-        await githubPackageRepo.loadPackages(false);
+        await packageRepo.loadPackages(config.package, false);
         const tags = new Set();
-        for (const digest of githubPackageRepo.getDigests()) {
-            const ghPackage = githubPackageRepo.getPackageByDigest(digest);
+        for (const digest of packageRepo.getDigests()) {
+            const ghPackage = packageRepo.getPackageByDigest(digest);
             for (const repoTag of ghPackage.metadata.container.tags) {
                 tags.add(repoTag);
             }
         }
         if (tag) {
             // find the digests in use for the supplied tag
-            const digest = githubPackageRepo.getDigestByTag(tag);
+            const digest = packageRepo.getDigestByTag(tag);
             if (digest) {
                 fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`);
                 // is it a multi arch image
@@ -37465,7 +37465,7 @@ async function run() {
                 const referrerTag = digest.replace('sha256:', 'sha256-');
                 if (tags.has(referrerTag)) {
                     fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-tags`, `${referrerTag}\n`);
-                    const referrerDigest = githubPackageRepo.getDigestByTag(referrerTag);
+                    const referrerDigest = packageRepo.getDigestByTag(referrerTag);
                     if (referrerDigest) {
                         fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${referrerDigest}\n`);
                         const referrerManifest = await registry.getManifestByDigest(referrerDigest);
@@ -37507,7 +37507,7 @@ __nccwpck_require__.d(__webpack_exports__, {
   "in": () => (/* binding */ LogLevel)
 });
 
-// UNUSED EXPORTS: getConfig
+// UNUSED EXPORTS: buildConfig
 
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
 var lib_core = __nccwpck_require__(2186);
@@ -37922,9 +37922,11 @@ var LogLevel;
 })(LogLevel || (LogLevel = {}));
 class Config {
     isPrivateRepo = false;
+    repoType = 'Organization';
     owner = '';
     repository = '';
     package = '';
+    expandPackages;
     defaultPackageUsed = false;
     deleteTags;
     excludeTags;
@@ -37984,11 +37986,12 @@ class Config {
             }
         });
     }
-    async getOwnerType() {
+    async init() {
+        // lookup repo info
         try {
             const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
             this.isPrivateRepo = result.data.private;
-            return result.data.owner.type;
+            this.repoType = result.data.owner.type;
         }
         catch (error) {
             if (error instanceof request_error_dist_node.RequestError) {
@@ -38003,12 +38006,18 @@ class Config {
         }
     }
 }
-function getConfig() {
+function buildConfig() {
     const token = core.getInput('token', { required: true });
     const config = new Config(token);
     config.owner = core.getInput('owner');
     config.repository = core.getInput('repository');
+    if (core.getInput('package') && core.getInput('packages')) {
+        throw Error('package and packages cant be used at the same time, use either one');
+    }
     config.package = core.getInput('package');
+    if (!config.package) {
+        config.package = core.getInput('packages');
+    }
     // auto populate
     const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
     if (GITHUB_REPOSITORY) {
@@ -38034,6 +38043,9 @@ function getConfig() {
     }
     else {
         throw Error('GITHUB_REPOSITORY is not set');
+    }
+    if (core.getInput('expand-packages')) {
+        config.expandPackages = core.getBooleanInput('expand-packages');
     }
     if (core.getInput('tags') && core.getInput('delete-tags')) {
         throw Error('tags and delete-tags cant be used at the same time, use either one');
@@ -38062,27 +38074,27 @@ function getConfig() {
         }
     }
     if (core.getInput('keep-n-tagged')) {
-        const n = parseInt(core.getInput('keep-n-tagged'));
-        if (isNaN(n)) {
+        const value = parseInt(core.getInput('keep-n-tagged'));
+        if (isNaN(value)) {
             throw new Error('keep-n-tagged is not number');
         }
-        else if (n < 0) {
+        else if (value < 0) {
             throw new Error('keep-n-tagged is negative');
         }
         else {
-            config.keepNtagged = n;
+            config.keepNtagged = value;
         }
     }
     if (core.getInput('keep-n-untagged')) {
-        const n = parseInt(core.getInput('keep-n-untagged'));
-        if (isNaN(n)) {
+        const value = parseInt(core.getInput('keep-n-untagged'));
+        if (isNaN(value)) {
             throw new Error('keep-n-untagged is not number');
         }
-        else if (n < 0) {
+        else if (value < 0) {
             throw new Error('keep-n-untagged is negative');
         }
         else {
-            config.keepNuntagged = n;
+            config.keepNuntagged = value;
         }
     }
     if (core.getInput('delete-untagged')) {
@@ -38097,9 +38109,6 @@ function getConfig() {
             !core.getInput('keep-n-untagged') &&
             !core.getInput('keep-n-tagged')) {
             config.deleteUntagged = true;
-        }
-        else {
-            config.deleteUntagged = false;
         }
     }
     if (config.keepNuntagged && core.getInput('delete-untagged')) {
@@ -38117,14 +38126,8 @@ function getConfig() {
             core.info('***** In dry run mode - No packages will be deleted *****');
         }
     }
-    else {
-        config.dryRun = false;
-    }
     if (core.getInput('validate')) {
         config.validate = core.getBooleanInput('validate');
-    }
-    else {
-        config.validate = false;
     }
     if (core.getInput('log-level')) {
         const level = core.getInput('log-level').toLowerCase();
@@ -38144,9 +38147,6 @@ function getConfig() {
     if (core.getInput('use-regex')) {
         config.useRegex = core.getBooleanInput('use-regex');
     }
-    else {
-        config.useRegex = false;
-    }
     if (!config.owner) {
         throw new Error('owner is not set');
     }
@@ -38161,6 +38161,9 @@ function getConfig() {
     optionsMap.add('project owner', `${config.owner}`);
     optionsMap.add('repository', `${config.repository}`);
     optionsMap.add('package', `${config.package}`);
+    if (config.expandPackages !== undefined) {
+        optionsMap.add('expand-packages', `${config.expandPackages}`);
+    }
     if (config.deleteTags) {
         optionsMap.add('delete-tags', config.deleteTags);
     }
@@ -38177,29 +38180,29 @@ function getConfig() {
             throw error;
         }
     }
-    if (config.deleteUntagged != null) {
+    if (config.deleteUntagged !== undefined) {
         optionsMap.add('delete-untagged', `${config.deleteUntagged}`);
     }
-    if (config.deleteGhostImages != null) {
+    if (config.deleteGhostImages !== undefined) {
         optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`);
     }
-    if (config.deletePartialImages != null) {
+    if (config.deletePartialImages !== undefined) {
         optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
     }
-    if (config.keepNtagged != null) {
+    if (config.keepNtagged !== undefined) {
         optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
     }
-    if (config.keepNuntagged != null) {
+    if (config.keepNuntagged !== undefined) {
         optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`);
     }
-    if (config.dryRun != null) {
+    if (config.dryRun !== undefined) {
         optionsMap.add('dry-run', `${config.dryRun}`);
     }
-    if (config.validate != null) {
+    if (config.validate !== undefined) {
         optionsMap.add('validate', `${config.validate}`);
     }
     optionsMap.add('log-level', LogLevel[config.logLevel]);
-    if (config.useRegex != null) {
+    if (config.useRegex !== undefined) {
         optionsMap.add('use-regex', `${config.useRegex}`);
     }
     core.startGroup('Runtime configuration');
@@ -38211,11 +38214,11 @@ function getConfig() {
 
 /***/ }),
 
-/***/ 1693:
+/***/ 7357:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 /* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
-/* harmony export */   "l": () => (/* binding */ GithubPackageRepo)
+/* harmony export */   "R": () => (/* binding */ PackageRepo)
 /* harmony export */ });
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
@@ -38228,11 +38231,9 @@ function getConfig() {
 /**
  * Provides access to a package via the GitHub Packages REST API.
  */
-class GithubPackageRepo {
+class PackageRepo {
     // The action configuration
     config;
-    // The type of repository (User or Organization)
-    repoType = 'Organization';
     // Map of digests to package ids
     digest2Id = new Map();
     // Map of ids to package version definitions
@@ -38247,17 +38248,10 @@ class GithubPackageRepo {
     constructor(config) {
         this.config = config;
     }
-    /*
-     * Initialization method.
-     */
-    async init() {
-        // Determine the repository type (User or Organization)
-        this.repoType = await this.config.getOwnerType();
-    }
     /**
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
      */
-    async loadPackages(output) {
+    async loadPackages(targetPackage, output) {
         try {
             // clear the maps for reloading
             this.digest2Id.clear();
@@ -38266,7 +38260,7 @@ class GithubPackageRepo {
             let getFunc = this.config.octokit.rest.packages
                 .getAllPackageVersionsForPackageOwnedByOrg;
             let getParams;
-            if (this.repoType === 'User') {
+            if (this.config.repoType === 'User') {
                 getFunc = this.config.isPrivateRepo
                     ? this.config.octokit.rest.packages
                         .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
@@ -38274,7 +38268,7 @@ class GithubPackageRepo {
                         .getAllPackageVersionsForPackageOwnedByUser;
                 getParams = {
                     package_type: 'container',
-                    package_name: this.config.package,
+                    package_name: targetPackage,
                     username: this.config.owner,
                     state: 'active',
                     per_page: 100
@@ -38283,7 +38277,7 @@ class GithubPackageRepo {
             else {
                 getParams = {
                     package_type: 'container',
-                    package_name: this.config.package,
+                    package_name: targetPackage,
                     org: this.config.owner,
                     state: 'active',
                     per_page: 100
@@ -38299,7 +38293,7 @@ class GithubPackageRepo {
                 }
             }
             if (output && this.config.logLevel >= _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel.INFO */ ["in"].INFO) {
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup('Loaded Package Data');
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup(`[${targetPackage}] Loaded package data`);
                 for (const ghPackage of this.id2Package.values()) {
                     let tags = '';
                     for (const tag of ghPackage.metadata.container.tags) {
@@ -38310,7 +38304,7 @@ class GithubPackageRepo {
                 _actions_core__WEBPACK_IMPORTED_MODULE_0__.endGroup();
             }
             if (output && this.config.logLevel === _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel.DEBUG */ ["in"].DEBUG) {
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup('Loaded Package Payloads');
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup(`[${targetPackage}] Loaded package payloads`);
                 for (const ghPackage of this.id2Package.values()) {
                     const payload = JSON.stringify(ghPackage, null, 4);
                     _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(payload);
@@ -38323,10 +38317,10 @@ class GithubPackageRepo {
                 if (error.status) {
                     if (error.status === 404) {
                         if (this.config.defaultPackageUsed) {
-                            _actions_core__WEBPACK_IMPORTED_MODULE_0__.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
+                            _actions_core__WEBPACK_IMPORTED_MODULE_0__.warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
                         }
                         else {
-                            _actions_core__WEBPACK_IMPORTED_MODULE_0__.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
+                            _actions_core__WEBPACK_IMPORTED_MODULE_0__.warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
                         }
                     }
                 }
@@ -38383,7 +38377,7 @@ class GithubPackageRepo {
      * @param tags The tags associated with the package
      * @param label Additional label to display
      */
-    async deletePackageVersion(id, digest, tags, label) {
+    async deletePackageVersion(targetPackage, id, digest, tags, label) {
         if (tags && tags.length > 0) {
             _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
         }
@@ -38394,18 +38388,18 @@ class GithubPackageRepo {
             _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest}`);
         }
         if (!this.config.dryRun) {
-            if (this.repoType === 'User') {
+            if (this.config.repoType === 'User') {
                 if (this.config.isPrivateRepo) {
                     await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                         package_type: 'container',
-                        package_name: this.config.package,
+                        package_name: targetPackage,
                         package_version_id: id
                     });
                 }
                 else {
                     await this.config.octokit.rest.packages.deletePackageVersionForUser({
                         package_type: 'container',
-                        package_name: this.config.package,
+                        package_name: targetPackage,
                         username: this.config.owner,
                         package_version_id: id
                     });
@@ -38414,12 +38408,44 @@ class GithubPackageRepo {
             else {
                 await this.config.octokit.rest.packages.deletePackageVersionForOrg({
                     package_type: 'container',
-                    package_name: this.config.package,
+                    package_name: targetPackage,
                     org: this.config.owner,
                     package_version_id: id
                 });
             }
         }
+    }
+    async getPackageList() {
+        const packages = [];
+        let listFunc;
+        let listParams;
+        if (this.config.repoType === 'User') {
+            listFunc = this.config.isPrivateRepo
+                ? this.config.octokit.rest.packages.listPackagesForAuthenticatedUser
+                : this.config.octokit.rest.packages.listPackagesForUser;
+            listParams = {
+                package_type: 'container',
+                username: this.config.owner,
+                per_page: 100
+            };
+        }
+        else {
+            listFunc = this.config.octokit.rest.packages.listPackagesForOrganization;
+            listParams = {
+                package_type: 'container',
+                org: this.config.owner,
+                per_page: 100
+            };
+        }
+        for await (const response of this.config.octokit.paginate.iterator(listFunc, listParams)) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup(`Available packages in repository: ${this.config.repository}`);
+            for (const data of response.data) {
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(data.name);
+                packages.push(data.name);
+            }
+            _actions_core__WEBPACK_IMPORTED_MODULE_0__.endGroup();
+        }
+        return packages;
     }
 }
 
@@ -43778,6 +43804,8 @@ class Registry {
     githubPackageRepo;
     // http client library instance
     axios;
+    // current package working on
+    targetPackage = '';
     // cache of loaded manifests, by digest
     manifestCache = new Map();
     // map of referrer manifests
@@ -43812,13 +43840,16 @@ class Registry {
      * @returns A Promise that resolves when the login is successful
      * @throws If an error occurs during the login process
      */
-    async login() {
+    async login(targetPackage) {
+        // reset the cache
+        this.manifestCache.clear();
+        this.targetPackage = targetPackage;
         try {
             if (this.config.logLevel === src_config/* LogLevel.DEBUG */["in"].DEBUG) {
                 core.info('issuing an authentication challenge');
             }
             // get token
-            await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/tags/list`);
+            await this.axios.get(`/v2/${this.config.owner}/${targetPackage}/tags/list`);
         }
         catch (error) {
             if (axios_isAxiosError(error) && error.response) {
@@ -43851,6 +43882,7 @@ class Registry {
                     }
                 }
                 else {
+                    core.setFailed(`Error logging into registry API with package: ${targetPackage}`);
                     throw error;
                 }
             }
@@ -43867,7 +43899,7 @@ class Registry {
             return this.manifestCache.get(digest);
         }
         else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${digest}`, {
+            const response = await this.axios.get(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`, {
                 transformResponse: [
                     data => {
                         return data;
@@ -43911,7 +43943,7 @@ class Registry {
             let putToken;
             const auth = lib_axios.create();
             try {
-                await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, config);
+                await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, config);
             }
             catch (error) {
                 if (axios_isAxiosError(error) && error.response) {
@@ -43942,7 +43974,7 @@ class Registry {
             }
             if (putToken) {
                 // now put the updated manifest
-                await this.axios.put(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, {
+                await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, {
                     headers: {
                         'content-type': contentType,
                         Authorization: `Bearer ${putToken}`

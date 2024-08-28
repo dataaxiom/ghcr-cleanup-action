@@ -5,7 +5,7 @@ import axiosRetry from 'axios-retry'
 import * as AxiosLogger from 'axios-logger'
 import { isValidChallenge, parseChallenge } from './utils.js'
 import { setGlobalConfig } from 'axios-logger'
-import { GithubPackageRepo } from './github-package.js'
+import { PackageRepo } from './package-repo.js'
 
 /**
  * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
@@ -15,10 +15,13 @@ export class Registry {
   config: Config
 
   // Reference to the package cache
-  githubPackageRepo: GithubPackageRepo
+  githubPackageRepo: PackageRepo
 
   // http client library instance
   axios: AxiosInstance
+
+  // current package working on
+  targetPackage = ''
 
   // cache of loaded manifests, by digest
   manifestCache = new Map<string, any>()
@@ -31,7 +34,7 @@ export class Registry {
    *
    * @param config The action configuration
    */
-  constructor(config: Config, githubPackageRepo: GithubPackageRepo) {
+  constructor(config: Config, githubPackageRepo: PackageRepo) {
     this.config = config
     this.githubPackageRepo = githubPackageRepo
     this.axios = axios.create({
@@ -59,14 +62,18 @@ export class Registry {
    * @returns A Promise that resolves when the login is successful
    * @throws If an error occurs during the login process
    */
-  async login(): Promise<void> {
+  async login(targetPackage: string): Promise<void> {
+    // reset the cache
+    this.manifestCache.clear()
+    this.targetPackage = targetPackage
+
     try {
       if (this.config.logLevel === LogLevel.DEBUG) {
         core.info('issuing an authentication challenge')
       }
       // get token
       await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.package}/tags/list`
+        `/v2/${this.config.owner}/${targetPackage}/tags/list`
       )
     } catch (error) {
       if (isAxiosError(error) && error.response) {
@@ -99,6 +106,9 @@ export class Registry {
             throw new Error(`invalid www-authenticate challenge ${challenge}`)
           }
         } else {
+          core.setFailed(
+            `Error logging into registry API with package: ${targetPackage}`
+          )
           throw error
         }
       }
@@ -116,7 +126,7 @@ export class Registry {
       return this.manifestCache.get(digest)
     } else {
       const response = await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.package}/manifests/${digest}`,
+        `/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`,
         {
           transformResponse: [
             data => {
@@ -169,7 +179,7 @@ export class Registry {
       const auth = axios.create()
       try {
         await auth.put(
-          `https://ghcr.io/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`,
+          `https://ghcr.io/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
           manifest,
           config
         )
@@ -204,7 +214,7 @@ export class Registry {
       if (putToken) {
         // now put the updated manifest
         await this.axios.put(
-          `/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`,
+          `/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
           manifest,
           {
             headers: {
@@ -226,7 +236,7 @@ export class Registry {
       return this.referrersCache.get(digest)
     } else {
       const response = await this.axios.get(
-        `/v2/${this.config.owner}/${this.config.package}/referrers/${digest}`,
+        `/v2/${this.config.owner}/${this.targetPackage}/referrers/${digest}`,
         {
           transformResponse: [
             data => {

@@ -244,6 +244,11 @@ jobs:
             USE_REGEX="${{ matrix.tests.use-regex }}"
           fi
 
+          EXPAND_PACKAGES=""
+          if [ ! -z "${{ matrix.tests.expand-packages }}" ]; then
+            EXPAND_PACKAGES="${{ matrix.tests.expand-packages }}"
+          fi
+
           VALIDATE=""
           if [ ! -z "${{ matrix.tests.validate }}" ]; then
             VALIDATE="${{ matrix.tests.validate }}"
@@ -264,6 +269,7 @@ jobs:
           echo "OLDER_THAN=$OLDER_THAN" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
           echo "USE_REGEX=$USE_REGEX" >> $GITHUB_ENV
+          echo "EXPAND_PACKAGES=$EXPAND_PACKAGES" >> $GITHUB_ENV
           echo "VALIDATE=$VALIDATE" >> $GITHUB_ENV
           echo "DELAY=$DELAY" >> $GITHUB_ENV
 
@@ -286,8 +292,10 @@ jobs:
           older-than: ${{ env.OLDER_THAN }}
           dry-run: ${{ env.DRY_RUN }}
           use-regex: ${{ env.USE_REGEX }}
+          expand-packages: ${{ env.EXPAND_PACKAGES }}
           validate: ${{ env.VALIDATE }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          log-level: info
 
       - name: ' > Validating Outcome'
         run: |
@@ -406,10 +414,28 @@ jobs:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/attestation-untagged --mode validate
 
+  multi-package-cleanup:
+    name: Cleanup Multiple Packages
+    runs-on: ubuntu-latest
+    needs: github-attestation-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Test - Multi-package Cleanup
+        uses: ./
+        with:
+          validate: true
+          packages: ghcr-cleanup-action,ghcr-cleanup-action-cache
+          keep-n-tagged: 1
+          delete-untagged: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   shared-image-tagged-test:
     name: Shared Images Tagged Test
     runs-on: ubuntu-latest
-    needs: github-attestation-tests
+    needs: multi-package-cleanup
 
     steps:
       - name: Checkout
@@ -518,3 +544,26 @@ jobs:
         run:
           node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
           tests/shared-images-untagged --mode validate
+
+  multi-package-cleanup-regex:
+    name: Cleanup Multiple Packages - Regex
+    runs-on: ubuntu-latest
+    needs: shared-image-untagged-test
+    env:
+      GHCR_PAT: ${{secrets.GHCR_PAT}}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Test - Multi-package Cleanup
+        if: ${{ env.GHCR_PAT }}
+        uses: ./
+        with:
+          validate: true
+          packages: ghcr-cleanup-action*
+          keep-n-tagged: 1
+          delete-untagged: true
+          expand-packages: true
+          use-regex: true
+          token: ${{ env.GHCR_PAT }}

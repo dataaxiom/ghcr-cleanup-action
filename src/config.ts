@@ -20,9 +20,11 @@ export enum LogLevel {
 
 export class Config {
   isPrivateRepo = false
+  repoType = 'Organization'
   owner = ''
   repository = ''
   package = ''
+  expandPackages?: boolean
   defaultPackageUsed = false
   deleteTags?: string
   excludeTags?: string
@@ -99,13 +101,14 @@ export class Config {
     })
   }
 
-  async getOwnerType(): Promise<string> {
+  async init(): Promise<void> {
+    // lookup repo info
     try {
       const result = await this.octokit.request(
         `GET /repos/${this.owner}/${this.repository}`
       )
       this.isPrivateRepo = result.data.private
-      return result.data.owner.type
+      this.repoType = result.data.owner.type
     } catch (error) {
       if (error instanceof RequestError) {
         if (error.status) {
@@ -122,12 +125,21 @@ export class Config {
   }
 }
 
-export function getConfig(): Config {
+export function buildConfig(): Config {
   const token: string = core.getInput('token', { required: true })
   const config = new Config(token)
   config.owner = core.getInput('owner')
   config.repository = core.getInput('repository')
+
+  if (core.getInput('package') && core.getInput('packages')) {
+    throw Error(
+      'package and packages cant be used at the same time, use either one'
+    )
+  }
   config.package = core.getInput('package')
+  if (!config.package) {
+    config.package = core.getInput('packages')
+  }
 
   // auto populate
   const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY']
@@ -151,6 +163,10 @@ export function getConfig(): Config {
     }
   } else {
     throw Error('GITHUB_REPOSITORY is not set')
+  }
+
+  if (core.getInput('expand-packages')) {
+    config.expandPackages = core.getBooleanInput('expand-packages')
   }
 
   if (core.getInput('tags') && core.getInput('delete-tags')) {
@@ -188,24 +204,24 @@ export function getConfig(): Config {
   }
 
   if (core.getInput('keep-n-tagged')) {
-    const n: number = parseInt(core.getInput('keep-n-tagged'))
-    if (isNaN(n)) {
+    const value: number = parseInt(core.getInput('keep-n-tagged'))
+    if (isNaN(value)) {
       throw new Error('keep-n-tagged is not number')
-    } else if (n < 0) {
+    } else if (value < 0) {
       throw new Error('keep-n-tagged is negative')
     } else {
-      config.keepNtagged = n
+      config.keepNtagged = value
     }
   }
 
   if (core.getInput('keep-n-untagged')) {
-    const n: number = parseInt(core.getInput('keep-n-untagged'))
-    if (isNaN(n)) {
+    const value: number = parseInt(core.getInput('keep-n-untagged'))
+    if (isNaN(value)) {
       throw new Error('keep-n-untagged is not number')
-    } else if (n < 0) {
+    } else if (value < 0) {
       throw new Error('keep-n-untagged is negative')
     } else {
-      config.keepNuntagged = n
+      config.keepNuntagged = value
     }
   }
 
@@ -222,8 +238,6 @@ export function getConfig(): Config {
       !core.getInput('keep-n-tagged')
     ) {
       config.deleteUntagged = true
-    } else {
-      config.deleteUntagged = false
     }
   }
 
@@ -245,14 +259,10 @@ export function getConfig(): Config {
     if (config.dryRun) {
       core.info('***** In dry run mode - No packages will be deleted *****')
     }
-  } else {
-    config.dryRun = false
   }
 
   if (core.getInput('validate')) {
     config.validate = core.getBooleanInput('validate')
-  } else {
-    config.validate = false
   }
 
   if (core.getInput('log-level')) {
@@ -270,8 +280,6 @@ export function getConfig(): Config {
 
   if (core.getInput('use-regex')) {
     config.useRegex = core.getBooleanInput('use-regex')
-  } else {
-    config.useRegex = false
   }
 
   if (!config.owner) {
@@ -289,6 +297,9 @@ export function getConfig(): Config {
   optionsMap.add('project owner', `${config.owner}`)
   optionsMap.add('repository', `${config.repository}`)
   optionsMap.add('package', `${config.package}`)
+  if (config.expandPackages !== undefined) {
+    optionsMap.add('expand-packages', `${config.expandPackages}`)
+  }
   if (config.deleteTags) {
     optionsMap.add('delete-tags', config.deleteTags)
   }
@@ -304,30 +315,30 @@ export function getConfig(): Config {
       throw error
     }
   }
-  if (config.deleteUntagged != null) {
+  if (config.deleteUntagged !== undefined) {
     optionsMap.add('delete-untagged', `${config.deleteUntagged}`)
   }
-  if (config.deleteGhostImages != null) {
+  if (config.deleteGhostImages !== undefined) {
     optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`)
   }
-  if (config.deletePartialImages != null) {
+  if (config.deletePartialImages !== undefined) {
     optionsMap.add('delete-partial-images', `${config.deletePartialImages}`)
   }
-  if (config.keepNtagged != null) {
+  if (config.keepNtagged !== undefined) {
     optionsMap.add('keep-n-tagged', `${config.keepNtagged}`)
   }
-  if (config.keepNuntagged != null) {
+  if (config.keepNuntagged !== undefined) {
     optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`)
   }
-  if (config.dryRun != null) {
+  if (config.dryRun !== undefined) {
     optionsMap.add('dry-run', `${config.dryRun}`)
   }
-  if (config.validate != null) {
+  if (config.validate !== undefined) {
     optionsMap.add('validate', `${config.validate}`)
   }
   optionsMap.add('log-level', LogLevel[config.logLevel])
 
-  if (config.useRegex != null) {
+  if (config.useRegex !== undefined) {
     optionsMap.add('use-regex', `${config.useRegex}`)
   }
 

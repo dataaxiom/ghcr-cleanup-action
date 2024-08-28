@@ -6,7 +6,7 @@ import stdio from 'stdio'
 import fs from 'fs'
 import * as core from '@actions/core'
 import { Config } from './config.js'
-import { GithubPackageRepo } from './github-package.js'
+import { PackageRepo } from './package-repo.js'
 import { Registry } from './registry.js'
 import { SpawnSyncOptionsWithStringEncoding, spawnSync } from 'child_process'
 
@@ -111,7 +111,8 @@ async function loadImages(
 
 async function deleteDigests(
   directory: string,
-  githubPackageRepo: GithubPackageRepo
+  targetPackage: string,
+  packageRepo: PackageRepo
 ): Promise<void> {
   if (fs.existsSync(`${directory}/prime-delete`)) {
     const fileContents = fs.readFileSync(`${directory}/prime-delete`, 'utf-8')
@@ -122,9 +123,9 @@ async function deleteDigests(
           line = line.substring(0, line.indexOf('//') - 1)
         }
         line = line.trim()
-        const id = githubPackageRepo.getIdByDigest(line)
+        const id = packageRepo.getIdByDigest(line)
         if (id) {
-          await githubPackageRepo.deletePackageVersion(id, line, [])
+          await packageRepo.deletePackageVersion(targetPackage, id, line, [])
         }
       }
     }
@@ -197,11 +198,10 @@ export async function run(): Promise<void> {
 
   config.owner = config.owner?.toLowerCase()
 
-  const githubPackageRepo = new GithubPackageRepo(config)
-  await githubPackageRepo.init()
-
-  const registry = new Registry(config, githubPackageRepo)
-  await registry.login()
+  await config.init()
+  const packageRepo = new PackageRepo(config)
+  const registry = new Registry(config, packageRepo)
+  await registry.login(config.package)
 
   const dummyDigest =
     'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f'
@@ -223,14 +223,14 @@ export async function run(): Promise<void> {
       args.token
     )
     // load after dummy to make sure the package exists on first clone/setup
-    await githubPackageRepo.loadPackages(false)
+    await packageRepo.loadPackages(config.package, false)
 
     // remove all the existing images - except for the dummy image
-    for (const digest of githubPackageRepo.getDigests()) {
+    for (const digest of packageRepo.getDigests()) {
       if (digest !== dummyDigest) {
-        const id = githubPackageRepo.getIdByDigest(digest)
+        const id = packageRepo.getIdByDigest(digest)
         if (id) {
-          await githubPackageRepo.deletePackageVersion(id, digest, [])
+          await packageRepo.deletePackageVersion(config.package, id, digest, [])
         }
       }
     }
@@ -245,14 +245,14 @@ export async function run(): Promise<void> {
     )
 
     if (fs.existsSync(`${args.directory}/prime-delete`)) {
-      await githubPackageRepo.loadPackages(false)
+      await packageRepo.loadPackages(config.package, false)
 
       // make any deletions
-      await deleteDigests(args.directory, githubPackageRepo)
+      await deleteDigests(args.directory, config.package, packageRepo)
     }
   } else if (args.mode === 'validate') {
     // test the repo after the test
-    await githubPackageRepo.loadPackages(false)
+    await packageRepo.loadPackages(config.package, false)
 
     let error = false
 
@@ -277,9 +277,9 @@ export async function run(): Promise<void> {
         }
       }
 
-      const digests = githubPackageRepo.getDigests()
+      const digests = packageRepo.getDigests()
       for (const digest of expectedDigests) {
-        if (githubPackageRepo.getDigests().has(digest)) {
+        if (packageRepo.getDigests().has(digest)) {
           digests.delete(digest)
         } else {
           error = true
@@ -314,7 +314,7 @@ export async function run(): Promise<void> {
         }
       }
 
-      const regTags = githubPackageRepo.getTags()
+      const regTags = packageRepo.getTags()
       for (const expectedTag of expectedTags) {
         if (regTags.has(expectedTag)) {
           regTags.delete(expectedTag)
@@ -332,11 +332,11 @@ export async function run(): Promise<void> {
     if (!error) console.info('test passed!')
   } else if (args.mode === 'save-expected') {
     // save the expected tag dynamically
-    await githubPackageRepo.loadPackages(false)
+    await packageRepo.loadPackages(config.package, false)
 
     const tags = new Set<string>()
-    for (const digest of githubPackageRepo.getDigests()) {
-      const ghPackage = githubPackageRepo.getPackageByDigest(digest)
+    for (const digest of packageRepo.getDigests()) {
+      const ghPackage = packageRepo.getPackageByDigest(digest)
       for (const repoTag of ghPackage.metadata.container.tags) {
         tags.add(repoTag)
       }
@@ -344,7 +344,7 @@ export async function run(): Promise<void> {
 
     if (tag) {
       // find the digests in use for the supplied tag
-      const digest = githubPackageRepo.getDigestByTag(tag)
+      const digest = packageRepo.getDigestByTag(tag)
       if (digest) {
         fs.appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`)
 
@@ -366,7 +366,7 @@ export async function run(): Promise<void> {
             `${args.directory}/expected-tags`,
             `${referrerTag}\n`
           )
-          const referrerDigest = githubPackageRepo.getDigestByTag(referrerTag)
+          const referrerDigest = packageRepo.getDigestByTag(referrerTag)
           if (referrerDigest) {
             fs.appendFileSync(
               `${args.directory}/expected-digests`,

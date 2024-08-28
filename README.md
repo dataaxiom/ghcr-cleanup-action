@@ -4,7 +4,6 @@
 ![CI](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/ci.yml/badge.svg)
 [![Check dist/](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/check-dist.yml/badge.svg)](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/check-dist.yml)
 [![CodeQL](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/codeql-analysis.yml)
-[![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
 
 A workflow action that deletes images from the GitHub Container Registry
 (ghcr.io). Its primary focus is on supporting multi-architecture container
@@ -18,10 +17,8 @@ It includes the following features:
 - Keeping a number of untagged images
 - Keeping a number of tagged images
 - Untagging of multi-tagged images
-- Multi-architecture image support
+- Multiple package execution
 - Referrers/GitHub attestation support (OCIv1 tag approach)
-- Supports a wildcard or a regular expression selector for tag delete/exclude
-  options
 - Retry and throttle support for the GitHub API calls
 - Validation mode to verify multi-architecture & referrers images
 
@@ -29,13 +26,13 @@ It includes the following features:
 
 ### Setup token permissions
 
-To allow the injected GITHUB_TOKEN to have access to delete images it requires
-its permissions to have been set correctly, either by:
+To allow the injected GITHUB_TOKEN secret to have access to delete images it
+requires its permissions to have been set correctly, either by:
 
-1. In the GitHub site. Settings > Actions > General, set the Workflow
+1. In the GitHub site, Settings > Actions > General, set the Workflow
    permissions option to "Read and write permissions".
-1. or, set the permissions directly in the workflow by setting the packages
-   value to write.
+1. or by setting the permissions directly in the workflow by setting the
+   packages value to write.
 
    ```yaml
    jobs:
@@ -50,10 +47,10 @@ its permissions to have been set correctly, either by:
 
 The most basic setup with no delete or keep options deletes all untagged images
 from the repository. Untagged here means a top-level container image, not the
-underlying parts of a multi-architecture image (which appear as untagged
-packages also).
+underlying parts of a multi-architecture image (which also appear as untagged
+packages).
 
-To get started add the action definition to a workflow file.
+To get started add an action definition to a workflow file.
 
 ```yaml
 jobs:
@@ -88,12 +85,13 @@ especially important when using a wildcard/regular expression syntaxes or the
 
 ### Repository Options
 
-| Option     | Required | Defaults        | Description                                                      |
-| ---------- | :------: | --------------- | ---------------------------------------------------------------- |
-| token      |   yes    |                 | Token used to connect with ghcr.io and the Package API           |
-| owner      |    no    | project owner   | The GitHub repository owner, can be an organization or user type |
-| repository |    no    | repository name | The GitHub repository name                                       |
-| package    |    no    | repository name | The GitHub repository package name to operate on                 |
+| Option          | Required | Defaults        | Description                                                                                                                                                                              |
+| --------------- | :------: | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| token           |   yes    |                 | Token used to connect with ghcr.io and the Package API                                                                                                                                   |
+| owner           |    no    | project owner   | The GitHub repository owner, can be an organization or user type                                                                                                                         |
+| repository      |    no    | repository name | The GitHub repository name                                                                                                                                                               |
+| package(s)      |    no    | repository name | Comma-separated list of packages to cleanup. Supports dynamic packages (wildcard or regular expression) by enabling the `expand-packages` option. Can be used as `package` or `packages` |
+| expand-packages |    no    | false           | Enable wildcard or regular expression support on the `package(s)` option to support dynamic package selection. It requires use of a Personal Access Token (PAT) for the `token` value.   |
 
 If the owner, repository or package options are not set then the values are
 automatically set from the project environment where the action is running.
@@ -116,12 +114,12 @@ the option `delete-untagged` to "true" and will delete all untagged images.
 
 ### Other Options
 
-| Option    | Required | Defaults | Description                                                                                                        |
-| --------- | :------: | -------- | ------------------------------------------------------------------------------------------------------------------ |
-| use-regex |    no    | false    | If set to true, the `delete-tags` and `exclude-tags` options expect a regular expression selector, if they are set |
-| dry-run   |    no    | false    | Simulate a cleanup action but does not make any changes (true/false)                                               |
-| validate  |    no    | false    | Validate all multi-architecture images in the registry after cleanup                                               |
-| log-level |    no    | info     | The log level (error/warn/info/debug)                                                                              |
+| Option    | Required | Defaults | Description                                                                                                                   |
+| --------- | :------: | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| use-regex |    no    | false    | If set to true, the `delete-tags`,`exclude-tags` and `package` options expect a regular expression selector (if they are set) |
+| dry-run   |    no    | false    | Simulate a cleanup action but does not make any changes (true/false)                                                          |
+| validate  |    no    | false    | Validate all multi-architecture images in the registry after cleanup                                                          |
+| log-level |    no    | info     | The log level (error/warn/info/debug)                                                                                         |
 
 ## Delete Options
 
@@ -221,7 +219,7 @@ jobs:
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          olden-than: 1 year
+          older-than: 1 year
           keep-n-tagged: 10
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -284,6 +282,65 @@ jobs:
         with:
           keep-n-tagged: 3
           token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Personal Access Tokens (PAT's)
+
+The default injected token (`secret.GITHUB_TOKEN`) is sufficent for packages
+which have been created by the repository project pipeline (or have been setup
+to grant admin access to it). For setups where the action is accessing a package
+in a different repository or dynamic package selection (`expand-packages`) is
+set to true a Personal Access Token (PAT) is required to be utilzied.
+
+The PAT should be setup as a Classic token. This is due to the GitGub Registry
+API only supporting Classic tokens currently. The token should be setup with
+`write:packages` and `delete:packages` scopes.
+
+## Multiple Package Support
+
+The `package` (or `packages`) options can be set to a comma seperated list of
+packages to operate on.
+
+```yaml
+jobs:
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: myimage1,myimage2
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+To utilize a wildcard set the `expand-packages` option to true and utilize a PAT
+for the token.
+
+```yaml
+jobs:
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: myimage*,someotherimage
+          expand-packages: true
+          token: ${{ env.GHCR_PAT }}
+```
+
+A regular expression can be used alternatively. This requires the `use-regex`
+option to be set to true.
+
+```yaml
+jobs:
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: ^myimage[12]$
+          expand-packages: true
+          use-regex: true
+          token: ${{ env.GHCR_PAT }}
 ```
 
 ## Sample Action Setups

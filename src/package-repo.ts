@@ -5,12 +5,9 @@ import { RequestError } from '@octokit/request-error'
 /**
  * Provides access to a package via the GitHub Packages REST API.
  */
-export class GithubPackageRepo {
+export class PackageRepo {
   // The action configuration
   config: Config
-
-  // The type of repository (User or Organization)
-  repoType = 'Organization'
 
   // Map of digests to package ids
   digest2Id = new Map<string, string>()
@@ -30,18 +27,10 @@ export class GithubPackageRepo {
     this.config = config
   }
 
-  /*
-   * Initialization method.
-   */
-  async init(): Promise<void> {
-    // Determine the repository type (User or Organization)
-    this.repoType = await this.config.getOwnerType()
-  }
-
   /**
    * Loads all versions of the package from the GitHub Packages API and populates the internal maps
    */
-  async loadPackages(output: boolean): Promise<void> {
+  async loadPackages(targetPackage: string, output: boolean): Promise<void> {
     try {
       // clear the maps for reloading
       this.digest2Id.clear()
@@ -53,7 +42,7 @@ export class GithubPackageRepo {
           .getAllPackageVersionsForPackageOwnedByOrg
       let getParams
 
-      if (this.repoType === 'User') {
+      if (this.config.repoType === 'User') {
         getFunc = this.config.isPrivateRepo
           ? this.config.octokit.rest.packages
               .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
@@ -62,7 +51,7 @@ export class GithubPackageRepo {
 
         getParams = {
           package_type: 'container',
-          package_name: this.config.package,
+          package_name: targetPackage,
           username: this.config.owner,
           state: 'active',
           per_page: 100
@@ -70,7 +59,7 @@ export class GithubPackageRepo {
       } else {
         getParams = {
           package_type: 'container',
-          package_name: this.config.package,
+          package_name: targetPackage,
           org: this.config.owner,
           state: 'active',
           per_page: 100
@@ -90,7 +79,7 @@ export class GithubPackageRepo {
       }
 
       if (output && this.config.logLevel >= LogLevel.INFO) {
-        core.startGroup('Loaded Package Data')
+        core.startGroup(`[${targetPackage}] Loaded package data`)
         for (const ghPackage of this.id2Package.values()) {
           let tags = ''
           for (const tag of ghPackage.metadata.container.tags) {
@@ -101,7 +90,7 @@ export class GithubPackageRepo {
         core.endGroup()
       }
       if (output && this.config.logLevel === LogLevel.DEBUG) {
-        core.startGroup('Loaded Package Payloads')
+        core.startGroup(`[${targetPackage}] Loaded package payloads`)
         for (const ghPackage of this.id2Package.values()) {
           const payload = JSON.stringify(ghPackage, null, 4)
           core.info(payload)
@@ -114,11 +103,11 @@ export class GithubPackageRepo {
           if (error.status === 404) {
             if (this.config.defaultPackageUsed) {
               core.warning(
-                `The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`
+                `The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`
               )
             } else {
               core.warning(
-                `The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`
+                `The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`
               )
             }
           }
@@ -183,6 +172,7 @@ export class GithubPackageRepo {
    * @param label Additional label to display
    */
   async deletePackageVersion(
+    targetPackage: string,
     id: string,
     digest: string,
     tags?: string[],
@@ -196,19 +186,19 @@ export class GithubPackageRepo {
       core.info(` deleting package id: ${id} digest: ${digest}`)
     }
     if (!this.config.dryRun) {
-      if (this.repoType === 'User') {
+      if (this.config.repoType === 'User') {
         if (this.config.isPrivateRepo) {
           await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser(
             {
               package_type: 'container',
-              package_name: this.config.package,
+              package_name: targetPackage,
               package_version_id: id
             }
           )
         } else {
           await this.config.octokit.rest.packages.deletePackageVersionForUser({
             package_type: 'container',
-            package_name: this.config.package,
+            package_name: targetPackage,
             username: this.config.owner,
             package_version_id: id
           })
@@ -216,11 +206,53 @@ export class GithubPackageRepo {
       } else {
         await this.config.octokit.rest.packages.deletePackageVersionForOrg({
           package_type: 'container',
-          package_name: this.config.package,
+          package_name: targetPackage,
           org: this.config.owner,
           package_version_id: id
         })
       }
     }
+  }
+
+  async getPackageList(): Promise<string[]> {
+    const packages = []
+
+    let listFunc
+    let listParams
+
+    if (this.config.repoType === 'User') {
+      listFunc = this.config.isPrivateRepo
+        ? this.config.octokit.rest.packages.listPackagesForAuthenticatedUser
+        : this.config.octokit.rest.packages.listPackagesForUser
+
+      listParams = {
+        package_type: 'container',
+        username: this.config.owner,
+        per_page: 100
+      }
+    } else {
+      listFunc = this.config.octokit.rest.packages.listPackagesForOrganization
+      listParams = {
+        package_type: 'container',
+        org: this.config.owner,
+        per_page: 100
+      }
+    }
+
+    for await (const response of this.config.octokit.paginate.iterator(
+      listFunc,
+      listParams
+    )) {
+      core.startGroup(
+        `Available packages in repository: ${this.config.repository}`
+      )
+      for (const data of response.data) {
+        core.info(data.name)
+        packages.push(data.name)
+      }
+      core.endGroup()
+    }
+
+    return packages
   }
 }

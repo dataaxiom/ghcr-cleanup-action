@@ -30,15 +30,29 @@ inputs:
 
   package:
     description: >
-      The package name. Defaults to the repository name
+      Comma-separated list of packages to cleanup. Support dynamic packages
+      (wildcard or regular expression) by enabling the expand-packages option.
+    required: false
+
+  packages:
+    description: >
+      Alternative name for package option
+    required: false
+
+  expand-packages:
+    description: >
+      Enable wildcard or regular expression support on the package(s) option to
+      support dynamic package selection. Requires use of a Personal Access Token
+      (PAT) for the token option value.
     required: false
 
   # Cleanup Options
 
   delete-tags:
     description: >
-      Comma separated list of tags to delete. Suports wildcard syntax. Can be
-      abbreviated as `tags`
+      Comma-separated list of tags to delete (supports wildcard syntax), can be
+      abbreviated as `tags`. A regular expression selector can be used instead
+      by setting the `use-regex` option to true
     required: false
 
   tags:
@@ -48,8 +62,9 @@ inputs:
 
   exclude-tags:
     description: >
-      Commma separated list of tags strictly to be preserved / excluded from
-      deletion. Suports wildcard syntax
+      Comma-separated list of tags strictly to be preserved/excluded from
+      deletion (supports wildcard syntax). A regular expression selector can be
+      used instead by setting the `use-regex` option to true
     required: false
 
   keep-n-untagged:

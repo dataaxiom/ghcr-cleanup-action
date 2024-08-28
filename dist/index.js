@@ -36546,7 +36546,7 @@ function wrappy (fn, cb) {
 /***/ ((module, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3769);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(7444);
 /**
  * The entrypoint for the action.
  */
@@ -36559,7 +36559,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 3769:
+/***/ 7444:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -37035,9 +37035,11 @@ var LogLevel;
 })(LogLevel || (LogLevel = {}));
 class Config {
     isPrivateRepo = false;
+    repoType = 'Organization';
     owner = '';
     repository = '';
     package = '';
+    expandPackages;
     defaultPackageUsed = false;
     deleteTags;
     excludeTags;
@@ -37097,11 +37099,12 @@ class Config {
             }
         });
     }
-    async getOwnerType() {
+    async init() {
+        // lookup repo info
         try {
             const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
             this.isPrivateRepo = result.data.private;
-            return result.data.owner.type;
+            this.repoType = result.data.owner.type;
         }
         catch (error) {
             if (error instanceof request_error_dist_node.RequestError) {
@@ -37116,12 +37119,18 @@ class Config {
         }
     }
 }
-function getConfig() {
+function buildConfig() {
     const token = core.getInput('token', { required: true });
     const config = new Config(token);
     config.owner = core.getInput('owner');
     config.repository = core.getInput('repository');
+    if (core.getInput('package') && core.getInput('packages')) {
+        throw Error('package and packages cant be used at the same time, use either one');
+    }
     config.package = core.getInput('package');
+    if (!config.package) {
+        config.package = core.getInput('packages');
+    }
     // auto populate
     const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
     if (GITHUB_REPOSITORY) {
@@ -37147,6 +37156,9 @@ function getConfig() {
     }
     else {
         throw Error('GITHUB_REPOSITORY is not set');
+    }
+    if (core.getInput('expand-packages')) {
+        config.expandPackages = core.getBooleanInput('expand-packages');
     }
     if (core.getInput('tags') && core.getInput('delete-tags')) {
         throw Error('tags and delete-tags cant be used at the same time, use either one');
@@ -37175,27 +37187,27 @@ function getConfig() {
         }
     }
     if (core.getInput('keep-n-tagged')) {
-        const n = parseInt(core.getInput('keep-n-tagged'));
-        if (isNaN(n)) {
+        const value = parseInt(core.getInput('keep-n-tagged'));
+        if (isNaN(value)) {
             throw new Error('keep-n-tagged is not number');
         }
-        else if (n < 0) {
+        else if (value < 0) {
             throw new Error('keep-n-tagged is negative');
         }
         else {
-            config.keepNtagged = n;
+            config.keepNtagged = value;
         }
     }
     if (core.getInput('keep-n-untagged')) {
-        const n = parseInt(core.getInput('keep-n-untagged'));
-        if (isNaN(n)) {
+        const value = parseInt(core.getInput('keep-n-untagged'));
+        if (isNaN(value)) {
             throw new Error('keep-n-untagged is not number');
         }
-        else if (n < 0) {
+        else if (value < 0) {
             throw new Error('keep-n-untagged is negative');
         }
         else {
-            config.keepNuntagged = n;
+            config.keepNuntagged = value;
         }
     }
     if (core.getInput('delete-untagged')) {
@@ -37210,9 +37222,6 @@ function getConfig() {
             !core.getInput('keep-n-untagged') &&
             !core.getInput('keep-n-tagged')) {
             config.deleteUntagged = true;
-        }
-        else {
-            config.deleteUntagged = false;
         }
     }
     if (config.keepNuntagged && core.getInput('delete-untagged')) {
@@ -37230,14 +37239,8 @@ function getConfig() {
             core.info('***** In dry run mode - No packages will be deleted *****');
         }
     }
-    else {
-        config.dryRun = false;
-    }
     if (core.getInput('validate')) {
         config.validate = core.getBooleanInput('validate');
-    }
-    else {
-        config.validate = false;
     }
     if (core.getInput('log-level')) {
         const level = core.getInput('log-level').toLowerCase();
@@ -37257,9 +37260,6 @@ function getConfig() {
     if (core.getInput('use-regex')) {
         config.useRegex = core.getBooleanInput('use-regex');
     }
-    else {
-        config.useRegex = false;
-    }
     if (!config.owner) {
         throw new Error('owner is not set');
     }
@@ -37274,6 +37274,9 @@ function getConfig() {
     optionsMap.add('project owner', `${config.owner}`);
     optionsMap.add('repository', `${config.repository}`);
     optionsMap.add('package', `${config.package}`);
+    if (config.expandPackages !== undefined) {
+        optionsMap.add('expand-packages', `${config.expandPackages}`);
+    }
     if (config.deleteTags) {
         optionsMap.add('delete-tags', config.deleteTags);
     }
@@ -37290,29 +37293,29 @@ function getConfig() {
             throw error;
         }
     }
-    if (config.deleteUntagged != null) {
+    if (config.deleteUntagged !== undefined) {
         optionsMap.add('delete-untagged', `${config.deleteUntagged}`);
     }
-    if (config.deleteGhostImages != null) {
+    if (config.deleteGhostImages !== undefined) {
         optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`);
     }
-    if (config.deletePartialImages != null) {
+    if (config.deletePartialImages !== undefined) {
         optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
     }
-    if (config.keepNtagged != null) {
+    if (config.keepNtagged !== undefined) {
         optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
     }
-    if (config.keepNuntagged != null) {
+    if (config.keepNuntagged !== undefined) {
         optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`);
     }
-    if (config.dryRun != null) {
+    if (config.dryRun !== undefined) {
         optionsMap.add('dry-run', `${config.dryRun}`);
     }
-    if (config.validate != null) {
+    if (config.validate !== undefined) {
         optionsMap.add('validate', `${config.validate}`);
     }
     optionsMap.add('log-level', LogLevel[config.logLevel]);
-    if (config.useRegex != null) {
+    if (config.useRegex !== undefined) {
         optionsMap.add('use-regex', `${config.useRegex}`);
     }
     core.startGroup('Runtime configuration');
@@ -42648,6 +42651,8 @@ class Registry {
     githubPackageRepo;
     // http client library instance
     axios;
+    // current package working on
+    targetPackage = '';
     // cache of loaded manifests, by digest
     manifestCache = new Map();
     // map of referrer manifests
@@ -42682,13 +42687,16 @@ class Registry {
      * @returns A Promise that resolves when the login is successful
      * @throws If an error occurs during the login process
      */
-    async login() {
+    async login(targetPackage) {
+        // reset the cache
+        this.manifestCache.clear();
+        this.targetPackage = targetPackage;
         try {
             if (this.config.logLevel === LogLevel.DEBUG) {
                 core.info('issuing an authentication challenge');
             }
             // get token
-            await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/tags/list`);
+            await this.axios.get(`/v2/${this.config.owner}/${targetPackage}/tags/list`);
         }
         catch (error) {
             if (axios_isAxiosError(error) && error.response) {
@@ -42721,6 +42729,7 @@ class Registry {
                     }
                 }
                 else {
+                    core.setFailed(`Error logging into registry API with package: ${targetPackage}`);
                     throw error;
                 }
             }
@@ -42737,7 +42746,7 @@ class Registry {
             return this.manifestCache.get(digest);
         }
         else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.config.package}/manifests/${digest}`, {
+            const response = await this.axios.get(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`, {
                 transformResponse: [
                     data => {
                         return data;
@@ -42781,7 +42790,7 @@ class Registry {
             let putToken;
             const auth = lib_axios.create();
             try {
-                await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, config);
+                await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, config);
             }
             catch (error) {
                 if (axios_isAxiosError(error) && error.response) {
@@ -42812,7 +42821,7 @@ class Registry {
             }
             if (putToken) {
                 // now put the updated manifest
-                await this.axios.put(`/v2/${this.config.owner}/${this.config.package}/manifests/${tag}`, manifest, {
+                await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, {
                     headers: {
                         'content-type': contentType,
                         Authorization: `Bearer ${putToken}`
@@ -42826,18 +42835,16 @@ class Registry {
     }
 }
 
-;// CONCATENATED MODULE: ./src/github-package.ts
+;// CONCATENATED MODULE: ./src/package-repo.ts
 
 
 
 /**
  * Provides access to a package via the GitHub Packages REST API.
  */
-class GithubPackageRepo {
+class PackageRepo {
     // The action configuration
     config;
-    // The type of repository (User or Organization)
-    repoType = 'Organization';
     // Map of digests to package ids
     digest2Id = new Map();
     // Map of ids to package version definitions
@@ -42852,17 +42859,10 @@ class GithubPackageRepo {
     constructor(config) {
         this.config = config;
     }
-    /*
-     * Initialization method.
-     */
-    async init() {
-        // Determine the repository type (User or Organization)
-        this.repoType = await this.config.getOwnerType();
-    }
     /**
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
      */
-    async loadPackages(output) {
+    async loadPackages(targetPackage, output) {
         try {
             // clear the maps for reloading
             this.digest2Id.clear();
@@ -42871,7 +42871,7 @@ class GithubPackageRepo {
             let getFunc = this.config.octokit.rest.packages
                 .getAllPackageVersionsForPackageOwnedByOrg;
             let getParams;
-            if (this.repoType === 'User') {
+            if (this.config.repoType === 'User') {
                 getFunc = this.config.isPrivateRepo
                     ? this.config.octokit.rest.packages
                         .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
@@ -42879,7 +42879,7 @@ class GithubPackageRepo {
                         .getAllPackageVersionsForPackageOwnedByUser;
                 getParams = {
                     package_type: 'container',
-                    package_name: this.config.package,
+                    package_name: targetPackage,
                     username: this.config.owner,
                     state: 'active',
                     per_page: 100
@@ -42888,7 +42888,7 @@ class GithubPackageRepo {
             else {
                 getParams = {
                     package_type: 'container',
-                    package_name: this.config.package,
+                    package_name: targetPackage,
                     org: this.config.owner,
                     state: 'active',
                     per_page: 100
@@ -42904,7 +42904,7 @@ class GithubPackageRepo {
                 }
             }
             if (output && this.config.logLevel >= LogLevel.INFO) {
-                core.startGroup('Loaded Package Data');
+                core.startGroup(`[${targetPackage}] Loaded package data`);
                 for (const ghPackage of this.id2Package.values()) {
                     let tags = '';
                     for (const tag of ghPackage.metadata.container.tags) {
@@ -42915,7 +42915,7 @@ class GithubPackageRepo {
                 core.endGroup();
             }
             if (output && this.config.logLevel === LogLevel.DEBUG) {
-                core.startGroup('Loaded Package Payloads');
+                core.startGroup(`[${targetPackage}] Loaded package payloads`);
                 for (const ghPackage of this.id2Package.values()) {
                     const payload = JSON.stringify(ghPackage, null, 4);
                     core.info(payload);
@@ -42928,10 +42928,10 @@ class GithubPackageRepo {
                 if (error.status) {
                     if (error.status === 404) {
                         if (this.config.defaultPackageUsed) {
-                            core.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
+                            core.warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
                         }
                         else {
-                            core.warning(`The package "${this.config.package}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
+                            core.warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
                         }
                     }
                 }
@@ -42988,7 +42988,7 @@ class GithubPackageRepo {
      * @param tags The tags associated with the package
      * @param label Additional label to display
      */
-    async deletePackageVersion(id, digest, tags, label) {
+    async deletePackageVersion(targetPackage, id, digest, tags, label) {
         if (tags && tags.length > 0) {
             core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
         }
@@ -42999,18 +42999,18 @@ class GithubPackageRepo {
             core.info(` deleting package id: ${id} digest: ${digest}`);
         }
         if (!this.config.dryRun) {
-            if (this.repoType === 'User') {
+            if (this.config.repoType === 'User') {
                 if (this.config.isPrivateRepo) {
                     await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                         package_type: 'container',
-                        package_name: this.config.package,
+                        package_name: targetPackage,
                         package_version_id: id
                     });
                 }
                 else {
                     await this.config.octokit.rest.packages.deletePackageVersionForUser({
                         package_type: 'container',
-                        package_name: this.config.package,
+                        package_name: targetPackage,
                         username: this.config.owner,
                         package_version_id: id
                     });
@@ -43019,12 +43019,44 @@ class GithubPackageRepo {
             else {
                 await this.config.octokit.rest.packages.deletePackageVersionForOrg({
                     package_type: 'container',
-                    package_name: this.config.package,
+                    package_name: targetPackage,
                     org: this.config.owner,
                     package_version_id: id
                 });
             }
         }
+    }
+    async getPackageList() {
+        const packages = [];
+        let listFunc;
+        let listParams;
+        if (this.config.repoType === 'User') {
+            listFunc = this.config.isPrivateRepo
+                ? this.config.octokit.rest.packages.listPackagesForAuthenticatedUser
+                : this.config.octokit.rest.packages.listPackagesForUser;
+            listParams = {
+                package_type: 'container',
+                username: this.config.owner,
+                per_page: 100
+            };
+        }
+        else {
+            listFunc = this.config.octokit.rest.packages.listPackagesForOrganization;
+            listParams = {
+                package_type: 'container',
+                org: this.config.owner,
+                per_page: 100
+            };
+        }
+        for await (const response of this.config.octokit.paginate.iterator(listFunc, listParams)) {
+            core.startGroup(`Available packages in repository: ${this.config.repository}`);
+            for (const data of response.data) {
+                core.info(data.name);
+                packages.push(data.name);
+            }
+            core.endGroup();
+        }
+        return packages;
     }
 }
 
@@ -43194,34 +43226,21 @@ function wildcardMatch(pattern, options) {
 
 //# sourceMappingURL=index.es.mjs.map
 
-;// CONCATENATED MODULE: ./src/main.ts
+;// CONCATENATED MODULE: ./src/cleanup-task.ts
 
 
 
-
-
-async function run() {
-    try {
-        const action = new CleanupAction();
-        await action.init();
-        await action.reload();
-        await action.run();
-    }
-    catch (error) {
-        // Fail the workflow run if an error occurs
-        if (error instanceof Error)
-            core.setFailed(error.message);
-    }
-}
-class CleanupAction {
+class CleanupTask {
     // The action configuration
     config;
+    // The package repository to cleanup
+    targetPackage;
     // tags which should be excluded from deletion
     excludeTags = [];
     // used to interact with the container registry api
     registry;
     // used to interact with the github package api
-    githubPackageRepo;
+    packageRepo;
     // working set of package digests to process filters/keeps options on
     filterSet = new Set();
     // digests to delete
@@ -43235,23 +43254,20 @@ class CleanupAction {
     // action stats
     numberMultiImagesDeleted = 0;
     numberImagesDeleted = 0;
-    constructor() {
-        this.config = getConfig();
-        this.githubPackageRepo = new GithubPackageRepo(this.config);
-        this.registry = new Registry(this.config, this.githubPackageRepo);
-    }
-    async init() {
-        await this.registry.login();
-        await this.githubPackageRepo.init();
+    constructor(config, packageRepo, registry, targetPackage) {
+        this.config = config;
+        this.packageRepo = packageRepo;
+        this.registry = registry;
+        this.targetPackage = targetPackage;
     }
     async reload() {
         this.deleteSet.clear();
         this.deleted.clear();
         // prime the list of current packages
-        await this.githubPackageRepo.loadPackages(true);
+        await this.packageRepo.loadPackages(this.targetPackage, true);
         // extract values from the load
-        this.filterSet = this.githubPackageRepo.getDigests();
-        this.tagsInUse = this.githubPackageRepo.getTags();
+        this.filterSet = this.packageRepo.getDigests();
+        this.tagsInUse = this.packageRepo.getTags();
         // build digestUsedBy map
         await this.loadDigestUsedByMap();
         // remove children from filterSet - manifest image children, referrers
@@ -43264,7 +43280,7 @@ class CleanupAction {
                 for (const tag of this.tagsInUse) {
                     if (regex.test(tag)) {
                         // delete the tag from the filterSet
-                        const digest = this.githubPackageRepo.getDigestByTag(tag);
+                        const digest = this.packageRepo.getDigestByTag(tag);
                         if (digest) {
                             this.filterSet.delete(digest);
                         }
@@ -43277,7 +43293,7 @@ class CleanupAction {
                 for (const tag of this.tagsInUse) {
                     if (isTagMatch(tag)) {
                         // delete the tag from the filterSet
-                        const digest = this.githubPackageRepo.getDigestByTag(tag);
+                        const digest = this.packageRepo.getDigestByTag(tag);
                         if (digest) {
                             this.filterSet.delete(digest);
                         }
@@ -43286,12 +43302,19 @@ class CleanupAction {
                 }
             }
         }
+        if (this.excludeTags.length > 0) {
+            core.startGroup(`[${this.targetPackage}] Excluding tags from deletion`);
+            for (const tag of this.excludeTags) {
+                core.info(tag);
+            }
+            core.endGroup();
+        }
         // only include older-than if set
         if (this.config.olderThan) {
             // get the package
-            core.startGroup(`Including packages that are older than: ${this.config.olderThanReadable}`);
+            core.startGroup(`[${this.targetPackage}] Including packages that are older than: ${this.config.olderThanReadable}`);
             for (const digest of this.filterSet) {
-                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                const ghPackage = this.packageRepo.getPackageByDigest(digest);
                 if (ghPackage.updated_at) {
                     const cutOff = new Date(Date.now() - this.config.olderThan);
                     const packageDate = new Date(ghPackage.updated_at);
@@ -43300,8 +43323,8 @@ class CleanupAction {
                         this.filterSet.delete(digest);
                     }
                     else {
-                        const tags = this.githubPackageRepo.getPackageByDigest(digest).metadata
-                            .container.tags;
+                        const tags = this.packageRepo.getPackageByDigest(digest).metadata.container
+                            .tags;
                         if (tags.length > 0) {
                             core.info(`${digest} ${tags}`);
                         }
@@ -43322,7 +43345,7 @@ class CleanupAction {
         this.digestUsedBy.clear();
         // used if debug logging
         const manfiests = new Map();
-        const digests = this.githubPackageRepo.getDigests();
+        const digests = this.packageRepo.getDigests();
         for (const digest of digests) {
             const manifest = await this.registry.getManifestByDigest(digest);
             if (this.config.logLevel >= LogLevel.INFO) {
@@ -43344,7 +43367,7 @@ class CleanupAction {
             }
         }
         if (this.config.logLevel === LogLevel.DEBUG) {
-            core.startGroup('Image Manfiests');
+            core.startGroup(`[${this.targetPackage}] Image manfiests`);
             for (const [digest, manifest] of manfiests) {
                 const encoded = JSON.stringify(manifest, null, 4);
                 core.info(`${digest}:${encoded}`);
@@ -43357,7 +43380,7 @@ class CleanupAction {
      * referrer image if present. Filtering/processing only occurs on top level images.
      */
     async trimChildren() {
-        const digests = this.githubPackageRepo.getDigests();
+        const digests = this.packageRepo.getDigests();
         for (const digest of digests) {
             const manifest = await this.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
@@ -43370,7 +43393,7 @@ class CleanupAction {
             if (this.tagsInUse.has(referrerTag) &&
                 !this.excludeTags.includes(referrerTag)) {
                 // find the digest and children and remove them
-                const referrerDigest = this.githubPackageRepo.getDigestByTag(referrerTag);
+                const referrerDigest = this.packageRepo.getDigestByTag(referrerTag);
                 if (referrerDigest) {
                     this.filterSet.delete(referrerDigest);
                     const referrerManifest = await this.registry.getManifestByTag(referrerTag);
@@ -43385,21 +43408,20 @@ class CleanupAction {
     }
     // validate manifests list packages
     async validate() {
-        core.info('Validating multi-architecture/referrers images:');
+        core.startGroup(`[${this.targetPackage}] Validating multi-architecture/referrers images`);
         // cycle thru digests checking them
         let error = false;
         const processedManifests = new Set();
-        for (const digest of this.githubPackageRepo.getDigests()) {
+        for (const digest of this.packageRepo.getDigests()) {
             // is the digest a multi arch image?
             if (!processedManifests.has(digest)) {
                 const manifest = await this.registry.getManifestByDigest(digest);
-                const tags = this.githubPackageRepo.getPackageByDigest(digest).metadata.container
-                    .tags;
+                const tags = this.packageRepo.getPackageByDigest(digest).metadata.container.tags;
                 if (manifest.manifests) {
                     for (const childImage of manifest.manifests) {
                         // mark it as processed
                         processedManifests.add(childImage.digest);
-                        if (!this.githubPackageRepo.getIdByDigest(childImage.digest)) {
+                        if (!this.packageRepo.getIdByDigest(childImage.digest)) {
                             error = true;
                             if (tags.length > 0) {
                                 core.warning(`digest ${childImage.digest} not found on image ${tags}`);
@@ -43416,7 +43438,7 @@ class CleanupAction {
         for (const tag of this.tagsInUse) {
             if (tag.startsWith('sha256-')) {
                 const digest = tag.replace('sha256-', 'sha256:');
-                if (!this.githubPackageRepo.getIdByDigest(digest)) {
+                if (!this.packageRepo.getIdByDigest(digest)) {
                     error = true;
                     core.warning(`parent image for referrer tag ${tag} not found in repository`);
                 }
@@ -43425,6 +43447,7 @@ class CleanupAction {
         if (!error) {
             core.info(' no errors found');
         }
+        core.endGroup();
     }
     async buildLabel(imageManifest) {
         // build the 'label'
@@ -43466,14 +43489,14 @@ class CleanupAction {
             // get the manifest first
             const manifest = await this.registry.getManifestByDigest(ghPackage.name);
             // now delete it
-            await this.githubPackageRepo.deletePackageVersion(ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
+            await this.packageRepo.deletePackageVersion(this.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
             this.deleted.add(ghPackage.name);
             this.numberImagesDeleted += 1;
             // if manifests based image now delete it's children
             if (manifest.manifests) {
                 this.numberMultiImagesDeleted += 1;
                 for (const imageManifest of manifest.manifests) {
-                    const manifestPackage = this.githubPackageRepo.getPackageByDigest(imageManifest.digest);
+                    const manifestPackage = this.packageRepo.getPackageByDigest(imageManifest.digest);
                     if (manifestPackage) {
                         if (!this.deleted.has(manifestPackage.name)) {
                             // check if the digest isn't in use by another image
@@ -43481,7 +43504,7 @@ class CleanupAction {
                             if (parents) {
                                 if (parents.size === 1 && parents.has(ghPackage.name)) {
                                     // it's only referenced from this image so delete it
-                                    await this.githubPackageRepo.deletePackageVersion(manifestPackage.id, manifestPackage.name, [], await this.buildLabel(imageManifest));
+                                    await this.packageRepo.deletePackageVersion(this.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.buildLabel(imageManifest));
                                     this.deleted.add(manifestPackage.name);
                                     this.numberImagesDeleted += 1;
                                     // remove the parent - no other references to it
@@ -43509,9 +43532,9 @@ class CleanupAction {
             if (this.tagsInUse.has(attestationTag) &&
                 !this.excludeTags.includes(attestationTag)) {
                 // find the package
-                const manifestDigest = this.githubPackageRepo.getDigestByTag(attestationTag);
+                const manifestDigest = this.packageRepo.getDigestByTag(attestationTag);
                 if (manifestDigest) {
-                    const attestationPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
+                    const attestationPackage = this.packageRepo.getPackageByDigest(manifestDigest);
                     // recursively delete it
                     await this.deleteImage(attestationPackage);
                 }
@@ -43519,7 +43542,7 @@ class CleanupAction {
         }
     }
     async deleteGhostImages() {
-        core.startGroup('Finding Ghost Images');
+        core.startGroup(`[${this.targetPackage}] Finding ghost images to delete`);
         let foundGhostImage = false;
         for (const digest of this.filterSet) {
             let ghostImage = false;
@@ -43528,7 +43551,7 @@ class CleanupAction {
             if (manfiest.manifests) {
                 let missing = 0;
                 for (const imageManfiest of manfiest.manifests) {
-                    if (!this.githubPackageRepo.getIdByDigest(imageManfiest.digest)) {
+                    if (!this.packageRepo.getIdByDigest(imageManfiest.digest)) {
                         missing += 1;
                     }
                 }
@@ -43541,7 +43564,7 @@ class CleanupAction {
                 // setup the ghost image to be deleted
                 this.filterSet.delete(digest);
                 this.deleteSet.add(digest);
-                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                const ghPackage = this.packageRepo.getPackageByDigest(digest);
                 if (ghPackage.metadata.container.tags.length > 0) {
                     core.info(`${digest} ${ghPackage.metadata.container.tags}`);
                 }
@@ -43556,7 +43579,7 @@ class CleanupAction {
         core.endGroup();
     }
     async deletePartialImages() {
-        core.startGroup('Finding Partial Images');
+        core.startGroup(`[${this.targetPackage}] Finding partial images to delete`);
         let partialImagesFound = false;
         for (const digest of this.filterSet) {
             let partialImage = false;
@@ -43564,7 +43587,7 @@ class CleanupAction {
             const manfiest = await this.registry.getManifestByDigest(digest);
             if (manfiest.manifests) {
                 for (const imageManfiest of manfiest.manifests) {
-                    if (!this.githubPackageRepo.getIdByDigest(imageManfiest.digest)) {
+                    if (!this.packageRepo.getIdByDigest(imageManfiest.digest)) {
                         partialImage = true;
                         partialImagesFound = true;
                         break;
@@ -43575,7 +43598,7 @@ class CleanupAction {
                 // setup the partial image to be deleted
                 this.filterSet.delete(digest);
                 this.deleteSet.add(digest);
-                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                const ghPackage = this.packageRepo.getPackageByDigest(digest);
                 if (ghPackage.metadata.container.tags.length > 0) {
                     core.info(`${digest} ${ghPackage.metadata.container.tags}`);
                 }
@@ -43596,7 +43619,7 @@ class CleanupAction {
                 const regex = new RegExp(this.config.deleteTags);
                 // build match list from filterSet
                 for (const digest of this.filterSet) {
-                    const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                    const ghPackage = this.packageRepo.getPackageByDigest(digest);
                     for (const tag of ghPackage.metadata.container.tags) {
                         if (regex.test(tag)) {
                             matchTags.push(tag);
@@ -43609,7 +43632,7 @@ class CleanupAction {
                 const isTagMatch = wildcardMatch(this.config.deleteTags.split(','));
                 // build match list from filterSet
                 for (const digest of this.filterSet) {
-                    const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                    const ghPackage = this.packageRepo.getPackageByDigest(digest);
                     for (const tag of ghPackage.metadata.container.tags) {
                         if (isTagMatch(tag)) {
                             matchTags.push(tag);
@@ -43625,9 +43648,9 @@ class CleanupAction {
                 for (const tag of matchTags) {
                     if (!this.excludeTags.includes(tag)) {
                         // get the package
-                        const manifestDigest = this.githubPackageRepo.getDigestByTag(tag);
+                        const manifestDigest = this.packageRepo.getDigestByTag(tag);
                         if (manifestDigest) {
-                            const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
+                            const ghPackage = this.packageRepo.getPackageByDigest(manifestDigest);
                             if (ghPackage.metadata.container.tags.length > 1) {
                                 untaggingTags.add(tag);
                             }
@@ -43638,13 +43661,14 @@ class CleanupAction {
                     }
                 }
                 if (untaggingTags.size > 0) {
-                    core.startGroup(`Untagging images: ${untaggingTags}`);
+                    const displayTags = Array.from(untaggingTags.values());
+                    core.startGroup(`[${this.targetPackage}] Untagging images: ${displayTags}`);
                     for (const tag of untaggingTags) {
                         // lets recheck there is more than 1 tag, else add it to standard set for later deletion
                         // it could be situation where all tags are being deleted
-                        const manifestDigest = this.githubPackageRepo.getDigestByTag(tag);
+                        const manifestDigest = this.packageRepo.getDigestByTag(tag);
                         if (manifestDigest) {
-                            const ghPackage = this.githubPackageRepo.getPackageByDigest(manifestDigest);
+                            const ghPackage = this.packageRepo.getPackageByDigest(manifestDigest);
                             if (ghPackage.metadata.container.tags.length === 1) {
                                 standardTags.add(tag);
                             }
@@ -43669,13 +43693,13 @@ class CleanupAction {
                                     await this.registry.putManifest(tag, newManifest, false);
                                 }
                                 // reload package ids to find the new package id/digest
-                                await this.githubPackageRepo.loadPackages(false);
+                                await this.packageRepo.loadPackages(this.targetPackage, false);
                                 // reload the manifest
-                                const untaggedDigest = this.githubPackageRepo.getDigestByTag(tag);
+                                const untaggedDigest = this.packageRepo.getDigestByTag(tag);
                                 if (untaggedDigest) {
-                                    const id = this.githubPackageRepo.getIdByDigest(untaggedDigest);
+                                    const id = this.packageRepo.getIdByDigest(untaggedDigest);
                                     if (id) {
-                                        await this.githubPackageRepo.deletePackageVersion(id, untaggedDigest, [tag]);
+                                        await this.packageRepo.deletePackageVersion(this.targetPackage, id, untaggedDigest, [tag]);
                                         this.numberImagesDeleted += 1;
                                     }
                                     else {
@@ -43693,11 +43717,11 @@ class CleanupAction {
                     await this.reload();
                 }
                 if (standardTags.size > 0) {
-                    core.startGroup(`Find tagged images to delete: ${this.config.deleteTags}`);
+                    core.startGroup(`[${this.targetPackage}] Find tagged images to delete: ${this.config.deleteTags}`);
                     for (const tag of standardTags) {
                         core.info(tag);
                         // get the package
-                        const manifestDigest = this.githubPackageRepo.getDigestByTag(tag);
+                        const manifestDigest = this.packageRepo.getDigestByTag(tag);
                         if (manifestDigest) {
                             this.deleteSet.add(manifestDigest);
                             this.filterSet.delete(manifestDigest);
@@ -43707,7 +43731,7 @@ class CleanupAction {
                 }
             }
             else {
-                core.startGroup(`Finding tagged images to delete: ${this.config.deleteTags}`);
+                core.startGroup(`[${this.targetPackage}] Finding tagged images to delete: ${this.config.deleteTags}`);
                 core.info('no matching tags found');
                 core.endGroup();
             }
@@ -43715,12 +43739,12 @@ class CleanupAction {
     }
     async keepNuntagged() {
         if (this.config.keepNuntagged != null) {
-            core.startGroup(`Finding untagged images to delete, keeping ${this.config.keepNuntagged} versions`);
+            core.startGroup(`[${this.targetPackage}] Finding untagged images to delete, keeping ${this.config.keepNuntagged} versions`);
             // create a temporary array of untagged images to process on
             const unTaggedPackages = [];
             // find untagged images in the filterSet
             for (const digest of this.filterSet) {
-                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                const ghPackage = this.packageRepo.getPackageByDigest(digest);
                 if (ghPackage.metadata.container.tags.length === 0) {
                     unTaggedPackages.push(ghPackage);
                 }
@@ -43749,12 +43773,12 @@ class CleanupAction {
     }
     async keepNtagged() {
         if (this.config.keepNtagged != null) {
-            core.startGroup(`Finding tagged images to delete, keeping ${this.config.keepNtagged} versions`);
+            core.startGroup(`[${this.targetPackage}] Finding tagged images to delete, keeping ${this.config.keepNtagged} versions`);
             // create a temporary array of tagged images to process on
             const taggedPackages = [];
             // only copy images with tags
             for (const digest of this.filterSet) {
-                const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+                const ghPackage = this.packageRepo.getPackageByDigest(digest);
                 if (ghPackage.metadata.container.tags.length > 0) {
                     taggedPackages.push(ghPackage);
                 }
@@ -43770,7 +43794,7 @@ class CleanupAction {
                 for (const deletePackage of deletePackages) {
                     this.deleteSet.add(deletePackage.name);
                     this.filterSet.delete(deletePackage.name);
-                    const ghPackage = this.githubPackageRepo.getPackageByDigest(deletePackage.name);
+                    const ghPackage = this.packageRepo.getPackageByDigest(deletePackage.name);
                     core.info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
                 }
             }
@@ -43784,11 +43808,11 @@ class CleanupAction {
      * Add to deleteSet all digests which have no tags
      */
     async deleteUntagged() {
-        core.startGroup('Finding all untagged images');
+        core.startGroup(`[${this.targetPackage}] Finding all untagged images to delete`);
         let untaggedImageFound = false;
         // find untagged images in the filterSet
         for (const digest of this.filterSet) {
-            const ghPackage = this.githubPackageRepo.getPackageByDigest(digest);
+            const ghPackage = this.packageRepo.getPackageByDigest(digest);
             if (ghPackage.metadata.container.tags.length === 0) {
                 this.deleteSet.add(digest);
                 this.filterSet.delete(digest);
@@ -43806,59 +43830,189 @@ class CleanupAction {
      */
     async doDelete() {
         // now delete the images
+        core.startGroup(`[${this.targetPackage}] Deleting packages`);
         if (this.deleteSet.size > 0) {
-            core.info('Deleting packages');
             for (const deleteDigest of this.deleteSet) {
-                const deleteImage = this.githubPackageRepo.getPackageByDigest(deleteDigest);
+                const deleteImage = this.packageRepo.getPackageByDigest(deleteDigest);
                 await this.deleteImage(deleteImage);
             }
         }
         else {
-            core.info('Nothing to delete');
+            core.info(`Nothing to delete`);
         }
+        core.endGroup();
     }
     async run() {
-        try {
-            // process tag deletions first - to support untagging
-            if (this.config.deleteTags) {
-                await this.deleteByTag();
+        // process tag deletions first - to support untagging
+        if (this.config.deleteTags) {
+            await this.deleteByTag();
+        }
+        if (this.config.deletePartialImages) {
+            await this.deletePartialImages();
+        }
+        else if (this.config.deleteGhostImages) {
+            await this.deleteGhostImages();
+        }
+        if (this.config.keepNtagged != null) {
+            // we are in the cleanup tagged images mode
+            await this.keepNtagged();
+        }
+        if (this.config.keepNuntagged != null) {
+            // we are in the cleanup untagged images mode
+            await this.keepNuntagged();
+        }
+        else if (this.config.deleteUntagged) {
+            // delete all untagged images
+            await this.deleteUntagged();
+        }
+        // now preform the actual deletion
+        await this.doDelete();
+        core.startGroup(`[${this.targetPackage}] Cleanup statistics`);
+        // print action statistics
+        if (this.numberMultiImagesDeleted > 0) {
+            core.info(`multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
+        }
+        core.info(`total images deleted = ${this.numberImagesDeleted}`);
+        core.endGroup();
+        if (this.config.validate) {
+            core.info(` [${this.targetPackage}] Running Validation Task `);
+            await this.reload();
+            await this.validate();
+            core.info('');
+        }
+    }
+}
+
+;// CONCATENATED MODULE: ./node_modules/@octokit/auth-token/dist-bundle/index.js
+// pkg/dist-src/auth.js
+var REGEX_IS_INSTALLATION_LEGACY = /^v1\./;
+var REGEX_IS_INSTALLATION = /^ghs_/;
+var REGEX_IS_USER_TO_SERVER = /^ghu_/;
+async function auth(token) {
+  const isApp = token.split(/\./).length === 3;
+  const isInstallation = REGEX_IS_INSTALLATION_LEGACY.test(token) || REGEX_IS_INSTALLATION.test(token);
+  const isUserToServer = REGEX_IS_USER_TO_SERVER.test(token);
+  const tokenType = isApp ? "app" : isInstallation ? "installation" : isUserToServer ? "user-to-server" : "oauth";
+  return {
+    type: "token",
+    token,
+    tokenType
+  };
+}
+
+// pkg/dist-src/with-authorization-prefix.js
+function withAuthorizationPrefix(token) {
+  if (token.split(/\./).length === 3) {
+    return `bearer ${token}`;
+  }
+  return `token ${token}`;
+}
+
+// pkg/dist-src/hook.js
+async function hook(token, request, route, parameters) {
+  const endpoint = request.endpoint.merge(
+    route,
+    parameters
+  );
+  endpoint.headers.authorization = withAuthorizationPrefix(token);
+  return request(endpoint);
+}
+
+// pkg/dist-src/index.js
+var createTokenAuth = function createTokenAuth2(token) {
+  if (!token) {
+    throw new Error("[@octokit/auth-token] No token passed to createTokenAuth");
+  }
+  if (typeof token !== "string") {
+    throw new Error(
+      "[@octokit/auth-token] Token passed to createTokenAuth is not a string"
+    );
+  }
+  token = token.replace(/^(token|bearer) +/i, "");
+  return Object.assign(auth.bind(null, token), {
+    hook: hook.bind(null, token)
+  });
+};
+
+
+;// CONCATENATED MODULE: ./src/main.ts
+
+
+
+
+
+
+
+async function run() {
+    try {
+        const action = new CleanupAction();
+        await action.init();
+        await action.run();
+    }
+    catch (error) {
+        // Fail the workflow run if an error occurs
+        if (error instanceof Error)
+            core.setFailed(error.message);
+    }
+}
+class CleanupAction {
+    // The action configuration
+    config;
+    // used to interact with the container registry api
+    registry;
+    // used to interact with the github package api
+    packageRepo;
+    constructor() {
+        this.config = buildConfig();
+        this.packageRepo = new PackageRepo(this.config);
+        this.registry = new Registry(this.config, this.packageRepo);
+    }
+    /*
+     * Post initialization for async functions
+     */
+    async init() {
+        await this.config.init();
+    }
+    async run() {
+        let targetPackages = [];
+        if (this.config.expandPackages) {
+            // first make sure sure we have PAT
+            const auth = createTokenAuth(this.config.token);
+            const authentication = await auth();
+            if (authentication.tokenType !== 'oauth') {
+                core.setFailed('A Personal Access Token (PAT) is required when the expand-packages option is set to true');
+                throw new Error();
             }
-            if (this.config.deletePartialImages) {
-                await this.deletePartialImages();
+            // get the list of available packages in the repo
+            const packagesInUse = await this.packageRepo.getPackageList();
+            if (this.config.useRegex) {
+                const regex = new RegExp(this.config.package);
+                targetPackages = packagesInUse.filter(name => regex.test(name));
             }
-            else if (this.config.deleteGhostImages) {
-                await this.deleteGhostImages();
+            else {
+                const isTagMatch = wildcardMatch(this.config.package.split(','));
+                targetPackages = packagesInUse.filter(name => isTagMatch(name));
             }
-            if (this.config.keepNtagged != null) {
-                // we are in the cleanup tagged images mode
-                await this.keepNtagged();
+        }
+        else {
+            targetPackages = this.config.package.split(',');
+        }
+        if (targetPackages.length === 0) {
+            core.setFailed('No packages selected to cleanup');
+            throw new Error();
+        }
+        else if (targetPackages.length > 1) {
+            core.startGroup('Selected Packages');
+            for (const name of targetPackages) {
+                core.info(name);
             }
-            if (this.config.keepNuntagged != null) {
-                // we are in the cleanup untagged images mode
-                await this.keepNuntagged();
-            }
-            else if (this.config.deleteUntagged) {
-                // delete all untagged images
-                await this.deleteUntagged();
-            }
-            // now preform the actual deletion
-            await this.doDelete();
-            if (this.config.validate) {
-                await this.reload();
-                await this.validate();
-            }
-            core.startGroup('Cleanup statistics');
-            // print action statistics
-            if (this.numberMultiImagesDeleted > 0) {
-                core.info(`multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
-            }
-            core.info(`total images deleted = ${this.numberImagesDeleted}`);
             core.endGroup();
         }
-        catch (error) {
-            // Fail the workflow run if an error occurs
-            if (error instanceof Error)
-                core.setFailed(error.message);
+        for (const targetPackage of targetPackages) {
+            await this.registry.login(targetPackage);
+            const cleanupTask = new CleanupTask(this.config, this.packageRepo, this.registry, targetPackage);
+            await cleanupTask.reload();
+            await cleanupTask.run();
         }
     }
 }
