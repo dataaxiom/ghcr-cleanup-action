@@ -38438,13 +38438,15 @@ class PackageRepo {
             };
         }
         for await (const response of this.config.octokit.paginate.iterator(listFunc, listParams)) {
-            _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup(`Available packages in repository: ${this.config.repository}`);
             for (const data of response.data) {
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(data.name);
                 packages.push(data.name);
             }
-            _actions_core__WEBPACK_IMPORTED_MODULE_0__.endGroup();
         }
+        _actions_core__WEBPACK_IMPORTED_MODULE_0__.startGroup(`Available packages in repository: ${this.config.repository}`);
+        for (const name of packages) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(name);
+        }
+        _actions_core__WEBPACK_IMPORTED_MODULE_0__.endGroup();
         return packages;
     }
 }

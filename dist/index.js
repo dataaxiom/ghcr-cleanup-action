@@ -43089,13 +43089,15 @@ class PackageRepo {
             };
         }
         for await (const response of this.config.octokit.paginate.iterator(listFunc, listParams)) {
-            core.startGroup(`Available packages in repository: ${this.config.repository}`);
             for (const data of response.data) {
-                core.info(data.name);
                 packages.push(data.name);
             }
-            core.endGroup();
         }
+        core.startGroup(`Available packages in repository: ${this.config.repository}`);
+        for (const name of packages) {
+            core.info(name);
+        }
+        core.endGroup();
         return packages;
     }
 }
