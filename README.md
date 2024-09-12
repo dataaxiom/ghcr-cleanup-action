@@ -286,19 +286,20 @@ jobs:
 
 ## Personal Access Tokens (PAT's)
 
-The default injected token (`secret.GITHUB_TOKEN`) is sufficent for packages
-which have been created by the repository project pipeline (or have been setup
-to grant admin access to it). For setups where the action is accessing a package
-in a different repository or dynamic package selection (`expand-packages`) is
-set to true a Personal Access Token (PAT) is required to be utilzied.
+The default injected token (`secret.GITHUB_TOKEN`) is sufficient for packages
+which have been created by a repository project pipeline (or the package has
+been setup to grant admin access to it). For setups where the action is
+accessing a package in a different repository or dynamic package selection is
+being used (`expand-packages` is set to true) a Personal Access Token (PAT) is
+required for the `token`.
 
 The PAT should be setup as a Classic token. This is due to the GitGub Registry
-API only supporting Classic tokens currently. The token should be setup with
-`write:packages` and `delete:packages` scopes.
+API currently only supporting Classic tokens. The token should be setup with
+both `write:packages` and `delete:packages` scopes.
 
 ## Multiple Package Support
 
-The `package` (or `packages`) options can be set to a comma seperated list of
+The `package` (or `packages`) options can be set to a comma separated list of
 packages to operate on.
 
 ```yaml
@@ -434,8 +435,8 @@ jobs:
 
 ### Effect on image download counts
 
-To ensure the integrity of all images in the package repository all of the image
-manifests are required to be downloaded and cross referenced each time the
+To ensure the integrity of all images in the package repository all of of the
+image manifests are required to be downloaded and cross-referenced each time the
 action is run. The effect of this is that it will increase the package download
 count showing in GitHub for all packages by one. The action does not download
 the underlying package itself, just the manifests. But GitHub uses that event to
