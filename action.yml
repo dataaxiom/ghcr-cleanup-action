@@ -2,7 +2,7 @@ name: Ghcr.io Cleanup Action
 
 description: >
   Delete untagged/tagged images from the GitHub Container Registry. Supports
-  multi architecture and attestation images.
+  multi-architecture and attestation images.
 
 author: Dataaxiom Inc
 
@@ -43,7 +43,7 @@ inputs:
     description: >
       Enable wildcard or regular expression support on the package(s) option to
       support dynamic package selection. Requires use of a Personal Access Token
-      (PAT) for the token option value.
+      (PAT) for the token value.
     required: false
 
   # Cleanup Options
@@ -105,13 +105,13 @@ inputs:
 
   use-regex:
     description: >
-      Use regex expression in place of wildcard matcher for include-tag and
-      exclude-tag options (true/false) Default: false
+      Use a regex expression in place of wildcard matcher for package,
+      delete-tags and exclude-tags options (true/false) Default: false
     required: false
 
   validate:
     description: >
-      Validate all multi architecture images manifests by checking their digests
+      Validate all multi-architecture images manifests by checking their digests
       are present in the registry (true/false) Default: false
     required: false
 
