@@ -39,16 +39,15 @@ export class CleanupTask {
   numberMultiImagesDeleted = 0
   numberImagesDeleted = 0
 
-  constructor(
-    config: Config,
-    packageRepo: PackageRepo,
-    registry: Registry,
-    targetPackage: string
-  ) {
+  constructor(config: Config, targetPackage: string) {
     this.config = config
-    this.packageRepo = packageRepo
-    this.registry = registry
     this.targetPackage = targetPackage
+    this.packageRepo = new PackageRepo(this.config)
+    this.registry = new Registry(this.config, this.packageRepo)
+  }
+
+  async init(): Promise<void> {
+    await this.registry.login(this.targetPackage)
   }
 
   async reload(): Promise<void> {

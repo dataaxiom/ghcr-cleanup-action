@@ -37325,6 +37325,399 @@ function buildConfig() {
     return config;
 }
 
+;// CONCATENATED MODULE: ./src/package-repo.ts
+
+
+
+/**
+ * Provides access to a package via the GitHub Packages REST API.
+ */
+class PackageRepo {
+    // The action configuration
+    config;
+    // Map of digests to package ids
+    digest2Id = new Map();
+    // Map of ids to package version definitions
+    id2Package = new Map();
+    // Map of tags to digests
+    tag2Digest = new Map();
+    /**
+     * Constructor
+     *
+     * @param config The action configuration
+     */
+    constructor(config) {
+        this.config = config;
+    }
+    /**
+     * Loads all versions of the package from the GitHub Packages API and populates the internal maps
+     */
+    async loadPackages(targetPackage, output) {
+        try {
+            // clear the maps for reloading
+            this.digest2Id.clear();
+            this.id2Package.clear();
+            this.tag2Digest.clear();
+            let getFunc = this.config.octokit.rest.packages
+                .getAllPackageVersionsForPackageOwnedByOrg;
+            let getParams;
+            if (this.config.repoType === 'User') {
+                getFunc = this.config.isPrivateRepo
+                    ? this.config.octokit.rest.packages
+                        .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
+                    : this.config.octokit.rest.packages
+                        .getAllPackageVersionsForPackageOwnedByUser;
+                getParams = {
+                    package_type: 'container',
+                    package_name: targetPackage,
+                    username: this.config.owner,
+                    state: 'active',
+                    per_page: 100
+                };
+            }
+            else {
+                getParams = {
+                    package_type: 'container',
+                    package_name: targetPackage,
+                    org: this.config.owner,
+                    state: 'active',
+                    per_page: 100
+                };
+            }
+            for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
+                for (const packageVersion of response.data) {
+                    this.digest2Id.set(packageVersion.name, packageVersion.id);
+                    this.id2Package.set(packageVersion.id, packageVersion);
+                    for (const tag of packageVersion.metadata.container.tags) {
+                        this.tag2Digest.set(tag, packageVersion.name);
+                    }
+                }
+            }
+            if (output && this.config.logLevel >= LogLevel.INFO) {
+                core.startGroup(`[${targetPackage}] Loaded package data`);
+                for (const ghPackage of this.id2Package.values()) {
+                    let tags = '';
+                    for (const tag of ghPackage.metadata.container.tags) {
+                        tags += `${tag} `;
+                    }
+                    core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`);
+                }
+                core.endGroup();
+            }
+            if (output && this.config.logLevel === LogLevel.DEBUG) {
+                core.startGroup(`[${targetPackage}] Loaded package payloads`);
+                for (const ghPackage of this.id2Package.values()) {
+                    const payload = JSON.stringify(ghPackage, null, 4);
+                    core.info(payload);
+                }
+                core.endGroup();
+            }
+        }
+        catch (error) {
+            if (error instanceof request_error_dist_node.RequestError) {
+                if (error.status) {
+                    if (error.status === 404) {
+                        if (this.config.defaultPackageUsed) {
+                            core.warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
+                        }
+                        else {
+                            core.warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
+                        }
+                    }
+                }
+            }
+            throw error;
+        }
+    }
+    /**
+     * Return all tags in use for the package
+     * @returns The tags for the package
+     */
+    getTags() {
+        return new Set(this.tag2Digest.keys());
+    }
+    /**
+     * Return all digests version in use for the package
+     * @returns The digests for the package
+     */
+    getDigests() {
+        return new Set(this.digest2Id.keys());
+    }
+    /**
+     * Return the digest for given tag
+     * @param The tag to lookup
+     * @returns The the digest
+     */
+    getDigestByTag(tag) {
+        return this.tag2Digest.get(tag);
+    }
+    /**
+     * Return the package version id for the given digest
+     * @returns The the package id
+     */
+    getIdByDigest(digest) {
+        return this.digest2Id.get(digest);
+    }
+    /**
+     * Return the package version descriptor for the given digest
+     * @param digest The digest to lookup
+     * @returns The the package descriptor
+     */
+    getPackageByDigest(digest) {
+        let ghPackage;
+        const id = this.digest2Id.get(digest);
+        if (id) {
+            ghPackage = this.id2Package.get(id);
+        }
+        return ghPackage;
+    }
+    /**
+     * Delete a package version
+     * @param id The ID of the package version to delete
+     * @param digest The associated digest for the package version
+     * @param tags The tags associated with the package
+     * @param label Additional label to display
+     */
+    async deletePackageVersion(targetPackage, id, digest, tags, label) {
+        if (tags && tags.length > 0) {
+            core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
+        }
+        else if (label) {
+            core.info(` deleting package id: ${id} digest: ${digest} ${label}`);
+        }
+        else {
+            core.info(` deleting package id: ${id} digest: ${digest}`);
+        }
+        if (!this.config.dryRun) {
+            if (this.config.repoType === 'User') {
+                if (this.config.isPrivateRepo) {
+                    await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
+                        package_type: 'container',
+                        package_name: targetPackage,
+                        package_version_id: id
+                    });
+                }
+                else {
+                    await this.config.octokit.rest.packages.deletePackageVersionForUser({
+                        package_type: 'container',
+                        package_name: targetPackage,
+                        username: this.config.owner,
+                        package_version_id: id
+                    });
+                }
+            }
+            else {
+                await this.config.octokit.rest.packages.deletePackageVersionForOrg({
+                    package_type: 'container',
+                    package_name: targetPackage,
+                    org: this.config.owner,
+                    package_version_id: id
+                });
+            }
+        }
+    }
+    async getPackageList() {
+        const packages = [];
+        let listFunc;
+        let listParams;
+        if (this.config.repoType === 'User') {
+            listFunc = this.config.isPrivateRepo
+                ? this.config.octokit.rest.packages.listPackagesForAuthenticatedUser
+                : this.config.octokit.rest.packages.listPackagesForUser;
+            listParams = {
+                package_type: 'container',
+                username: this.config.owner,
+                per_page: 100
+            };
+        }
+        else {
+            listFunc = this.config.octokit.rest.packages.listPackagesForOrganization;
+            listParams = {
+                package_type: 'container',
+                org: this.config.owner,
+                per_page: 100
+            };
+        }
+        for await (const response of this.config.octokit.paginate.iterator(listFunc, listParams)) {
+            for (const data of response.data) {
+                packages.push(data.name);
+            }
+        }
+        core.startGroup(`Available packages in repository: ${this.config.repository}`);
+        for (const name of packages) {
+            core.info(name);
+        }
+        core.endGroup();
+        return packages;
+    }
+}
+
+;// CONCATENATED MODULE: ./node_modules/wildcard-match/build/index.es.mjs
+/**
+ * Escapes a character if it has a special meaning in regular expressions
+ * and returns the character as is if it doesn't
+ */
+function escapeRegExpChar(char) {
+    if (char === '-' ||
+        char === '^' ||
+        char === '$' ||
+        char === '+' ||
+        char === '.' ||
+        char === '(' ||
+        char === ')' ||
+        char === '|' ||
+        char === '[' ||
+        char === ']' ||
+        char === '{' ||
+        char === '}' ||
+        char === '*' ||
+        char === '?' ||
+        char === '\\') {
+        return "\\".concat(char);
+    }
+    else {
+        return char;
+    }
+}
+/**
+ * Escapes all characters in a given string that have a special meaning in regular expressions
+ */
+function escapeRegExpString(str) {
+    var result = '';
+    for (var i = 0; i < str.length; i++) {
+        result += escapeRegExpChar(str[i]);
+    }
+    return result;
+}
+/**
+ * Transforms one or more glob patterns into a RegExp pattern
+ */
+function transform(pattern, separator) {
+    if (separator === void 0) { separator = true; }
+    if (Array.isArray(pattern)) {
+        var regExpPatterns = pattern.map(function (p) { return "^".concat(transform(p, separator), "$"); });
+        return "(?:".concat(regExpPatterns.join('|'), ")");
+    }
+    var separatorSplitter = '';
+    var separatorMatcher = '';
+    var wildcard = '.';
+    if (separator === true) {
+        separatorSplitter = '/';
+        separatorMatcher = '[/\\\\]';
+        wildcard = '[^/\\\\]';
+    }
+    else if (separator) {
+        separatorSplitter = separator;
+        separatorMatcher = escapeRegExpString(separatorSplitter);
+        if (separatorMatcher.length > 1) {
+            separatorMatcher = "(?:".concat(separatorMatcher, ")");
+            wildcard = "((?!".concat(separatorMatcher, ").)");
+        }
+        else {
+            wildcard = "[^".concat(separatorMatcher, "]");
+        }
+    }
+    var requiredSeparator = separator ? "".concat(separatorMatcher, "+?") : '';
+    var optionalSeparator = separator ? "".concat(separatorMatcher, "*?") : '';
+    var segments = separator ? pattern.split(separatorSplitter) : [pattern];
+    var result = '';
+    for (var s = 0; s < segments.length; s++) {
+        var segment = segments[s];
+        var nextSegment = segments[s + 1];
+        var currentSeparator = '';
+        if (!segment && s > 0) {
+            continue;
+        }
+        if (separator) {
+            if (s === segments.length - 1) {
+                currentSeparator = optionalSeparator;
+            }
+            else if (nextSegment !== '**') {
+                currentSeparator = requiredSeparator;
+            }
+            else {
+                currentSeparator = '';
+            }
+        }
+        if (separator && segment === '**') {
+            if (currentSeparator) {
+                result += s === 0 ? '' : currentSeparator;
+                result += "(?:".concat(wildcard, "*?").concat(currentSeparator, ")*?");
+            }
+            continue;
+        }
+        for (var c = 0; c < segment.length; c++) {
+            var char = segment[c];
+            if (char === '\\') {
+                if (c < segment.length - 1) {
+                    result += escapeRegExpChar(segment[c + 1]);
+                    c++;
+                }
+            }
+            else if (char === '?') {
+                result += wildcard;
+            }
+            else if (char === '*') {
+                result += "".concat(wildcard, "*?");
+            }
+            else {
+                result += escapeRegExpChar(char);
+            }
+        }
+        result += currentSeparator;
+    }
+    return result;
+}
+
+function isMatch(regexp, sample) {
+    if (typeof sample !== 'string') {
+        throw new TypeError("Sample must be a string, but ".concat(typeof sample, " given"));
+    }
+    return regexp.test(sample);
+}
+/**
+ * Compiles one or more glob patterns into a RegExp and returns an isMatch function.
+ * The isMatch function takes a sample string as its only argument and returns `true`
+ * if the string matches the pattern(s).
+ *
+ * ```js
+ * wildcardMatch('src/*.js')('src/index.js') //=> true
+ * ```
+ *
+ * ```js
+ * const isMatch = wildcardMatch('*.example.com', '.')
+ * isMatch('foo.example.com') //=> true
+ * isMatch('foo.bar.com') //=> false
+ * ```
+ */
+function wildcardMatch(pattern, options) {
+    if (typeof pattern !== 'string' && !Array.isArray(pattern)) {
+        throw new TypeError("The first argument must be a single pattern string or an array of patterns, but ".concat(typeof pattern, " given"));
+    }
+    if (typeof options === 'string' || typeof options === 'boolean') {
+        options = { separator: options };
+    }
+    if (arguments.length === 2 &&
+        !(typeof options === 'undefined' ||
+            (typeof options === 'object' && options !== null && !Array.isArray(options)))) {
+        throw new TypeError("The second argument must be an options object or a string/boolean separator, but ".concat(typeof options, " given"));
+    }
+    options = options || {};
+    if (options.separator === '\\') {
+        throw new Error('\\ is not a valid separator because it is used for escaping. Try setting the separator to `true` instead');
+    }
+    var regexpPattern = transform(pattern, options.separator);
+    var regexp = new RegExp("^".concat(regexpPattern, "$"), options.flags);
+    var fn = isMatch.bind(null, regexp);
+    fn.options = options;
+    fn.pattern = pattern;
+    fn.regexp = regexp;
+    return fn;
+}
+
+
+//# sourceMappingURL=index.es.mjs.map
+
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/bind.js
 
 
@@ -42875,400 +43268,9 @@ class Registry {
     }
 }
 
-;// CONCATENATED MODULE: ./src/package-repo.ts
-
-
-
-/**
- * Provides access to a package via the GitHub Packages REST API.
- */
-class PackageRepo {
-    // The action configuration
-    config;
-    // Map of digests to package ids
-    digest2Id = new Map();
-    // Map of ids to package version definitions
-    id2Package = new Map();
-    // Map of tags to digests
-    tag2Digest = new Map();
-    /**
-     * Constructor
-     *
-     * @param config The action configuration
-     */
-    constructor(config) {
-        this.config = config;
-    }
-    /**
-     * Loads all versions of the package from the GitHub Packages API and populates the internal maps
-     */
-    async loadPackages(targetPackage, output) {
-        try {
-            // clear the maps for reloading
-            this.digest2Id.clear();
-            this.id2Package.clear();
-            this.tag2Digest.clear();
-            let getFunc = this.config.octokit.rest.packages
-                .getAllPackageVersionsForPackageOwnedByOrg;
-            let getParams;
-            if (this.config.repoType === 'User') {
-                getFunc = this.config.isPrivateRepo
-                    ? this.config.octokit.rest.packages
-                        .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-                    : this.config.octokit.rest.packages
-                        .getAllPackageVersionsForPackageOwnedByUser;
-                getParams = {
-                    package_type: 'container',
-                    package_name: targetPackage,
-                    username: this.config.owner,
-                    state: 'active',
-                    per_page: 100
-                };
-            }
-            else {
-                getParams = {
-                    package_type: 'container',
-                    package_name: targetPackage,
-                    org: this.config.owner,
-                    state: 'active',
-                    per_page: 100
-                };
-            }
-            for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
-                for (const packageVersion of response.data) {
-                    this.digest2Id.set(packageVersion.name, packageVersion.id);
-                    this.id2Package.set(packageVersion.id, packageVersion);
-                    for (const tag of packageVersion.metadata.container.tags) {
-                        this.tag2Digest.set(tag, packageVersion.name);
-                    }
-                }
-            }
-            if (output && this.config.logLevel >= LogLevel.INFO) {
-                core.startGroup(`[${targetPackage}] Loaded package data`);
-                for (const ghPackage of this.id2Package.values()) {
-                    let tags = '';
-                    for (const tag of ghPackage.metadata.container.tags) {
-                        tags += `${tag} `;
-                    }
-                    core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`);
-                }
-                core.endGroup();
-            }
-            if (output && this.config.logLevel === LogLevel.DEBUG) {
-                core.startGroup(`[${targetPackage}] Loaded package payloads`);
-                for (const ghPackage of this.id2Package.values()) {
-                    const payload = JSON.stringify(ghPackage, null, 4);
-                    core.info(payload);
-                }
-                core.endGroup();
-            }
-        }
-        catch (error) {
-            if (error instanceof request_error_dist_node.RequestError) {
-                if (error.status) {
-                    if (error.status === 404) {
-                        if (this.config.defaultPackageUsed) {
-                            core.warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
-                        }
-                        else {
-                            core.warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
-                        }
-                    }
-                }
-            }
-            throw error;
-        }
-    }
-    /**
-     * Return all tags in use for the package
-     * @returns The tags for the package
-     */
-    getTags() {
-        return new Set(this.tag2Digest.keys());
-    }
-    /**
-     * Return all digests version in use for the package
-     * @returns The digests for the package
-     */
-    getDigests() {
-        return new Set(this.digest2Id.keys());
-    }
-    /**
-     * Return the digest for given tag
-     * @param The tag to lookup
-     * @returns The the digest
-     */
-    getDigestByTag(tag) {
-        return this.tag2Digest.get(tag);
-    }
-    /**
-     * Return the package version id for the given digest
-     * @returns The the package id
-     */
-    getIdByDigest(digest) {
-        return this.digest2Id.get(digest);
-    }
-    /**
-     * Return the package version descriptor for the given digest
-     * @param digest The digest to lookup
-     * @returns The the package descriptor
-     */
-    getPackageByDigest(digest) {
-        let ghPackage;
-        const id = this.digest2Id.get(digest);
-        if (id) {
-            ghPackage = this.id2Package.get(id);
-        }
-        return ghPackage;
-    }
-    /**
-     * Delete a package version
-     * @param id The ID of the package version to delete
-     * @param digest The associated digest for the package version
-     * @param tags The tags associated with the package
-     * @param label Additional label to display
-     */
-    async deletePackageVersion(targetPackage, id, digest, tags, label) {
-        if (tags && tags.length > 0) {
-            core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
-        }
-        else if (label) {
-            core.info(` deleting package id: ${id} digest: ${digest} ${label}`);
-        }
-        else {
-            core.info(` deleting package id: ${id} digest: ${digest}`);
-        }
-        if (!this.config.dryRun) {
-            if (this.config.repoType === 'User') {
-                if (this.config.isPrivateRepo) {
-                    await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
-                        package_type: 'container',
-                        package_name: targetPackage,
-                        package_version_id: id
-                    });
-                }
-                else {
-                    await this.config.octokit.rest.packages.deletePackageVersionForUser({
-                        package_type: 'container',
-                        package_name: targetPackage,
-                        username: this.config.owner,
-                        package_version_id: id
-                    });
-                }
-            }
-            else {
-                await this.config.octokit.rest.packages.deletePackageVersionForOrg({
-                    package_type: 'container',
-                    package_name: targetPackage,
-                    org: this.config.owner,
-                    package_version_id: id
-                });
-            }
-        }
-    }
-    async getPackageList() {
-        const packages = [];
-        let listFunc;
-        let listParams;
-        if (this.config.repoType === 'User') {
-            listFunc = this.config.isPrivateRepo
-                ? this.config.octokit.rest.packages.listPackagesForAuthenticatedUser
-                : this.config.octokit.rest.packages.listPackagesForUser;
-            listParams = {
-                package_type: 'container',
-                username: this.config.owner,
-                per_page: 100
-            };
-        }
-        else {
-            listFunc = this.config.octokit.rest.packages.listPackagesForOrganization;
-            listParams = {
-                package_type: 'container',
-                org: this.config.owner,
-                per_page: 100
-            };
-        }
-        for await (const response of this.config.octokit.paginate.iterator(listFunc, listParams)) {
-            for (const data of response.data) {
-                packages.push(data.name);
-            }
-        }
-        core.startGroup(`Available packages in repository: ${this.config.repository}`);
-        for (const name of packages) {
-            core.info(name);
-        }
-        core.endGroup();
-        return packages;
-    }
-}
-
-;// CONCATENATED MODULE: ./node_modules/wildcard-match/build/index.es.mjs
-/**
- * Escapes a character if it has a special meaning in regular expressions
- * and returns the character as is if it doesn't
- */
-function escapeRegExpChar(char) {
-    if (char === '-' ||
-        char === '^' ||
-        char === '$' ||
-        char === '+' ||
-        char === '.' ||
-        char === '(' ||
-        char === ')' ||
-        char === '|' ||
-        char === '[' ||
-        char === ']' ||
-        char === '{' ||
-        char === '}' ||
-        char === '*' ||
-        char === '?' ||
-        char === '\\') {
-        return "\\".concat(char);
-    }
-    else {
-        return char;
-    }
-}
-/**
- * Escapes all characters in a given string that have a special meaning in regular expressions
- */
-function escapeRegExpString(str) {
-    var result = '';
-    for (var i = 0; i < str.length; i++) {
-        result += escapeRegExpChar(str[i]);
-    }
-    return result;
-}
-/**
- * Transforms one or more glob patterns into a RegExp pattern
- */
-function transform(pattern, separator) {
-    if (separator === void 0) { separator = true; }
-    if (Array.isArray(pattern)) {
-        var regExpPatterns = pattern.map(function (p) { return "^".concat(transform(p, separator), "$"); });
-        return "(?:".concat(regExpPatterns.join('|'), ")");
-    }
-    var separatorSplitter = '';
-    var separatorMatcher = '';
-    var wildcard = '.';
-    if (separator === true) {
-        separatorSplitter = '/';
-        separatorMatcher = '[/\\\\]';
-        wildcard = '[^/\\\\]';
-    }
-    else if (separator) {
-        separatorSplitter = separator;
-        separatorMatcher = escapeRegExpString(separatorSplitter);
-        if (separatorMatcher.length > 1) {
-            separatorMatcher = "(?:".concat(separatorMatcher, ")");
-            wildcard = "((?!".concat(separatorMatcher, ").)");
-        }
-        else {
-            wildcard = "[^".concat(separatorMatcher, "]");
-        }
-    }
-    var requiredSeparator = separator ? "".concat(separatorMatcher, "+?") : '';
-    var optionalSeparator = separator ? "".concat(separatorMatcher, "*?") : '';
-    var segments = separator ? pattern.split(separatorSplitter) : [pattern];
-    var result = '';
-    for (var s = 0; s < segments.length; s++) {
-        var segment = segments[s];
-        var nextSegment = segments[s + 1];
-        var currentSeparator = '';
-        if (!segment && s > 0) {
-            continue;
-        }
-        if (separator) {
-            if (s === segments.length - 1) {
-                currentSeparator = optionalSeparator;
-            }
-            else if (nextSegment !== '**') {
-                currentSeparator = requiredSeparator;
-            }
-            else {
-                currentSeparator = '';
-            }
-        }
-        if (separator && segment === '**') {
-            if (currentSeparator) {
-                result += s === 0 ? '' : currentSeparator;
-                result += "(?:".concat(wildcard, "*?").concat(currentSeparator, ")*?");
-            }
-            continue;
-        }
-        for (var c = 0; c < segment.length; c++) {
-            var char = segment[c];
-            if (char === '\\') {
-                if (c < segment.length - 1) {
-                    result += escapeRegExpChar(segment[c + 1]);
-                    c++;
-                }
-            }
-            else if (char === '?') {
-                result += wildcard;
-            }
-            else if (char === '*') {
-                result += "".concat(wildcard, "*?");
-            }
-            else {
-                result += escapeRegExpChar(char);
-            }
-        }
-        result += currentSeparator;
-    }
-    return result;
-}
-
-function isMatch(regexp, sample) {
-    if (typeof sample !== 'string') {
-        throw new TypeError("Sample must be a string, but ".concat(typeof sample, " given"));
-    }
-    return regexp.test(sample);
-}
-/**
- * Compiles one or more glob patterns into a RegExp and returns an isMatch function.
- * The isMatch function takes a sample string as its only argument and returns `true`
- * if the string matches the pattern(s).
- *
- * ```js
- * wildcardMatch('src/*.js')('src/index.js') //=> true
- * ```
- *
- * ```js
- * const isMatch = wildcardMatch('*.example.com', '.')
- * isMatch('foo.example.com') //=> true
- * isMatch('foo.bar.com') //=> false
- * ```
- */
-function wildcardMatch(pattern, options) {
-    if (typeof pattern !== 'string' && !Array.isArray(pattern)) {
-        throw new TypeError("The first argument must be a single pattern string or an array of patterns, but ".concat(typeof pattern, " given"));
-    }
-    if (typeof options === 'string' || typeof options === 'boolean') {
-        options = { separator: options };
-    }
-    if (arguments.length === 2 &&
-        !(typeof options === 'undefined' ||
-            (typeof options === 'object' && options !== null && !Array.isArray(options)))) {
-        throw new TypeError("The second argument must be an options object or a string/boolean separator, but ".concat(typeof options, " given"));
-    }
-    options = options || {};
-    if (options.separator === '\\') {
-        throw new Error('\\ is not a valid separator because it is used for escaping. Try setting the separator to `true` instead');
-    }
-    var regexpPattern = transform(pattern, options.separator);
-    var regexp = new RegExp("^".concat(regexpPattern, "$"), options.flags);
-    var fn = isMatch.bind(null, regexp);
-    fn.options = options;
-    fn.pattern = pattern;
-    fn.regexp = regexp;
-    return fn;
-}
-
-
-//# sourceMappingURL=index.es.mjs.map
-
 ;// CONCATENATED MODULE: ./src/cleanup-task.ts
+
+
 
 
 
@@ -43296,11 +43298,14 @@ class CleanupTask {
     // action stats
     numberMultiImagesDeleted = 0;
     numberImagesDeleted = 0;
-    constructor(config, packageRepo, registry, targetPackage) {
+    constructor(config, targetPackage) {
         this.config = config;
-        this.packageRepo = packageRepo;
-        this.registry = registry;
         this.targetPackage = targetPackage;
+        this.packageRepo = new PackageRepo(this.config);
+        this.registry = new Registry(this.config, this.packageRepo);
+    }
+    async init() {
+        await this.registry.login(this.targetPackage);
     }
     async reload() {
         this.deleteSet.clear();
@@ -43984,11 +43989,12 @@ var createTokenAuth = function createTokenAuth2(token) {
 
 
 
-
+/*
+ * Main  program run function
+ */
 async function run() {
     try {
         const action = new CleanupAction();
-        await action.init();
         await action.run();
     }
     catch (error) {
@@ -44000,22 +44006,12 @@ async function run() {
 class CleanupAction {
     // The action configuration
     config;
-    // used to interact with the container registry api
-    registry;
-    // used to interact with the github package api
-    packageRepo;
     constructor() {
         this.config = buildConfig();
-        this.packageRepo = new PackageRepo(this.config);
-        this.registry = new Registry(this.config, this.packageRepo);
-    }
-    /*
-     * Post initialization for async functions
-     */
-    async init() {
-        await this.config.init();
     }
     async run() {
+        // post initialize configuration
+        await this.config.init();
         let targetPackages = [];
         if (this.config.expandPackages) {
             // first make sure sure we have PAT
@@ -44026,7 +44022,8 @@ class CleanupAction {
                 throw new Error();
             }
             // get the list of available packages in the repo
-            const packagesInUse = await this.packageRepo.getPackageList();
+            const packageRepo = new PackageRepo(this.config);
+            const packagesInUse = await packageRepo.getPackageList();
             if (this.config.useRegex) {
                 const regex = new RegExp(this.config.package);
                 targetPackages = packagesInUse.filter(name => regex.test(name));
@@ -44051,8 +44048,8 @@ class CleanupAction {
             core.endGroup();
         }
         for (const targetPackage of targetPackages) {
-            await this.registry.login(targetPackage);
-            const cleanupTask = new CleanupTask(this.config, this.packageRepo, this.registry, targetPackage);
+            const cleanupTask = new CleanupTask(this.config, targetPackage);
+            await cleanupTask.init();
             await cleanupTask.reload();
             await cleanupTask.run();
         }

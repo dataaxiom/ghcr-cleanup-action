@@ -1,15 +1,16 @@
 import * as core from '@actions/core'
 import { Config, buildConfig } from './config.js'
-import { Registry } from './registry.js'
 import { PackageRepo } from './package-repo.js'
 import wcmatch from 'wildcard-match'
 import { CleanupTask } from './cleanup-task.js'
 import { createTokenAuth } from '@octokit/auth-token'
 
+/*
+ * Main  program run function
+ */
 export async function run(): Promise<void> {
   try {
     const action = new CleanupAction()
-    await action.init()
     await action.run()
   } catch (error) {
     // Fail the workflow run if an error occurs
@@ -21,26 +22,14 @@ class CleanupAction {
   // The action configuration
   config: Config
 
-  // used to interact with the container registry api
-  registry: Registry
-
-  // used to interact with the github package api
-  packageRepo: PackageRepo
-
   constructor() {
     this.config = buildConfig()
-    this.packageRepo = new PackageRepo(this.config)
-    this.registry = new Registry(this.config, this.packageRepo)
-  }
-
-  /*
-   * Post initialization for async functions
-   */
-  async init(): Promise<void> {
-    await this.config.init()
   }
 
   async run(): Promise<void> {
+    // post initialize configuration
+    await this.config.init()
+
     let targetPackages = []
     if (this.config.expandPackages) {
       // first make sure sure we have PAT
@@ -54,7 +43,8 @@ class CleanupAction {
       }
 
       // get the list of available packages in the repo
-      const packagesInUse: string[] = await this.packageRepo.getPackageList()
+      const packageRepo = new PackageRepo(this.config)
+      const packagesInUse: string[] = await packageRepo.getPackageList()
 
       if (this.config.useRegex) {
         const regex = new RegExp(this.config.package)
@@ -79,14 +69,8 @@ class CleanupAction {
     }
 
     for (const targetPackage of targetPackages) {
-      await this.registry.login(targetPackage)
-
-      const cleanupTask = new CleanupTask(
-        this.config,
-        this.packageRepo,
-        this.registry,
-        targetPackage
-      )
+      const cleanupTask = new CleanupTask(this.config, targetPackage)
+      await cleanupTask.init()
       await cleanupTask.reload()
       await cleanupTask.run()
     }
