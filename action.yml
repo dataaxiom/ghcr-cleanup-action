@@ -95,6 +95,12 @@ inputs:
       platform images are missing (true/false) Default: false
     required: false
 
+  delete-orphaned-images:
+    description: >
+      Delete orphaned images (referrers/cosign etc) where the parent image
+      doesn't exist. Uses a tagged based check.
+    required: false
+
   older-than:
     description: >
       Only include packages for processing that are older than this value. Use

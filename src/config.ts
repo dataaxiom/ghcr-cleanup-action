@@ -33,6 +33,7 @@ export class Config {
   deleteUntagged?: boolean
   deleteGhostImages?: boolean
   deletePartialImages?: boolean
+  deleteOrphanedImages?: boolean
   keepNuntagged?: number
   keepNtagged?: number
   dryRun?: boolean
@@ -59,8 +60,8 @@ export class Config {
             `Octokit - request quota exhausted for request ${options.method} ${options.url}`
           )
 
-          if (retryCount < 1) {
-            // only retries once
+          if (retryCount < 3) {
+            // try upto 3 times
             core.info(`Octokit - retrying after ${retryAfter} seconds!`)
             return true
           }
@@ -234,6 +235,7 @@ export function buildConfig(): Config {
       !core.getInput('delete-tags') &&
       !core.getInput('delete-ghost-images') &&
       !core.getInput('delete-partial-images') &&
+      !core.getInput('delete-orphaned-images') &&
       !core.getInput('keep-n-untagged') &&
       !core.getInput('keep-n-tagged')
     ) {
@@ -252,6 +254,9 @@ export function buildConfig(): Config {
   }
   if (core.getInput('delete-partial-images')) {
     config.deletePartialImages = core.getBooleanInput('delete-partial-images')
+  }
+  if (core.getInput('delete-orphaned-images')) {
+    config.deleteOrphanedImages = core.getBooleanInput('delete-orphaned-images')
   }
 
   if (core.getInput('dry-run')) {
@@ -323,6 +328,9 @@ export function buildConfig(): Config {
   }
   if (config.deletePartialImages !== undefined) {
     optionsMap.add('delete-partial-images', `${config.deletePartialImages}`)
+  }
+  if (config.deleteOrphanedImages !== undefined) {
+    optionsMap.add('delete-orphaned-images', `${config.deleteOrphanedImages}`)
   }
   if (config.keepNtagged !== undefined) {
     optionsMap.add('keep-n-tagged', `${config.keepNtagged}`)

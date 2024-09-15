@@ -107,7 +107,7 @@ export class CleanupTask {
     if (this.config.olderThan) {
       // get the package
       core.startGroup(
-        `[${this.targetPackage}] Including packages that are older than: ${this.config.olderThanReadable}`
+        `[${this.targetPackage}] Finding images that are older than: ${this.config.olderThanReadable}`
       )
       for (const digest of this.filterSet) {
         const ghPackage = this.packageRepo.getPackageByDigest(digest)
@@ -129,6 +129,9 @@ export class CleanupTask {
           }
         }
       }
+      if (this.filterSet.size === 0) {
+        core.info('no images found')
+      }
       core.endGroup()
     }
   }
@@ -144,7 +147,7 @@ export class CleanupTask {
     const disgestCount = digests.size
     let processed = 0
 
-    core.startGroup(`[${this.targetPackage}] Loading Manifests`)
+    core.startGroup(`[${this.targetPackage}] Loading manifests`)
     for (const digest of digests) {
       const manifest = await this.registry.getManifestByDigest(digest)
       processed++
@@ -152,11 +155,11 @@ export class CleanupTask {
         const encoded = JSON.stringify(manifest, null, 4)
         core.info(`${digest}:${encoded}`)
       } else {
-        // if 15 seconds has passed output a status message
+        // output a status message if 15 seconds has passed
         const now = new Date()
         if (now.getMilliseconds() - stopWatch.getMilliseconds() >= 15000) {
-          stopWatch = new Date() // reset the clock
           core.info(`loaded ${processed} of ${disgestCount} manifests`)
+          stopWatch = new Date() // reset the clock
         }
       }
 
@@ -192,35 +195,25 @@ export class CleanupTask {
           this.filterSet.delete(imageManifest.digest)
         }
       }
-      // process any referrers - OCI v1 via tag currently
-      const referrerTag = digest.replace('sha256:', 'sha256-')
-      if (
-        this.tagsInUse.has(referrerTag) &&
-        !this.excludeTags.includes(referrerTag)
-      ) {
-        // find the digest and children and remove them
-        const referrerDigest = this.packageRepo.getDigestByTag(referrerTag)
-        if (referrerDigest) {
-          this.filterSet.delete(referrerDigest)
-          const referrerManifest =
-            await this.registry.getManifestByTag(referrerTag)
-          if (referrerManifest.manifests) {
-            for (const manifestEntry of referrerManifest.manifests) {
-              this.filterSet.delete(manifestEntry.digest)
+
+      // process any associated images which have been tagged using the digest
+      const digestTag = digest.replace('sha256:', 'sha256-')
+      const tags = this.packageRepo.getTags()
+      for (const tag of tags) {
+        if (tag.startsWith(digestTag)) {
+          // remove it
+          const tagDigest = this.packageRepo.getDigestByTag(tag)
+          if (tagDigest) {
+            this.filterSet.delete(tagDigest)
+            digests.delete(tagDigest)
+            // process any children
+            const childManifest = await this.registry.getManifestByTag(tag)
+            if (childManifest.manifests) {
+              for (const manifestEntry of childManifest.manifests) {
+                this.filterSet.delete(manifestEntry.digest)
+              }
             }
           }
-        }
-      }
-      // process any cosign
-      const cosignTag = digest.replace('sha256:', 'sha256-').concat('.sig')
-      if (
-        this.tagsInUse.has(cosignTag) &&
-        !this.excludeTags.includes(cosignTag)
-      ) {
-        // remove the sig from the filter set
-        const cosignDigest = this.packageRepo.getDigestByTag(cosignTag)
-        if (cosignDigest) {
-          this.filterSet.delete(cosignDigest)
         }
       }
     }
@@ -260,10 +253,14 @@ export class CleanupTask {
         }
       }
     }
-    // check for orphaned referrers tags
+    // check for orphaned tags (referrers/cosign etc)
     for (const tag of this.tagsInUse) {
       if (tag.startsWith('sha256-')) {
-        const digest = tag.replace('sha256-', 'sha256:')
+        let digest = tag.replace('sha256-', 'sha256:')
+        if (digest.length > 71) {
+          // trim additional chars
+          digest = digest.substring(0, 71)
+        }
         if (!this.packageRepo.getIdByDigest(digest)) {
           error = true
           core.warning(
@@ -273,7 +270,7 @@ export class CleanupTask {
       }
     }
     if (!error) {
-      core.info(' no errors found')
+      core.info('no errors found')
     }
     core.endGroup()
   }
@@ -377,37 +374,22 @@ export class CleanupTask {
         }
       }
 
-      // process any referrers manifests - using tag approach
-      const attestationTag = ghPackage.name.replace('sha256:', 'sha256-')
-      if (
-        this.tagsInUse.has(attestationTag) &&
-        !this.excludeTags.includes(attestationTag)
-      ) {
-        // find the package
-        const manifestDigest = this.packageRepo.getDigestByTag(attestationTag)
-        if (manifestDigest) {
-          const attestationPackage =
-            this.packageRepo.getPackageByDigest(manifestDigest)
-          // recursively delete it
-          await this.deleteImage(attestationPackage)
-        }
-      }
-
-      // process any cosign
-      const cosignTag = ghPackage.name
-        .replace('sha256:', 'sha256-')
-        .concat('.sig')
-      if (
-        this.tagsInUse.has(cosignTag) &&
-        !this.excludeTags.includes(cosignTag)
-      ) {
-        // find the package
-        const cosignDigest = this.packageRepo.getDigestByTag(cosignTag)
-        if (cosignDigest) {
-          const cosignPackage =
-            this.packageRepo.getPackageByDigest(cosignDigest)
-          // recursively delete it
-          await this.deleteImage(cosignPackage)
+      // process any referrers/cosign etc - using tag approach
+      const digestTag = ghPackage.name.replace('sha256:', 'sha256-')
+      const tags = this.packageRepo.getTags()
+      for (const tag of tags) {
+        if (
+          tag.startsWith(digestTag) &&
+          !this.excludeTags.includes(digestTag)
+        ) {
+          // find the package
+          const manifestDigest = this.packageRepo.getDigestByTag(tag)
+          if (manifestDigest) {
+            const attestationPackage =
+              this.packageRepo.getPackageByDigest(manifestDigest)
+            // recursively delete it
+            await this.deleteImage(attestationPackage)
+          }
         }
       }
     }
@@ -482,6 +464,36 @@ export class CleanupTask {
     }
     if (!partialImagesFound) {
       core.info('no partial images found')
+    }
+    core.endGroup()
+  }
+
+  async deleteOrphanedImages(): Promise<void> {
+    core.startGroup(
+      `[${this.targetPackage}] Finding orphaned images (tags) to delete`
+    )
+    let orphanedImagesFound = false
+    for (const tag of this.packageRepo.getTags()) {
+      if (tag.startsWith('sha256-')) {
+        let digest = tag.replace('sha256-', 'sha256:')
+        if (digest.length > 71) {
+          // trim additional chars
+          digest = digest.substring(0, 71)
+        }
+        // now check if that digest exists
+        if (this.packageRepo.getIdByDigest(digest) === undefined) {
+          const orphanDigest = this.packageRepo.getDigestByTag(tag)
+          if (orphanDigest) {
+            this.deleteSet.add(orphanDigest)
+            this.filterSet.delete(orphanDigest)
+            core.info(tag)
+            orphanedImagesFound = true
+          }
+        }
+      }
+    }
+    if (!orphanedImagesFound) {
+      core.info('no orphaned images found')
     }
     core.endGroup()
   }
@@ -664,6 +676,9 @@ export class CleanupTask {
             this.filterSet.delete(deletePackage.name)
             core.info(`${deletePackage.name}`)
           }
+          if (deletePackages.length === 0) {
+            core.info('no untagged images found to delete')
+          }
         }
       } else {
         core.info('no untagged images found to delete')
@@ -734,7 +749,7 @@ export class CleanupTask {
       }
     }
     if (!untaggedImageFound) {
-      core.info('No untagged images found')
+      core.info('no untagged images found')
     }
     core.endGroup()
   }
@@ -766,6 +781,10 @@ export class CleanupTask {
       await this.deletePartialImages()
     } else if (this.config.deleteGhostImages) {
       await this.deleteGhostImages()
+    }
+
+    if (this.config.deleteOrphanedImages) {
+      await this.deleteOrphanedImages()
     }
 
     if (this.config.keepNtagged != null) {

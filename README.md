@@ -82,6 +82,30 @@ simulate the cleanup action but will not delete any images/packages. This is
 especially important when using a wildcard/regular expression syntaxes or the
 `older-than` option to select images.
 
+## How It Works
+
+The high level processing of the action occurs as follows:
+
+1. For each package.
+1. Download all package metadata and their manifests and put them into a working
+   'filter set'.
+1. Remove all child images from the working filter set (including referrers and
+   cosign images).
+1. Remove `exclude-tags` images from filter set.
+1. Remove images which are younger than the `older-than` option from the filter
+   set.
+1. Stage for deletion `delete-tags` images present in the filter set.
+1. Stage for deletion `delete-ghost-images`, `delete-partial-iamges` and
+   `delete-orphaned-images` images present in the filter set.
+1. Process `keep-n-tagged` images from the filter set, stage remainder tagged
+   images for deletion.
+1. Process `keep-n-untagged` images from the filter set, stage remainder
+   untagged images for deletion.
+1. Or process `delete-untagged`, staging all untagged images in filter set for
+   deletion.
+1. Preform the deletion on all staged packages, including their children if
+   present.
+
 ## Action Options
 
 ### Repository Options
@@ -99,16 +123,17 @@ automatically set from the project environment where the action is running.
 
 ### Cleanup Options
 
-| Option                | Required | Defaults  | Description                                                                                                                                                                                          |
-| --------------------- | :------: | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| delete-tags           |    no    |           | Comma-separated list of tags to delete (supports wildcard syntax), can be abbreviated as `tags`. A regular expression selector can be used instead by setting the `use-regex` option to true         |
-| exclude-tags          |    no    |           | Comma-separated list of tags strictly to be preserved/excluded from deletion (supports wildcard syntax). A regular expression selector can be used instead by setting the `use-regex` option to true |
-| delete-untagged       |    no    | depends\* | Delete all untagged images                                                                                                                                                                           |
-| keep-n-untagged       |    no    |           | Number of untagged images to keep, sorted by date, keeping the latest                                                                                                                                |
-| keep-n-tagged         |    no    |           | Number of tagged images to keep, sorted by date, keeping the latest                                                                                                                                  |
-| delete-ghost-images   |    no    | false     | Delete multi-architecture images where all underlying platform images are missing                                                                                                                    |
-| delete-partial-images |    no    | false     | Delete multi-architecture images where some (but not all) underlying platform images are missing                                                                                                     |
-| older-than            |    no    |           | Only include images for processing that are older than this interval (eg 5 days, 6 months or 1 year)                                                                                                 |
+| Option                 | Required | Defaults  | Description                                                                                                                                                                                          |
+| ---------------------- | :------: | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| delete-tags            |    no    |           | Comma-separated list of tags to delete (supports wildcard syntax), can be abbreviated as `tags`. A regular expression selector can be used instead by setting the `use-regex` option to true         |
+| exclude-tags           |    no    |           | Comma-separated list of tags strictly to be preserved/excluded from deletion (supports wildcard syntax). A regular expression selector can be used instead by setting the `use-regex` option to true |
+| delete-untagged        |    no    | depends\* | Delete all untagged images                                                                                                                                                                           |
+| keep-n-untagged        |    no    |           | Number of untagged images to keep, sorted by date, keeping the latest                                                                                                                                |
+| keep-n-tagged          |    no    |           | Number of tagged images to keep, sorted by date, keeping the latest                                                                                                                                  |
+| delete-ghost-images    |    no    | false     | Delete multi-architecture images where all underlying platform images are missing                                                                                                                    |
+| delete-partial-images  |    no    | false     | Delete multi-architecture images where some (but not all) underlying platform images are missing                                                                                                     |
+| delete-orphaned-images |    no    | false     | Delete tagged images which have no parent (e.g. referrers and cosign tags missing their parent)                                                                                                      |
+| older-than             |    no    |           | Only include images for processing that are older than this interval (eg 5 days, 6 months or 1 year)                                                                                                 |
 
 \* If no delete or keep options are set on the action then the action defaults
 the option `delete-untagged` to "true" and will delete all untagged images.
@@ -242,6 +267,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+### `delete-orphaned-images`
+
+This option removes tagged images where the assoicated parent image does not
+exist. It searches for images with tags starting with "sha256-" and then
+searches for the equivalent sha256: digest. If an image digest is not found then
+its flagged for deletion. This picks up orphaned referrers and cosign images.
+
 ## Keep Options
 
 ### `keep-n-untagged`
@@ -284,6 +316,9 @@ jobs:
           keep-n-tagged: 3
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+This option operates on all tagged entries. To narrow it's scope use the
+`exclude-tag` option also.
 
 ## Personal Access Tokens (PAT's)
 
@@ -345,6 +380,9 @@ jobs:
           token: ${{ secrets.GHCR_PAT }}
 ```
 
+Multiple package execution can also be achived by using the GitHub workflow
+matrix mechanism.
+
 ## Sample Action Setups
 
 ### Complex example `keep-n-tagged`
@@ -367,6 +405,29 @@ jobs:
           delete-untagged: true
           delete-partial-images: true
           token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Delete all untagged images and keep 3 latest (rc) images
+
+This sample operates on multiple packages and makes use of a regular expression
+selector. It excludes all versioned images and the latest and main tags from
+processing.
+
+```yaml
+cleanup-images:
+  name: cleanup-images
+  runs-on: ubuntu-latest
+  concurrency:
+    group: cleanup-images
+  steps:
+    - uses: dataaxiom/ghcr-cleanup-action@v1
+      with:
+        packages: 'tiecd/k8s,tiecd/okd,tiecd/gke,tiecd/eks,tiecd/aks,tiecd/node18,tiecd/node20'
+        delete-untagged: true
+        keep-n-tagged: 3
+        exclude-tags: "^\\d+\\.\\d+\\.\\d+$|^latest$|^main$"
+        use-regex: true
+        token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Delete an image when a pull request is closed
@@ -450,6 +511,18 @@ Due to the nature of the cleanup process and determining what can be safely
 deleted it requires that no other package publishing or deleting process is
 occurring at the same time. It's recommended to use a GitHub concurrency group
 with this action in complex/busy repositories.
+
+```yaml
+cleanup-images:
+  name: cleanup-images
+  runs-on: ubuntu-latest
+  concurrency:
+    group: cleanup-images
+  steps:
+    - uses: dataaxiom/ghcr-cleanup-action@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+```
 
 ### Validate Option
 

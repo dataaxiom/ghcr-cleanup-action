@@ -37935,6 +37935,7 @@ class Config {
     deleteUntagged;
     deleteGhostImages;
     deletePartialImages;
+    deleteOrphanedImages;
     keepNuntagged;
     keepNtagged;
     dryRun;
@@ -37951,8 +37952,8 @@ class Config {
             throttle: {
                 onRateLimit: (retryAfter, options, octokit, retryCount) => {
                     lib_core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
-                    if (retryCount < 1) {
-                        // only retries once
+                    if (retryCount < 3) {
+                        // try upto 3 times
                         lib_core.info(`Octokit - retrying after ${retryAfter} seconds!`);
                         return true;
                     }
@@ -38106,6 +38107,7 @@ function buildConfig() {
             !core.getInput('delete-tags') &&
             !core.getInput('delete-ghost-images') &&
             !core.getInput('delete-partial-images') &&
+            !core.getInput('delete-orphaned-images') &&
             !core.getInput('keep-n-untagged') &&
             !core.getInput('keep-n-tagged')) {
             config.deleteUntagged = true;
@@ -38119,6 +38121,9 @@ function buildConfig() {
     }
     if (core.getInput('delete-partial-images')) {
         config.deletePartialImages = core.getBooleanInput('delete-partial-images');
+    }
+    if (core.getInput('delete-orphaned-images')) {
+        config.deleteOrphanedImages = core.getBooleanInput('delete-orphaned-images');
     }
     if (core.getInput('dry-run')) {
         config.dryRun = core.getBooleanInput('dry-run');
@@ -38188,6 +38193,9 @@ function buildConfig() {
     }
     if (config.deletePartialImages !== undefined) {
         optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
+    }
+    if (config.deleteOrphanedImages !== undefined) {
+        optionsMap.add('delete-orphaned-images', `${config.deleteOrphanedImages}`);
     }
     if (config.keepNtagged !== undefined) {
         optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
@@ -43984,6 +43992,7 @@ class Registry {
             // upgrade token
             let putToken;
             const auth = lib_axios.create();
+            esm(auth, { retries: 3 });
             try {
                 await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, config);
             }

@@ -129,6 +129,11 @@ jobs:
             folder: '6c_partial-images'
             delete-partial-images: true
 
+          - title: '6d - Orphaned Images'
+            purpose: 'Deletes Orphaned images'
+            folder: '6d_orphaned-images'
+            delete-orphaned-images: true
+
           - title: '7a - Single: Untagging Images'
             purpose: 'Untagging multi tagged images (single arch)'
             folder: '7a_single-untagging'
@@ -214,6 +219,11 @@ jobs:
             DELETE_PARTIAL_IMAGES="${{ matrix.tests.delete-partial-images }}"
           fi
 
+          DELETE_ORPHANED_IMAGES=""
+          if [ ! -z "${{ matrix.tests.delete-orphaned-images }}" ]; then
+            DELETE_ORPHANED_IMAGES="${{ matrix.tests.delete-orphaned-images }}"
+          fi
+
           KEEP_N_TAGGED=""
           if [ ! -z "${{ matrix.tests.keep-n-tagged }}" ]; then
             KEEP_N_TAGGED="${{ matrix.tests.keep-n-tagged }}"
@@ -263,6 +273,7 @@ jobs:
           echo "DELETE_UNTAGGED=$DELETE_UNTAGGED" >> $GITHUB_ENV
           echo "DELETE_GHOST_IMAGES=$DELETE_GHOST_IMAGES" >> $GITHUB_ENV
           echo "DELETE_PARTIAL_IMAGES=$DELETE_PARTIAL_IMAGES" >> $GITHUB_ENV
+          echo "DELETE_ORPHANED_IMAGES=$DELETE_ORPHANED_IMAGES" >> $GITHUB_ENV
           echo "KEEP_N_TAGGED=$KEEP_N_TAGGED" >> $GITHUB_ENV
           echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED" >> $GITHUB_ENV
           echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
@@ -286,6 +297,7 @@ jobs:
           delete-untagged: ${{ env.DELETE_UNTAGGED }}
           delete-ghost-images: ${{ env.DELETE_GHOST_IMAGES }}
           delete-partial-images: ${{ env.DELETE_PARTIAL_IMAGES }}
+          delete-orphaned-images: ${{ env.DELETE_ORPHANED_IMAGES }}
           keep-n-tagged: ${{ env.KEEP_N_TAGGED }}
           keep-n-untagged: ${{ env.KEEP_N_UNTAGGED }}
           exclude-tags: ${{ env.EXCLUDE_TAGS }}

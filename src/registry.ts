@@ -177,6 +177,7 @@ export class Registry {
       // upgrade token
       let putToken
       const auth = axios.create()
+      axiosRetry(auth, { retries: 3 })
       try {
         await auth.put(
           `https://ghcr.io/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
