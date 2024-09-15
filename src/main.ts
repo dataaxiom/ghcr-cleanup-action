@@ -6,7 +6,7 @@ import { CleanupTask } from './cleanup-task.js'
 import { createTokenAuth } from '@octokit/auth-token'
 
 /*
- * Main  program run function
+ * Main program entrypoint
  */
 export async function run(): Promise<void> {
   try {

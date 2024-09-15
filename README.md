@@ -19,6 +19,7 @@ It includes the following features:
 - Untagging of multi-tagged images
 - Multiple package execution
 - Referrers/GitHub attestation support (OCIv1 tag approach)
+- Sigstore cosign support
 - Retry and throttle support for the GitHub API calls
 - Validation mode to verify multi-architecture & referrers images
 
@@ -325,7 +326,7 @@ jobs:
         with:
           packages: myimage*,someotherimage
           expand-packages: true
-          token: ${{ env.GHCR_PAT }}
+          token: ${{ secrets.GHCR_PAT }}
 ```
 
 A regular expression can be used alternatively. This requires the `use-regex`
@@ -338,10 +339,10 @@ jobs:
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          packages: ^myimage[12]$
+          packages: '^myimage[12]$'
           expand-packages: true
           use-regex: true
-          token: ${{ env.GHCR_PAT }}
+          token: ${{ secrets.GHCR_PAT }}
 ```
 
 ## Sample Action Setups

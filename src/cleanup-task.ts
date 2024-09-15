@@ -139,14 +139,25 @@ export class CleanupTask {
    */
   async loadDigestUsedByMap(): Promise<void> {
     this.digestUsedBy.clear()
-
-    // used if debug logging
-    const manfiests = new Map<string, any>()
+    let stopWatch = new Date()
     const digests = this.packageRepo.getDigests()
+    const disgestCount = digests.size
+    let processed = 0
+
+    core.startGroup(`[${this.targetPackage}] Loading Manifests`)
     for (const digest of digests) {
       const manifest = await this.registry.getManifestByDigest(digest)
-      if (this.config.logLevel >= LogLevel.INFO) {
-        manfiests.set(digest, manifest)
+      processed++
+      if (this.config.logLevel === LogLevel.DEBUG) {
+        const encoded = JSON.stringify(manifest, null, 4)
+        core.info(`${digest}:${encoded}`)
+      } else {
+        // if 15 seconds has passed output a status message
+        const now = new Date()
+        if (now.getMilliseconds() - stopWatch.getMilliseconds() >= 15000) {
+          stopWatch = new Date() // reset the clock
+          core.info(`loaded ${processed} of ${disgestCount} manifests`)
+        }
       }
 
       // we only map multi-arch images
@@ -164,14 +175,8 @@ export class CleanupTask {
         }
       }
     }
-    if (this.config.logLevel === LogLevel.DEBUG) {
-      core.startGroup(`[${this.targetPackage}] Image manfiests`)
-      for (const [digest, manifest] of manfiests) {
-        const encoded = JSON.stringify(manifest, null, 4)
-        core.info(`${digest}:${encoded}`)
-      }
-      core.endGroup()
-    }
+    core.info('loaded all manifests')
+    core.endGroup()
   }
 
   /*
@@ -204,6 +209,18 @@ export class CleanupTask {
               this.filterSet.delete(manifestEntry.digest)
             }
           }
+        }
+      }
+      // process any cosign
+      const cosignTag = digest.replace('sha256:', 'sha256-').concat('.sig')
+      if (
+        this.tagsInUse.has(cosignTag) &&
+        !this.excludeTags.includes(cosignTag)
+      ) {
+        // remove the sig from the filter set
+        const cosignDigest = this.packageRepo.getDigestByTag(cosignTag)
+        if (cosignDigest) {
+          this.filterSet.delete(cosignDigest)
         }
       }
     }
@@ -373,6 +390,24 @@ export class CleanupTask {
             this.packageRepo.getPackageByDigest(manifestDigest)
           // recursively delete it
           await this.deleteImage(attestationPackage)
+        }
+      }
+
+      // process any cosign
+      const cosignTag = ghPackage.name
+        .replace('sha256:', 'sha256-')
+        .concat('.sig')
+      if (
+        this.tagsInUse.has(cosignTag) &&
+        !this.excludeTags.includes(cosignTag)
+      ) {
+        // find the package
+        const cosignDigest = this.packageRepo.getDigestByTag(cosignTag)
+        if (cosignDigest) {
+          const cosignPackage =
+            this.packageRepo.getPackageByDigest(cosignDigest)
+          // recursively delete it
+          await this.deleteImage(cosignPackage)
         }
       }
     }
