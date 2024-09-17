@@ -380,7 +380,7 @@ jobs:
           token: ${{ secrets.GHCR_PAT }}
 ```
 
-Multiple package execution can also be achived by using the GitHub workflow
+Multiple package execution can also be achieved by using the GitHub workflow
 matrix mechanism.
 
 ## Sample Action Setups

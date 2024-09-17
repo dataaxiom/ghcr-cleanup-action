@@ -43321,13 +43321,12 @@ class CleanupTask {
         this.deleted.clear();
         // prime the list of current packages
         await this.packageRepo.loadPackages(this.targetPackage, true);
-        // extract values from the load
-        this.filterSet = this.packageRepo.getDigests();
+        // extract tags from the package load
         this.tagsInUse = this.packageRepo.getTags();
         // build digestUsedBy map
         await this.loadDigestUsedByMap();
-        // remove children from filterSet - manifest image children, referrers
-        await this.trimChildren();
+        // init filterSet - removed manifest image children, referrers etc
+        await this.initFilterSet();
         // find excluded tags using regex or matcher
         this.excludeTags = [];
         if (this.config.excludeTags) {
@@ -43404,8 +43403,9 @@ class CleanupTask {
         this.digestUsedBy.clear();
         let stopWatch = new Date();
         const digests = this.packageRepo.getDigests();
-        const disgestCount = digests.size;
+        const digestCount = digests.size;
         let processed = 0;
+        let skipped = 0;
         core.startGroup(`[${this.targetPackage}] Loading manifests`);
         for (const digest of digests) {
             const manifest = await this.registry.getManifestByDigest(digest);
@@ -43415,10 +43415,10 @@ class CleanupTask {
                 core.info(`${digest}:${encoded}`);
             }
             else {
-                // output a status message if 15 seconds has passed
+                // output a status message if 3 seconds has passed
                 const now = new Date();
-                if (now.getMilliseconds() - stopWatch.getMilliseconds() >= 15000) {
-                    core.info(`loaded ${processed} of ${disgestCount} manifests`);
+                if (now.getMilliseconds() - stopWatch.getMilliseconds() >= 3000) {
+                    core.info(`loaded ${processed} of ${digestCount} manifests`);
                     stopWatch = new Date(); // reset the clock
                 }
             }
@@ -43433,24 +43433,28 @@ class CleanupTask {
                             this.digestUsedBy.set(imageManifest.digest, parents);
                         }
                         parents.add(digest);
+                        // now remove so we don't download the child manifest later on in loop
+                        digests.delete(imageManifest.digest);
+                        skipped++;
+                        processed++;
                     }
                 }
             }
         }
-        core.info('loaded all manifests');
+        core.info(`loaded ${processed} manifests, ${skipped} skipped`);
         core.endGroup();
     }
     /*
      * Remove all multi architecture platform images from the filterSet including its
      * referrer image if present. Filtering/processing only occurs on top level images.
      */
-    async trimChildren() {
+    async initFilterSet() {
         const digests = this.packageRepo.getDigests();
         for (const digest of digests) {
             const manifest = await this.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
                 for (const imageManifest of manifest.manifests) {
-                    this.filterSet.delete(imageManifest.digest);
+                    digests.delete(imageManifest.digest);
                 }
             }
             // process any associated images which have been tagged using the digest
@@ -43461,19 +43465,20 @@ class CleanupTask {
                     // remove it
                     const tagDigest = this.packageRepo.getDigestByTag(tag);
                     if (tagDigest) {
-                        this.filterSet.delete(tagDigest);
                         digests.delete(tagDigest);
                         // process any children
                         const childManifest = await this.registry.getManifestByTag(tag);
                         if (childManifest.manifests) {
                             for (const manifestEntry of childManifest.manifests) {
-                                this.filterSet.delete(manifestEntry.digest);
+                                digests.delete(manifestEntry.digest);
                             }
                         }
                     }
                 }
             }
         }
+        // save digests to filterSet
+        this.filterSet = digests;
     }
     // validate manifests list packages
     async validate() {
@@ -43481,7 +43486,8 @@ class CleanupTask {
         // cycle thru digests checking them
         let error = false;
         const processedManifests = new Set();
-        for (const digest of this.packageRepo.getDigests()) {
+        const digests = this.packageRepo.getDigests();
+        for (const digest of digests) {
             // is the digest a multi arch image?
             if (!processedManifests.has(digest)) {
                 const manifest = await this.registry.getManifestByDigest(digest);
@@ -43499,6 +43505,8 @@ class CleanupTask {
                                 core.warning(`digest ${childImage.digest} not found on untagged image ${digest}`);
                             }
                         }
+                        // remove it from further processing - we don't need to validate child manifests
+                        digests.delete(childImage.digest);
                     }
                 }
             }
@@ -43931,10 +43939,43 @@ class CleanupTask {
         }
         core.endGroup();
     }
+    // makes sure all required manfiests are downloaded before the deletion
+    // process runs. ensuring only package api calls are made during deletion
+    // minimizing chances of failed registry calls affecting deletion
+    async primeManifests() {
+        for (const digest of this.deleteSet) {
+            const manifest = await this.registry.getManifestByDigest(digest);
+            if (manifest.manifests) {
+                for (const imageManifest of manifest.manifests) {
+                    // call the buildLabel method which will prime manifest if its needed
+                    await this.buildLabel(imageManifest);
+                }
+            }
+            // process tagged digests (referrers)
+            const digestTag = digest.replace('sha256:', 'sha256-');
+            const tags = this.packageRepo.getTags();
+            for (const tag of tags) {
+                if (tag.startsWith(digestTag)) {
+                    const tagDigest = this.packageRepo.getDigestByTag(tag);
+                    if (tagDigest) {
+                        const tagManifest = await this.registry.getManifestByDigest(tagDigest);
+                        if (tagManifest.manifests) {
+                            for (const manifestEntry of tagManifest.manifests) {
+                                await this.buildLabel(manifestEntry);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     /*
      * Deletes all the digets in the deleteSet from the package repository
      */
     async doDelete() {
+        // make sure we have the necessary manifests cached before we start the
+        // deletion process
+        await this.primeManifests();
         // now delete the images
         core.startGroup(`[${this.targetPackage}] Deleting packages`);
         if (this.deleteSet.size > 0) {
