@@ -16,6 +16,7 @@ inputs:
     description: >
       Token to authenticate with the ghcr.io registry and the GitHub API
     required: true
+    default: ${{ github.token }}
 
   owner:
     description: >
