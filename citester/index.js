@@ -37195,7 +37195,8 @@ function pushImage(srcImage, destImage, extraArgs, token) {
         'copy',
         `docker://${srcImage}`,
         `docker://${destImage}`,
-        `--dest-creds=token:${token}`
+        `--dest-creds=token:${token}`,
+        '--preserve-digests'
     ];
     if (extraArgs) {
         const parts = extraArgs.split(' ');

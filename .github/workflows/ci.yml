@@ -21,7 +21,7 @@ env:
 jobs:
   general-tests:
     name: General Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -52,7 +52,7 @@ jobs:
 
   integration-tests:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: general-tests
 
     strategy:
@@ -317,7 +317,7 @@ jobs:
 
   github-attestation-tests:
     name: Github Referrer/Attestation Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       REGISTRY: ghcr.io
     needs: integration-tests
@@ -429,7 +429,7 @@ jobs:
   cosign-test:
     name: Cosign Test
     needs: github-attestation-tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -489,7 +489,7 @@ jobs:
 
   multi-package-cleanup:
     name: Cleanup Multiple Packages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: cosign-test
 
     steps:
@@ -507,7 +507,7 @@ jobs:
 
   shared-image-tagged-test:
     name: Shared Images Tagged Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: multi-package-cleanup
 
     steps:
@@ -564,7 +564,7 @@ jobs:
 
   shared-image-untagged-test:
     name: Shared Images Untagged Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: shared-image-tagged-test
 
     steps:
@@ -620,7 +620,7 @@ jobs:
 
   multi-package-cleanup-regex:
     name: Cleanup Multiple Packages - Regex
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: shared-image-untagged-test
     env:
       GHCR_PAT: ${{secrets.GHCR_PAT}}
