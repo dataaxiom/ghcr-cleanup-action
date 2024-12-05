@@ -175,6 +175,8 @@ for its syntax. It supports the ?, \* and \*\* wildcard characters.
 To use a regular expression instead of a comma-seperated list set the
 `use-regex` option to true.
 
+Tag values can additionaly be expressed in the sha256: digest format.
+
 ### `delete-untagged`
 
 This option deletes all untagged images from package repository. It is the same
@@ -207,6 +209,8 @@ for its syntax. It supports the ?, \* and \*\* wildcard characters.
 
 To use a regular expression instead of a comma-seperated list set the
 `use-regex` option to true.
+
+Tag values can additionaly be expressed in the sha256 digest format.
 
 ```yaml
 jobs:
@@ -265,7 +269,7 @@ jobs:
 This option removes tagged images where the assoicated parent image does not
 exist. It searches for images with tags starting with "sha256-" and then
 searches for the equivalent sha256: digest. If an image digest is not found then
-its flagged for deletion. This picks up orphaned referrers and cosign images.
+it's flagged for deletion. This picks up orphaned referrers and cosign images.
 
 ## Keep Options
 
@@ -523,14 +527,15 @@ at the end of the execution to check that all multi-architecture images have no
 missing platform images. Warnings will be outputted if there are missing
 packages.
 
-### Packages Downloaded Over 5000 times
+### Packages Downloaded More Than 5000 Times
 
-Public packages that have been downloaded over 5000 times are prohibited by
+Public packages that have been downloaded more than 5000 times are prohibited by
 GitHub to be deleted. Currently the only way to exclude these is set the
 exclude-tags for these images so that they are not processed by the action.
 
-There is currently no public GitHub API to retrieve the download counts to then
-programicatlly remove these from been processed by the action.
+There is currently no public GitHub API to retrieve the download counts, which
+would be required to programmatically remove these from been processed by the
+action.
 
 ### Package Restoration
 

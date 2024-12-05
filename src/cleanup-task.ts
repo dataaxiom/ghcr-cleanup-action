@@ -71,6 +71,7 @@ export class CleanupTask {
     if (this.config.excludeTags) {
       if (this.config.useRegex) {
         const regex = new RegExp(this.config.excludeTags)
+        // check all tags for matches first
         for (const tag of this.tagsInUse) {
           if (regex.test(tag)) {
             // delete the tag from the filterSet
@@ -81,8 +82,17 @@ export class CleanupTask {
             this.excludeTags.push(tag)
           }
         }
+        // now check for digest based format matches
+        for (const digest of this.packageRepo.getDigests()) {
+          if (regex.test(digest)) {
+            // delete the tag from the filterSet
+            this.filterSet.delete(digest)
+            this.excludeTags.push(digest)
+          }
+        }
       } else {
         const isTagMatch = wcmatch(this.config.excludeTags.split(','))
+        // check all tags for matches first
         for (const tag of this.tagsInUse) {
           if (isTagMatch(tag)) {
             // delete the tag from the filterSet
@@ -91,6 +101,14 @@ export class CleanupTask {
               this.filterSet.delete(digest)
             }
             this.excludeTags.push(tag)
+          }
+        }
+        // now check for digest based format matches
+        for (const digest of this.packageRepo.getDigests()) {
+          if (isTagMatch(digest)) {
+            // delete the tag from the filterSet
+            this.filterSet.delete(digest)
+            this.excludeTags.push(digest)
           }
         }
       }
@@ -523,6 +541,13 @@ export class CleanupTask {
             }
           }
         }
+        // now check for digest based format matches - only check on filterset
+        for (const digest of this.filterSet) {
+          if (regex.test(digest)) {
+            // delete the tag from the filterSet
+            matchTags.push(digest)
+          }
+        }
       } else {
         // find the tags that match wildcard patterns
         const isTagMatch = wcmatch(this.config.deleteTags.split(','))
@@ -535,6 +560,12 @@ export class CleanupTask {
             }
           }
         }
+        // now check for digest based format matches
+        for (const digest of this.filterSet) {
+          if (isTagMatch(digest)) {
+            matchTags.push(digest)
+          }
+        }
       }
       if (matchTags.length > 0) {
         // build seperate sets for the untagging events and the standard deletions
@@ -545,14 +576,18 @@ export class CleanupTask {
         for (const tag of matchTags) {
           if (!this.excludeTags.includes(tag)) {
             // get the package
-            const manifestDigest = this.packageRepo.getDigestByTag(tag)
-            if (manifestDigest) {
-              const ghPackage =
-                this.packageRepo.getPackageByDigest(manifestDigest)
-              if (ghPackage.metadata.container.tags.length > 1) {
-                untaggingTags.add(tag)
-              } else if (ghPackage.metadata.container.tags.length === 1) {
-                standardTags.add(tag)
+            if (tag.startsWith('sha256:')) {
+              standardTags.add(tag)
+            } else {
+              const manifestDigest = this.packageRepo.getDigestByTag(tag)
+              if (manifestDigest) {
+                const ghPackage =
+                  this.packageRepo.getPackageByDigest(manifestDigest)
+                if (ghPackage.metadata.container.tags.length > 1) {
+                  untaggingTags.add(tag)
+                } else if (ghPackage.metadata.container.tags.length === 1) {
+                  standardTags.add(tag)
+                }
               }
             }
           }
@@ -635,7 +670,12 @@ export class CleanupTask {
           for (const tag of standardTags) {
             core.info(tag)
             // get the package
-            const manifestDigest = this.packageRepo.getDigestByTag(tag)
+            let manifestDigest: string | undefined
+            if (tag.startsWith('sha256:')) {
+              manifestDigest = tag
+            } else {
+              manifestDigest = this.packageRepo.getDigestByTag(tag)
+            }
             if (manifestDigest) {
               this.deleteSet.add(manifestDigest)
               this.filterSet.delete(manifestDigest)

@@ -70,7 +70,7 @@ jobs:
           - title: '2a - Single: Tagged'
             purpose: 'Removes images with specific tag (single arch)'
             folder: '2a_single-tagged'
-            delete-tags: '1.35-uclibc,1.36-uclibc'
+            delete-tags: '1.35-uclibc,sha256:2707e3b95977dedc54aec62c1991be635d175c83dce0a0b5e8e43e545467003c'
 
           - title: '2b - Multi: Tagged'
             purpose: 'Removes images with specific tag (multi arch)'
@@ -84,7 +84,7 @@ jobs:
               and keeps untagged'
             folder: '3a_single-keep-n-tagged'
             keep-n-tagged: 2
-            exclude-tags: dummy
+            exclude-tags: sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f
             use-regex: true
 
           - title: '3b - Multi: Keep N Tagged'
@@ -154,8 +154,8 @@ jobs:
             folder: '8a_multi-complex'
             keep-n-tagged: 1
             delete-untagged: true
-            delete-tags: 1.34-uclibc
-            exclude-tags: dummy
+            delete-tags: sha256:136787c141852fd4b9b1e06e7cfda442fc3903a7b40b8fe9c91e0a97cb68aaf6
+            exclude-tags: sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f
 
           - title: '8b - Multi: Complex'
             purpose: 'Complex combined Test (multi arch)'
@@ -306,7 +306,6 @@ jobs:
           use-regex: ${{ env.USE_REGEX }}
           expand-packages: ${{ env.EXPAND_PACKAGES }}
           validate: ${{ env.VALIDATE }}
-          token: ${{ secrets.GITHUB_TOKEN }}
           log-level: info
 
       - name: ' > Validating Outcome'
