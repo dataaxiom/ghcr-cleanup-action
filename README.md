@@ -47,9 +47,8 @@ requires its permissions to have been set correctly, either by:
 ### Define the action
 
 The most basic setup with no delete or keep options deletes all untagged images
-from the repository. Untagged here means a top-level container image, not the
-underlying parts of a multi-architecture image (which also appear as untagged
-packages).
+from the repository. Deleting a multi-architecture image will also delete the
+underlying child images.
 
 To get started add an action definition to a workflow file.
 
@@ -61,7 +60,6 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           dry-run: true
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 The action calls both the registry API (ghcr.io) and the GitHub package API to
@@ -110,13 +108,13 @@ The high level processing of the action occurs as follows:
 
 ### Repository Options
 
-| Option          | Required | Defaults        | Description                                                                                                                                                                              |
-| --------------- | :------: | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| token           |   yes    |                 | Token used to connect with ghcr.io and the Package API                                                                                                                                   |
-| owner           |    no    | project owner   | The GitHub repository owner, can be an organization or user type                                                                                                                         |
-| repository      |    no    | repository name | The GitHub repository name                                                                                                                                                               |
-| package(s)      |    no    | repository name | Comma-separated list of packages to cleanup. Supports dynamic packages (wildcard or regular expression) by enabling the `expand-packages` option. Can be used as `package` or `packages` |
-| expand-packages |    no    | false           | Enable wildcard or regular expression support on the `package(s)` option to support dynamic package selection. It requires use of a Personal Access Token (PAT) for the `token` value.   |
+| Option          | Required | Defaults             | Description                                                                                                                                                                              |
+| --------------- | :------: | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| token           |   yes    | secrets.GITHUB_TOKEN | Token used to connect with ghcr.io and the Package API                                                                                                                                   |
+| owner           |    no    | project owner        | The GitHub repository owner, can be an organization or user type                                                                                                                         |
+| repository      |    no    | repository name      | The GitHub repository name                                                                                                                                                               |
+| package(s)      |    no    | repository name      | Comma-separated list of packages to cleanup. Supports dynamic packages (wildcard or regular expression) by enabling the `expand-packages` option. Can be used as `package` or `packages` |
+| expand-packages |    no    | false                | Enable wildcard or regular expression support on the `package(s)` option to support dynamic package selection. It requires use of a Personal Access Token (PAT) for the `token` value.   |
 
 If the owner, repository or package options are not set then the values are
 automatically set from the project environment where the action is running.
@@ -163,7 +161,6 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           delete-tags: mytag*,dev # same as tags: mytag*,dev
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 If a tag to be deleted links to an image with multiple tags the action will
@@ -196,7 +193,6 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           delete-untagged: true
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### `exclude-tags`
@@ -221,7 +217,6 @@ jobs:
         with:
           exclude-tags: dev,latest,pr*
           keep-n-tagged: 10
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### `older-than`
@@ -247,7 +242,6 @@ jobs:
         with:
           older-than: 1 year
           keep-n-tagged: 10
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### `delete-ghost-images` and `delete-partial-images`
@@ -264,7 +258,6 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           delete-ghost-images: true
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### `delete-orphaned-images`
@@ -293,7 +286,6 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           keep-n-untagged: 3
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Setting `keep-n-untagged` to 0 has the same effect as setting the
@@ -314,7 +306,6 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           keep-n-tagged: 3
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 This option operates on all tagged entries. To narrow it's scope use the
@@ -333,6 +324,16 @@ The PAT should be setup as a Classic token. This is due to the GitGub Registry
 API currently only supporting Classic tokens. The token should be setup with
 both `write:packages` and `delete:packages` scopes.
 
+```yaml
+jobs:
+  - name: ghcr.io cleanup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.MY_GHCR_PAT }}
+```
+
 ## Multiple Package Support
 
 The `package` (or `packages`) options can be set to a comma separated list of
@@ -346,7 +347,6 @@ jobs:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           packages: myimage1,myimage2
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 To utilize a wildcard set the `expand-packages` option to true and utilize a PAT
@@ -404,7 +404,6 @@ jobs:
           exclude-tags: dev
           delete-untagged: true
           delete-partial-images: true
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Delete all untagged images and keep 3 latest (rc) images
@@ -427,7 +426,6 @@ cleanup-images:
         keep-n-tagged: 3
         exclude-tags: "^\\d+\\.\\d+\\.\\d+$|^latest$|^main$"
         use-regex: true
-        token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Delete an image when a pull request is closed
@@ -446,7 +444,6 @@ jobs:
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           delete-tags: pr-${{github.event.pull_request.number}}
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Daily image cleanup of untagged images
@@ -465,8 +462,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Override default owner/repository/package
@@ -488,7 +483,6 @@ jobs:
           owner: dataaxiom
           repository: tiecd
           package: tiecd
-          token: ${{ secrets.GITHUB_TOKEN }}
           delete-tags: '^mytag[12]$'
           use-regex: true
 ```
@@ -520,8 +514,6 @@ cleanup-images:
     group: cleanup-images
   steps:
     - uses: dataaxiom/ghcr-cleanup-action@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Validate Option
@@ -530,6 +522,15 @@ Set the `validate` option to true to enable a full scan of the image repository
 at the end of the execution to check that all multi-architecture images have no
 missing platform images. Warnings will be outputted if there are missing
 packages.
+
+### Packages Downloaded Over 5000 times
+
+Public packages that have been downloaded over 5000 times are prohibited by
+GitHub to be deleted. Currently the only way to exclude these is set the
+exclude-tags for these images so that they are not processed by the action.
+
+There is currently no public GitHub API to retrieve the download counts to then
+programicatlly remove these from been processed by the action.
 
 ### Package Restoration
 
