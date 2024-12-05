@@ -44018,7 +44018,7 @@ class Registry {
 /* harmony export */   iD: () => (/* binding */ isValidChallenge),
 /* harmony export */   xy: () => (/* binding */ parseChallenge)
 /* harmony export */ });
-/* unused harmony export MapPrinter */
+/* unused harmony exports MapPrinter, CleanupTaskStatistics */
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(7484);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
 
@@ -44062,6 +44062,29 @@ class MapPrinter {
             const spacer = ''.padEnd(column - key.length, ' ');
             core.info(`${key}${spacer}${value}`);
         }
+    }
+}
+class CleanupTaskStatistics {
+    // action stats
+    name;
+    numberMultiImagesDeleted;
+    numberImagesDeleted;
+    constructor(name, numberMultiImagesDeleted, numberImagesDeleted) {
+        this.name = name;
+        this.numberMultiImagesDeleted = numberMultiImagesDeleted;
+        this.numberImagesDeleted = numberImagesDeleted;
+    }
+    add(other) {
+        return new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+    }
+    print() {
+        core.startGroup(`[${this.name}] Cleanup statistics`);
+        // print action statistics
+        if (this.numberMultiImagesDeleted > 0) {
+            core.info(`multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
+        }
+        core.info(`total images deleted = ${this.numberImagesDeleted}`);
+        core.endGroup();
     }
 }
 

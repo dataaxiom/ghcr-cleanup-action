@@ -4,6 +4,7 @@ import { PackageRepo } from './package-repo.js'
 import wcmatch from 'wildcard-match'
 import { CleanupTask } from './cleanup-task.js'
 import { createTokenAuth } from '@octokit/auth-token'
+import { CleanupTaskStatistics } from './utils.js'
 
 /*
  * Main program entrypoint
@@ -68,11 +69,16 @@ class CleanupAction {
       core.endGroup()
     }
 
+    let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0)
     for (const targetPackage of targetPackages) {
       const cleanupTask = new CleanupTask(this.config, targetPackage)
       await cleanupTask.init()
       await cleanupTask.reload()
-      await cleanupTask.run()
+      globalStatistics = globalStatistics.add(await cleanupTask.run())
+    }
+
+    if (targetPackages.length > 1) {
+      globalStatistics.print()
     }
   }
 }

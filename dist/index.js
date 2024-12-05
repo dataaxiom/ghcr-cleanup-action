@@ -37014,6 +37014,29 @@ class MapPrinter {
         }
     }
 }
+class CleanupTaskStatistics {
+    // action stats
+    name;
+    numberMultiImagesDeleted;
+    numberImagesDeleted;
+    constructor(name, numberMultiImagesDeleted, numberImagesDeleted) {
+        this.name = name;
+        this.numberMultiImagesDeleted = numberMultiImagesDeleted;
+        this.numberImagesDeleted = numberImagesDeleted;
+    }
+    add(other) {
+        return new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+    }
+    print() {
+        core.startGroup(`[${this.name}] Cleanup statistics`);
+        // print action statistics
+        if (this.numberMultiImagesDeleted > 0) {
+            core.info(`multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
+        }
+        core.info(`total images deleted = ${this.numberImagesDeleted}`);
+        core.endGroup();
+    }
+}
 
 // EXTERNAL MODULE: ./node_modules/human-interval/index.js
 var human_interval = __nccwpck_require__(3177);
@@ -43251,6 +43274,7 @@ class Registry {
 
 
 
+
 class CleanupTask {
     // The action configuration
     config;
@@ -43272,14 +43296,14 @@ class CleanupTask {
     digestUsedBy = new Map();
     // digests which have been deleted
     deleted = new Set();
-    // action stats
-    numberMultiImagesDeleted = 0;
-    numberImagesDeleted = 0;
+    // action statistics
+    statistics;
     constructor(config, targetPackage) {
         this.config = config;
         this.targetPackage = targetPackage;
         this.packageRepo = new PackageRepo(this.config);
         this.registry = new Registry(this.config, this.packageRepo);
+        this.statistics = new CleanupTaskStatistics(this.targetPackage, 0, 0);
     }
     async init() {
         await this.registry.login(this.targetPackage);
@@ -43540,10 +43564,10 @@ class CleanupTask {
             // now delete it
             await this.packageRepo.deletePackageVersion(this.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
             this.deleted.add(ghPackage.name);
-            this.numberImagesDeleted += 1;
+            this.statistics.numberImagesDeleted += 1;
             // if manifests based image now delete it's children
             if (manifest.manifests) {
-                this.numberMultiImagesDeleted += 1;
+                this.statistics.numberMultiImagesDeleted += 1;
                 for (const imageManifest of manifest.manifests) {
                     const manifestPackage = this.packageRepo.getPackageByDigest(imageManifest.digest);
                     if (manifestPackage) {
@@ -43555,7 +43579,7 @@ class CleanupTask {
                                     // it's only referenced from this image so delete it
                                     await this.packageRepo.deletePackageVersion(this.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.buildLabel(imageManifest));
                                     this.deleted.add(manifestPackage.name);
-                                    this.numberImagesDeleted += 1;
+                                    this.statistics.numberImagesDeleted += 1;
                                     // remove the parent - no other references to it
                                     this.digestUsedBy.delete(manifestPackage.name);
                                 }
@@ -43779,7 +43803,7 @@ class CleanupTask {
                                     const id = this.packageRepo.getIdByDigest(untaggedDigest);
                                     if (id) {
                                         await this.packageRepo.deletePackageVersion(this.targetPackage, id, untaggedDigest, [tag]);
-                                        this.numberImagesDeleted += 1;
+                                        this.statistics.numberImagesDeleted += 1;
                                     }
                                     else {
                                         core.info(`couldn't find newly created package with digest ${untaggedDigest} to delete`);
@@ -43985,19 +44009,15 @@ class CleanupTask {
         }
         // now preform the actual deletion
         await this.doDelete();
-        core.startGroup(`[${this.targetPackage}] Cleanup statistics`);
-        // print action statistics
-        if (this.numberMultiImagesDeleted > 0) {
-            core.info(`multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
-        }
-        core.info(`total images deleted = ${this.numberImagesDeleted}`);
-        core.endGroup();
+        // print out the statistics
+        this.statistics.print();
         if (this.config.validate) {
             core.info(` [${this.targetPackage}] Running Validation Task `);
             await this.reload();
             await this.validate();
             core.info('');
         }
+        return this.statistics;
     }
 }
 
@@ -44054,6 +44074,7 @@ var createTokenAuth = function createTokenAuth2(token) {
 
 
 ;// CONCATENATED MODULE: ./src/main.ts
+
 
 
 
@@ -44118,11 +44139,15 @@ class CleanupAction {
             }
             core.endGroup();
         }
+        let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0);
         for (const targetPackage of targetPackages) {
             const cleanupTask = new CleanupTask(this.config, targetPackage);
             await cleanupTask.init();
             await cleanupTask.reload();
-            await cleanupTask.run();
+            globalStatistics = globalStatistics.add(await cleanupTask.run());
+        }
+        if (targetPackages.length > 1) {
+            globalStatistics.print();
         }
     }
 }

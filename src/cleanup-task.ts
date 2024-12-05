@@ -3,6 +3,7 @@ import { Config, LogLevel } from './config.js'
 import { Registry } from './registry.js'
 import { PackageRepo } from './package-repo.js'
 import wcmatch from 'wildcard-match'
+import { CleanupTaskStatistics } from './utils.js'
 
 export class CleanupTask {
   // The action configuration
@@ -35,15 +36,15 @@ export class CleanupTask {
   // digests which have been deleted
   deleted = new Set<string>()
 
-  // action stats
-  numberMultiImagesDeleted = 0
-  numberImagesDeleted = 0
+  // action statistics
+  statistics: CleanupTaskStatistics
 
   constructor(config: Config, targetPackage: string) {
     this.config = config
     this.targetPackage = targetPackage
     this.packageRepo = new PackageRepo(this.config)
     this.registry = new Registry(this.config, this.packageRepo)
+    this.statistics = new CleanupTaskStatistics(this.targetPackage, 0, 0)
   }
 
   async init(): Promise<void> {
@@ -337,11 +338,11 @@ export class CleanupTask {
         ghPackage.metadata.container.tags
       )
       this.deleted.add(ghPackage.name)
-      this.numberImagesDeleted += 1
+      this.statistics.numberImagesDeleted += 1
 
       // if manifests based image now delete it's children
       if (manifest.manifests) {
-        this.numberMultiImagesDeleted += 1
+        this.statistics.numberMultiImagesDeleted += 1
         for (const imageManifest of manifest.manifests) {
           const manifestPackage = this.packageRepo.getPackageByDigest(
             imageManifest.digest
@@ -361,7 +362,7 @@ export class CleanupTask {
                     await this.buildLabel(imageManifest)
                   )
                   this.deleted.add(manifestPackage.name)
-                  this.numberImagesDeleted += 1
+                  this.statistics.numberImagesDeleted += 1
                   // remove the parent - no other references to it
                   this.digestUsedBy.delete(manifestPackage.name)
                 } else {
@@ -608,7 +609,7 @@ export class CleanupTask {
                       untaggedDigest,
                       [tag]
                     )
-                    this.numberImagesDeleted += 1
+                    this.statistics.numberImagesDeleted += 1
                   } else {
                     core.info(
                       `couldn't find newly created package with digest ${untaggedDigest} to delete`
@@ -817,7 +818,7 @@ export class CleanupTask {
     core.endGroup()
   }
 
-  async run(): Promise<void> {
+  async run(): Promise<CleanupTaskStatistics> {
     // process tag deletions first - to support untagging
     if (this.config.deleteTags) {
       await this.deleteByTag()
@@ -849,15 +850,8 @@ export class CleanupTask {
     // now preform the actual deletion
     await this.doDelete()
 
-    core.startGroup(`[${this.targetPackage}] Cleanup statistics`)
-    // print action statistics
-    if (this.numberMultiImagesDeleted > 0) {
-      core.info(
-        `multi architecture images deleted = ${this.numberMultiImagesDeleted}`
-      )
-    }
-    core.info(`total images deleted = ${this.numberImagesDeleted}`)
-    core.endGroup()
+    // print out the statistics
+    this.statistics.print()
 
     if (this.config.validate) {
       core.info(` [${this.targetPackage}] Running Validation Task `)
@@ -865,5 +859,7 @@ export class CleanupTask {
       await this.validate()
       core.info('')
     }
+
+    return this.statistics
   }
 }

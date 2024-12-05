@@ -48,3 +48,40 @@ export class MapPrinter {
     }
   }
 }
+
+export class CleanupTaskStatistics {
+  // action stats
+  name: string
+  numberMultiImagesDeleted: number
+  numberImagesDeleted: number
+
+  constructor(
+    name: string,
+    numberMultiImagesDeleted: number,
+    numberImagesDeleted: number
+  ) {
+    this.name = name
+    this.numberMultiImagesDeleted = numberMultiImagesDeleted
+    this.numberImagesDeleted = numberImagesDeleted
+  }
+
+  add(other: CleanupTaskStatistics): CleanupTaskStatistics {
+    return new CleanupTaskStatistics(
+      this.name,
+      this.numberMultiImagesDeleted + other.numberMultiImagesDeleted,
+      this.numberImagesDeleted + other.numberImagesDeleted
+    )
+  }
+
+  print(): void {
+    core.startGroup(`[${this.name}] Cleanup statistics`)
+    // print action statistics
+    if (this.numberMultiImagesDeleted > 0) {
+      core.info(
+        `multi architecture images deleted = ${this.numberMultiImagesDeleted}`
+      )
+    }
+    core.info(`total images deleted = ${this.numberImagesDeleted}`)
+    core.endGroup()
+  }
+}
