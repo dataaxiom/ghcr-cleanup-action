@@ -200,89 +200,83 @@ jobs:
           echo "Purpose of test: ${{ matrix.tests.purpose }}"
 
           DELETE_TAGS=""
-          if [ ! -z "${{ matrix.tests.delete-tags }}" ]; then
+          if [ -n "${{ matrix.tests.delete-tags }}" ]; then
             DELETE_TAGS="${{ matrix.tests.delete-tags }}"
           fi
 
           DELETE_UNTAGGED=""
-          if [ ! -z "${{ matrix.tests.delete-untagged }}" ]; then
+          if [ -n "${{ matrix.tests.delete-untagged }}" ]; then
             DELETE_UNTAGGED="${{ matrix.tests.delete-untagged }}"
           fi
 
           DELETE_GHOST_IMAGES=""
-          if [ ! -z "${{ matrix.tests.delete-ghost-images }}" ]; then
+          if [ -n "${{ matrix.tests.delete-ghost-images }}" ]; then
             DELETE_GHOST_IMAGES="${{ matrix.tests.delete-ghost-images }}"
           fi
 
           DELETE_PARTIAL_IMAGES=""
-          if [ ! -z "${{ matrix.tests.delete-partial-images }}" ]; then
+          if [ -n "${{ matrix.tests.delete-partial-images }}" ]; then
             DELETE_PARTIAL_IMAGES="${{ matrix.tests.delete-partial-images }}"
           fi
 
           DELETE_ORPHANED_IMAGES=""
-          if [ ! -z "${{ matrix.tests.delete-orphaned-images }}" ]; then
+          if [ -n "${{ matrix.tests.delete-orphaned-images }}" ]; then
             DELETE_ORPHANED_IMAGES="${{ matrix.tests.delete-orphaned-images }}"
           fi
 
           KEEP_N_TAGGED=""
-          if [ ! -z "${{ matrix.tests.keep-n-tagged }}" ]; then
+          if [ -n "${{ matrix.tests.keep-n-tagged }}" ]; then
             KEEP_N_TAGGED="${{ matrix.tests.keep-n-tagged }}"
           fi
 
           KEEP_N_UNTAGGED=""
-          if [ ! -z "${{ matrix.tests.keep-n-untagged }}" ]; then
+          if [ -n "${{ matrix.tests.keep-n-untagged }}" ]; then
             KEEP_N_UNTAGGED="${{ matrix.tests.keep-n-untagged }}"
           fi
 
           EXCLUDE_TAGS=""
-          if [ ! -z "${{ matrix.tests.exclude-tags }}" ]; then
+          if [ -n "${{ matrix.tests.exclude-tags }}" ]; then
             EXCLUDE_TAGS="${{ matrix.tests.exclude-tags }}"
           fi
 
           OLDER_THAN=""
-          if [ ! -z "${{ matrix.tests.older-than }}" ]; then
+          if [ -n "${{ matrix.tests.older-than }}" ]; then
             OLDER_THAN="${{ matrix.tests.older-than }}"
           fi
 
           DRY_RUN=""
-          if [ ! -z "${{ matrix.tests.dry-run }}" ]; then
+          if [ -n "${{ matrix.tests.dry-run }}" ]; then
             DRY_RUN="${{ matrix.tests.dry-run }}"
           fi
 
           USE_REGEX=""
-          if [ ! -z "${{ matrix.tests.use-regex }}" ]; then
+          if [ -n "${{ matrix.tests.use-regex }}" ]; then
             USE_REGEX="${{ matrix.tests.use-regex }}"
           fi
 
-          EXPAND_PACKAGES=""
-          if [ ! -z "${{ matrix.tests.expand-packages }}" ]; then
-            EXPAND_PACKAGES="${{ matrix.tests.expand-packages }}"
-          fi
-
           VALIDATE=""
-          if [ ! -z "${{ matrix.tests.validate }}" ]; then
+          if [ -n "${{ matrix.tests.validate }}" ]; then
             VALIDATE="${{ matrix.tests.validate }}"
           fi
 
           DELAY="0"
-          if [ ! -z "$KEEP_N_TAGGED" ] || [ ! -z "$KEEP_N_UNTAGGED" ]; then
+          if [ -n "$KEEP_N_TAGGED" ] || [ -n "$KEEP_N_UNTAGGED" ]; then
             DELAY="3000"
           fi
 
-          echo "DELETE_TAGS=$DELETE_TAGS" >> $GITHUB_ENV
-          echo "DELETE_UNTAGGED=$DELETE_UNTAGGED" >> $GITHUB_ENV
-          echo "DELETE_GHOST_IMAGES=$DELETE_GHOST_IMAGES" >> $GITHUB_ENV
-          echo "DELETE_PARTIAL_IMAGES=$DELETE_PARTIAL_IMAGES" >> $GITHUB_ENV
-          echo "DELETE_ORPHANED_IMAGES=$DELETE_ORPHANED_IMAGES" >> $GITHUB_ENV
-          echo "KEEP_N_TAGGED=$KEEP_N_TAGGED" >> $GITHUB_ENV
-          echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED" >> $GITHUB_ENV
-          echo "EXCLUDE_TAGS=$EXCLUDE_TAGS" >> $GITHUB_ENV
-          echo "OLDER_THAN=$OLDER_THAN" >> $GITHUB_ENV
-          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
-          echo "USE_REGEX=$USE_REGEX" >> $GITHUB_ENV
-          echo "EXPAND_PACKAGES=$EXPAND_PACKAGES" >> $GITHUB_ENV
-          echo "VALIDATE=$VALIDATE" >> $GITHUB_ENV
-          echo "DELAY=$DELAY" >> $GITHUB_ENV
+          { echo "DELETE_TAGS=$DELETE_TAGS";
+            echo "DELETE_UNTAGGED=$DELETE_UNTAGGED";
+            echo "DELETE_GHOST_IMAGES=$DELETE_GHOST_IMAGES";
+            echo "DELETE_PARTIAL_IMAGES=$DELETE_PARTIAL_IMAGES";
+            echo "DELETE_ORPHANED_IMAGES=$DELETE_ORPHANED_IMAGES";
+            echo "KEEP_N_TAGGED=$KEEP_N_TAGGED";
+            echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED";
+            echo "EXCLUDE_TAGS=$EXCLUDE_TAGS";
+            echo "OLDER_THAN=$OLDER_THAN";
+            echo "DRY_RUN=$DRY_RUN";
+            echo "USE_REGEX=$USE_REGEX";
+            echo "VALIDATE=$VALIDATE";
+            echo "DELAY=$DELAY"; } >> "$GITHUB_ENV"
 
       - name: ' > Priming Test Environment'
         run: |
@@ -304,7 +298,6 @@ jobs:
           older-than: ${{ env.OLDER_THAN }}
           dry-run: ${{ env.DRY_RUN }}
           use-regex: ${{ env.USE_REGEX }}
-          expand-packages: ${{ env.EXPAND_PACKAGES }}
           validate: ${{ env.VALIDATE }}
           log-level: info
 
@@ -341,7 +334,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: lower-repo
         run: |
-          echo "repository=${GITHUB_REPOSITORY@L}" >> $GITHUB_OUTPUT
+          echo "repository=${GITHUB_REPOSITORY@L}" >> "$GITHUB_OUTPUT"
 
       # attestation tagged test
       - name: Prime Test - Attestation Tagged
@@ -448,7 +441,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: lower-repo
         run: |
-          echo "repository=${GITHUB_REPOSITORY@L}" >> $GITHUB_OUTPUT
+          echo "repository=${GITHUB_REPOSITORY@L}" >> "$GITHUB_OUTPUT"
 
       - name: Prime Test - Cosign Test
         run:
