@@ -6,11 +6,11 @@
 [![CodeQL](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/dataaxiom/ghcr-cleanup-action/actions/workflows/codeql-analysis.yml)
 
 A workflow action that deletes images from the GitHub Container Registry
-(ghcr.io). Its primary focus is on supporting multi-architecture container
-images.
+(ghcr.io).
 
 It includes the following features:
 
+- Multi-architecture image support
 - Automatic GitHub user/organization repository support
 - Deleting images by tag names
 - Deleting untagged images
@@ -72,6 +72,9 @@ untagged images the action determines first if the untagged package is actually
 in use by another image/package and skips these. Likewise to delete an image it
 needs to delete all of the underlying packages.
 
+In the above example the package and repository information will be retrieved
+dynamically from the action/project environment.
+
 ### Do a dry-run first
 
 It's recommended to test the cleanup action first by setting the `dry-run: true`
@@ -80,41 +83,17 @@ simulate the cleanup action but will not delete any images/packages. This is
 especially important when using a wildcard/regular expression syntaxes or the
 `older-than` option to select images.
 
-## How It Works
-
-The high level processing of the action occurs as follows:
-
-1. For each package.
-1. Download all package metadata and their manifests and put them into a working
-   'filter set'.
-1. Remove all child images from the working filter set (including referrers and
-   cosign images).
-1. Remove `exclude-tags` images from filter set.
-1. Remove images which are younger than the `older-than` option from the filter
-   set.
-1. Stage for deletion `delete-tags` images present in the filter set.
-1. Stage for deletion `delete-ghost-images`, `delete-partial-iamges` and
-   `delete-orphaned-images` images present in the filter set.
-1. Process `keep-n-tagged` images from the filter set, stage remainder tagged
-   images for deletion.
-1. Process `keep-n-untagged` images from the filter set, stage remainder
-   untagged images for deletion.
-1. Or process `delete-untagged`, staging all untagged images in filter set for
-   deletion.
-1. Preform the deletion on all staged packages, including their children if
-   present.
-
 ## Action Options
 
 ### Repository Options
 
-| Option          | Required | Defaults             | Description                                                                                                                                                                              |
-| --------------- | :------: | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| token           |   yes    | secrets.GITHUB_TOKEN | Token used to connect with ghcr.io and the Package API                                                                                                                                   |
-| owner           |    no    | project owner        | The GitHub repository owner, can be an organization or user type                                                                                                                         |
-| repository      |    no    | repository name      | The GitHub repository name                                                                                                                                                               |
-| package(s)      |    no    | repository name      | Comma-separated list of packages to cleanup. Supports dynamic packages (wildcard or regular expression) by enabling the `expand-packages` option. Can be used as `package` or `packages` |
-| expand-packages |    no    | false                | Enable wildcard or regular expression support on the `package(s)` option to support dynamic package selection. It requires use of a Personal Access Token (PAT) for the `token` value.   |
+| Option          | Required | Defaults             | Description                                                                                                                                                                                 |
+| --------------- | :------: | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| token           |   yes    | secrets.GITHUB_TOKEN | Token used to connect with ghcr.io and the Package API                                                                                                                                      |
+| owner           |    no    | project owner        | The GitHub repository owner, can be an organization or user type                                                                                                                            |
+| repository      |    no    | repository name      | The GitHub repository name                                                                                                                                                                  |
+| package(s)      |    no    | repository name      | Comma-separated list of packages to cleanup. Supports dynamic packages (wildcard or regular expression) by enabling the `expand-packages` option. Can be used as `package` or `packages`    |
+| expand-packages |    no    | false                | Enable wildcard or regular expression support on the `package(s)` option to support dynamic package selection. If set to true the token value must be set to a Personal Access Token (PAT). |
 
 If the owner, repository or package options are not set then the values are
 automatically set from the project environment where the action is running.
@@ -175,7 +154,7 @@ for its syntax. It supports the ?, \* and \*\* wildcard characters.
 To use a regular expression instead of a comma-seperated list set the
 `use-regex` option to true.
 
-Tag values can additionaly be expressed in the sha256: digest format.
+Tag values can additionaly be expressed in the sha256: digest string format.
 
 ### `delete-untagged`
 
@@ -210,7 +189,7 @@ for its syntax. It supports the ?, \* and \*\* wildcard characters.
 To use a regular expression instead of a comma-seperated list set the
 `use-regex` option to true.
 
-Tag values can additionaly be expressed in the sha256 digest format.
+Tag values can additionaly be expressed in the sha256 digest string format.
 
 ```yaml
 jobs:
@@ -247,6 +226,11 @@ jobs:
           older-than: 1 year
           keep-n-tagged: 10
 ```
+
+In the example above the action will keep all tagged images younger than 1 year
+and 10 tagged images that are older than 1 year. Any additional images older
+than one year it will delete. All untagged images will be kept in the above
+example.
 
 ### `delete-ghost-images` and `delete-partial-images`
 
@@ -335,7 +319,7 @@ jobs:
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          token: ${{ secrets.MY_GHCR_PAT }}
+          token: ${{ secrets.MY_PAT }}
 ```
 
 ## Multiple Package Support
@@ -365,7 +349,7 @@ jobs:
         with:
           packages: myimage*,someotherimage
           expand-packages: true
-          token: ${{ secrets.GHCR_PAT }}
+          token: ${{ secrets.MY_PAT }}
 ```
 
 A regular expression can be used alternatively. This requires the `use-regex`
@@ -381,11 +365,8 @@ jobs:
           packages: '^myimage[12]$'
           expand-packages: true
           use-regex: true
-          token: ${{ secrets.GHCR_PAT }}
+          token: ${{ secrets.MY_PAT }}
 ```
-
-Multiple package execution can also be achieved by using the GitHub workflow
-matrix mechanism.
 
 ## Sample Action Setups
 
@@ -491,6 +472,30 @@ jobs:
           use-regex: true
 ```
 
+## Cleanup Algorithm
+
+The high level processing of the action occurs as follows:
+
+1. For each package.
+1. Download all package metadata and their manifests and put them into a working
+   'filter set'.
+1. Remove all child images from the working filter set (including referrers and
+   cosign images).
+1. Remove `exclude-tags` images from filter set.
+1. Remove images which are younger than the `older-than` option from the filter
+   set.
+1. Stage for deletion `delete-tags` images present in the filter set.
+1. Stage for deletion `delete-ghost-images`, `delete-partial-iamges` and
+   `delete-orphaned-images` images present in the filter set.
+1. Process `keep-n-tagged` images from the filter set, stage remainder tagged
+   images for deletion.
+1. Process `keep-n-untagged` images from the filter set, stage remainder
+   untagged images for deletion.
+1. Or process `delete-untagged`, staging all untagged images in filter set for
+   deletion.
+1. Preform the deletion on all staged packages, including their children if
+   present.
+
 ## Operations
 
 ### Effect on image download counts
@@ -530,7 +535,7 @@ packages.
 ### Packages Downloaded More Than 5000 Times
 
 Public packages that have been downloaded more than 5000 times are prohibited by
-GitHub to be deleted. Currently the only way to exclude these is set the
+GitHub from being deleted. Currently the only way to exclude these is set the
 exclude-tags for these images so that they are not processed by the action.
 
 There is currently no public GitHub API to retrieve the download counts, which
