@@ -44272,6 +44272,7 @@ class CleanupTask {
                 label = `architecture: ${label}`;
             }
             else {
+                // unknown
                 // check if it's a buildx attestation
                 const manifest = await this.registry.getManifestByDigest(imageManifest.digest);
                 // kinda crude
@@ -44700,7 +44701,9 @@ class CleanupTask {
             if (manifest.manifests) {
                 for (const imageManifest of manifest.manifests) {
                     // call the buildLabel method which will prime manifest if its needed
-                    await this.buildLabel(imageManifest);
+                    if (this.packageRepo.getDigests().has(imageManifest)) {
+                        await this.buildLabel(imageManifest);
+                    }
                 }
             }
             // process tagged digests (referrers)
@@ -44713,7 +44716,9 @@ class CleanupTask {
                         const tagManifest = await this.registry.getManifestByDigest(tagDigest);
                         if (tagManifest.manifests) {
                             for (const manifestEntry of tagManifest.manifests) {
-                                await this.buildLabel(manifestEntry);
+                                if (this.packageRepo.getDigests().has(manifestEntry)) {
+                                    await this.buildLabel(manifestEntry);
+                                }
                             }
                         }
                     }
