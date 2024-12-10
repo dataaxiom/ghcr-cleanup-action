@@ -317,7 +317,6 @@ export class CleanupTask {
         }
         label = `architecture: ${label}`
       } else {
-        // unknown
         // check if it's a buildx attestation
         const manifest = await this.registry.getManifestByDigest(
           imageManifest.digest
@@ -810,12 +809,13 @@ export class CleanupTask {
   // process runs. ensuring only package api calls are made during deletion
   // minimizing chances of failed registry calls affecting deletion
   async primeManifests(): Promise<void> {
+    const digests = this.packageRepo.getDigests()
     for (const digest of this.deleteSet) {
       const manifest = await this.registry.getManifestByDigest(digest)
       if (manifest.manifests) {
         for (const imageManifest of manifest.manifests) {
           // call the buildLabel method which will prime manifest if its needed
-          if (this.packageRepo.getDigests().has(imageManifest)) {
+          if (digests.has(imageManifest)) {
             await this.buildLabel(imageManifest)
           }
         }
@@ -831,7 +831,7 @@ export class CleanupTask {
               await this.registry.getManifestByDigest(tagDigest)
             if (tagManifest.manifests) {
               for (const manifestEntry of tagManifest.manifests) {
-                if (this.packageRepo.getDigests().has(manifestEntry)) {
+                if (digests.has(manifestEntry)) {
                   await this.buildLabel(manifestEntry)
                 }
               }
