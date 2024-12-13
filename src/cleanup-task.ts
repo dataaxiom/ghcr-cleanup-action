@@ -529,7 +529,7 @@ export class CleanupTask {
 
   async deleteByTag(): Promise<void> {
     if (this.config.deleteTags) {
-      const matchTags = []
+      const matchTags = new Set<string>()
       if (this.config.useRegex) {
         const regex = new RegExp(this.config.deleteTags)
         // build match list from filterSet
@@ -537,7 +537,7 @@ export class CleanupTask {
           const ghPackage = this.packageRepo.getPackageByDigest(digest)
           for (const tag of ghPackage.metadata.container.tags) {
             if (regex.test(tag)) {
-              matchTags.push(tag)
+              matchTags.add(tag)
             }
           }
         }
@@ -545,7 +545,7 @@ export class CleanupTask {
         for (const digest of this.filterSet) {
           if (regex.test(digest)) {
             // delete the tag from the filterSet
-            matchTags.push(digest)
+            matchTags.add(digest)
           }
         }
       } else {
@@ -556,18 +556,18 @@ export class CleanupTask {
           const ghPackage = this.packageRepo.getPackageByDigest(digest)
           for (const tag of ghPackage.metadata.container.tags) {
             if (isTagMatch(tag)) {
-              matchTags.push(tag)
+              matchTags.add(tag)
             }
           }
         }
         // now check for digest based format matches
         for (const digest of this.filterSet) {
           if (isTagMatch(digest)) {
-            matchTags.push(digest)
+            matchTags.add(digest)
           }
         }
       }
-      if (matchTags.length > 0) {
+      if (matchTags.size > 0) {
         // build seperate sets for the untagging events and the standard deletions
         const untaggingTags = new Set<string>()
         const standardTags = new Set<string>()
@@ -609,8 +609,10 @@ export class CleanupTask {
                 standardTags.add(tag)
               } else {
                 core.info(`${tag}`)
+
                 // get the package
-                const manifest = await this.registry.getManifestByTag(tag)
+                const manifest =
+                  await this.registry.getManifestByDigest(manifestDigest)
 
                 // preform a "ghcr.io" image deletion
                 // as the registry doesn't support manifest deletion directly

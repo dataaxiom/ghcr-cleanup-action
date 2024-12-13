@@ -38230,43 +38230,65 @@ class PackageRepo {
      * @param label Additional label to display
      */
     async deletePackageVersion(targetPackage, id, digest, tags, label) {
-        if (tags && tags.length > 0) {
-            core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
-        }
-        else if (label) {
-            core.info(` deleting package id: ${id} digest: ${digest} ${label}`);
-        }
-        else {
-            core.info(` deleting package id: ${id} digest: ${digest}`);
-        }
-        if (!this.config.dryRun) {
-            if (this.config.repoType === 'User') {
-                if (this.config.isPrivateRepo) {
-                    await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
-                        package_type: 'container',
-                        package_name: targetPackage,
-                        package_version_id: id
-                    });
+        try {
+            if (tags && tags.length > 0) {
+                core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
+            }
+            else if (label) {
+                core.info(` deleting package id: ${id} digest: ${digest} ${label}`);
+            }
+            else {
+                core.info(` deleting package id: ${id} digest: ${digest}`);
+            }
+            if (!this.config.dryRun) {
+                if (this.config.repoType === 'User') {
+                    if (this.config.isPrivateRepo) {
+                        await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
+                            package_type: 'container',
+                            package_name: targetPackage,
+                            package_version_id: id
+                        });
+                    }
+                    else {
+                        await this.config.octokit.rest.packages.deletePackageVersionForUser({
+                            package_type: 'container',
+                            package_name: targetPackage,
+                            username: this.config.owner,
+                            package_version_id: id
+                        });
+                    }
                 }
                 else {
-                    await this.config.octokit.rest.packages.deletePackageVersionForUser({
+                    await this.config.octokit.rest.packages.deletePackageVersionForOrg({
                         package_type: 'container',
                         package_name: targetPackage,
-                        username: this.config.owner,
+                        org: this.config.owner,
                         package_version_id: id
                     });
                 }
             }
-            else {
-                await this.config.octokit.rest.packages.deletePackageVersionForOrg({
-                    package_type: 'container',
-                    package_name: targetPackage,
-                    org: this.config.owner,
-                    package_version_id: id
-                });
+        }
+        catch (error) {
+            let ignoreError = false;
+            if (error instanceof request_error_dist_node.RequestError) {
+                if (error.status) {
+                    // ignore 404's, seen these after a 502 error. whereby the first delete causes a 502 but it really
+                    // deleted the package version, the retry then tries again and gets a 404
+                    if (error.status === 404) {
+                        ignoreError = true;
+                        core.warning(`The package "${targetPackage}" version:${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`);
+                    }
+                }
+            }
+            if (!ignoreError) {
+                throw error;
             }
         }
     }
+    /**
+     * Get list of the packages in the GitHub account
+     * @returns Array of package names
+     */
     async getPackageList() {
         const packages = [];
         let listFunc;
@@ -44453,7 +44475,7 @@ class CleanupTask {
     }
     async deleteByTag() {
         if (this.config.deleteTags) {
-            const matchTags = [];
+            const matchTags = new Set();
             if (this.config.useRegex) {
                 const regex = new RegExp(this.config.deleteTags);
                 // build match list from filterSet
@@ -44461,7 +44483,7 @@ class CleanupTask {
                     const ghPackage = this.packageRepo.getPackageByDigest(digest);
                     for (const tag of ghPackage.metadata.container.tags) {
                         if (regex.test(tag)) {
-                            matchTags.push(tag);
+                            matchTags.add(tag);
                         }
                     }
                 }
@@ -44469,7 +44491,7 @@ class CleanupTask {
                 for (const digest of this.filterSet) {
                     if (regex.test(digest)) {
                         // delete the tag from the filterSet
-                        matchTags.push(digest);
+                        matchTags.add(digest);
                     }
                 }
             }
@@ -44481,18 +44503,18 @@ class CleanupTask {
                     const ghPackage = this.packageRepo.getPackageByDigest(digest);
                     for (const tag of ghPackage.metadata.container.tags) {
                         if (isTagMatch(tag)) {
-                            matchTags.push(tag);
+                            matchTags.add(tag);
                         }
                     }
                 }
                 // now check for digest based format matches
                 for (const digest of this.filterSet) {
                     if (isTagMatch(digest)) {
-                        matchTags.push(digest);
+                        matchTags.add(digest);
                     }
                 }
             }
-            if (matchTags.length > 0) {
+            if (matchTags.size > 0) {
                 // build seperate sets for the untagging events and the standard deletions
                 const untaggingTags = new Set();
                 const standardTags = new Set();
@@ -44532,7 +44554,7 @@ class CleanupTask {
                             else {
                                 core.info(`${tag}`);
                                 // get the package
-                                const manifest = await this.registry.getManifestByTag(tag);
+                                const manifest = await this.registry.getManifestByDigest(manifestDigest);
                                 // preform a "ghcr.io" image deletion
                                 // as the registry doesn't support manifest deletion directly
                                 // we instead assign the tag to a different manifest first

@@ -142,7 +142,7 @@ jobs:
           - title: '7b - Single: Untagging All Images'
             purpose: 'Untagging all multi tagged images (single arch)'
             folder: '7b_single-untagging-all'
-            delete-tags: tag1,tag2,tag3
+            delete-tags: '*tag*'
 
           - title: '7c - Multi: Untagging Images'
             purpose: 'Untagging multi tagged images (multi arch)'
