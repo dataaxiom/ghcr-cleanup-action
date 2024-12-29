@@ -95,6 +95,13 @@ jobs:
             keep-n-tagged: 2
             exclude-tags: dummy
 
+          - title: '3c - Multi: Keep N Tagged with tags'
+            purpose: 'Keeps two tag rc images'
+            folder: '3c_multi-keep-n-tagged'
+            delete-tags: '*-rc*'
+            keep-n-tagged: 2
+            exclude-tags: dummy
+
           - title: '4a - Single: Keep N Untagged'
             purpose:
               'Keeps all tagged images and removes all but the newest 2 untagged
@@ -154,7 +161,6 @@ jobs:
             folder: '8a_multi-complex'
             keep-n-tagged: 1
             delete-untagged: true
-            delete-tags: sha256:136787c141852fd4b9b1e06e7cfda442fc3903a7b40b8fe9c91e0a97cb68aaf6
             exclude-tags: sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f
 
           - title: '8b - Multi: Complex'
@@ -162,7 +168,6 @@ jobs:
             folder: '8b_multi-complex'
             keep-n-tagged: 1
             keep-n-untagged: 1
-            delete-tags: 1.34-uclibc
             exclude-tags: dummy
             validate: true
 

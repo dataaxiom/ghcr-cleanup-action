@@ -44473,9 +44473,12 @@ class CleanupTask {
         }
         core.endGroup();
     }
-    async deleteByTag() {
+    /*
+     * Expand the tag
+     **/
+    expandTags() {
+        const matchTags = new Set();
         if (this.config.deleteTags) {
-            const matchTags = new Set();
             if (this.config.useRegex) {
                 const regex = new RegExp(this.config.deleteTags);
                 // build match list from filterSet
@@ -44514,6 +44517,13 @@ class CleanupTask {
                     }
                 }
             }
+        }
+        return matchTags;
+    }
+    async deleteByTag() {
+        if (this.config.deleteTags) {
+            // get the tags that match the config option
+            const matchTags = this.expandTags();
             if (matchTags.size > 0) {
                 // build seperate sets for the untagging events and the standard deletions
                 const untaggingTags = new Set();
@@ -44595,7 +44605,8 @@ class CleanupTask {
                     core.info('Reloading action due to untagging');
                     await this.reload();
                 }
-                if (standardTags.size > 0) {
+                // only process tag deletions here if keep-n-tagged is not set
+                if (standardTags.size > 0 && this.config.keepNtagged == null) {
                     core.startGroup(`[${this.targetPackage}] Find tagged images to delete: ${this.config.deleteTags}`);
                     for (const tag of standardTags) {
                         core.info(tag);
@@ -44664,11 +44675,26 @@ class CleanupTask {
             core.startGroup(`[${this.targetPackage}] Finding tagged images to delete, keeping ${this.config.keepNtagged} versions`);
             // create a temporary array of tagged images to process on
             const taggedPackages = [];
-            // only copy images with tags
-            for (const digest of this.filterSet) {
-                const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                if (ghPackage.metadata.container.tags.length > 0) {
-                    taggedPackages.push(ghPackage);
+            if (this.config.deleteTags != null) {
+                // apply the keep-n mode only on the supplied/expanded tags
+                const matchTags = this.expandTags();
+                for (const tag of matchTags) {
+                    const digest = this.packageRepo.getDigestByTag(tag);
+                    if (digest) {
+                        const ghPackage = this.packageRepo.getPackageByDigest(digest);
+                        if (ghPackage) {
+                            taggedPackages.push(ghPackage);
+                        }
+                    }
+                }
+            }
+            else {
+                // copy images with tags from the full set
+                for (const digest of this.filterSet) {
+                    const ghPackage = this.packageRepo.getPackageByDigest(digest);
+                    if (ghPackage.metadata.container.tags.length > 0) {
+                        taggedPackages.push(ghPackage);
+                    }
                 }
             }
             // sort descending
