@@ -38664,12 +38664,21 @@ class Config {
     logLevel;
     useRegex;
     token;
+    registryUrl;
+    githubApiUrl;
     octokit;
     constructor(token) {
         this.token = token;
         this.logLevel = LogLevel.INFO;
+    }
+    async init() {
+        let githubUrl = 'https://api.github.com';
+        if (this.githubApiUrl) {
+            githubUrl = this.githubApiUrl;
+        }
         this.octokit = new MyOctokit({
-            auth: token,
+            auth: this.token,
+            baseUrl: githubUrl,
             throttle: {
                 onRateLimit: (retryAfter, options, octokit, retryCount) => {
                     lib_core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
@@ -38707,8 +38716,6 @@ class Config {
                 }
             }
         });
-    }
-    async init() {
         // lookup repo info
         try {
             const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
@@ -38873,6 +38880,18 @@ function buildConfig() {
     if (core.getInput('use-regex')) {
         config.useRegex = core.getBooleanInput('use-regex');
     }
+    if (core.getInput('registry-url')) {
+        config.registryUrl = core.getInput('registry-url');
+        if (!config.registryUrl.endsWith('/')) {
+            config.registryUrl += '/';
+        }
+    }
+    if (core.getInput('github-api-url')) {
+        config.githubApiUrl = core.getInput('github-api-url');
+        if (config.githubApiUrl.endsWith('/')) {
+            config.githubApiUrl = config.githubApiUrl.slice(0, -1);
+        }
+    }
     if (!config.owner) {
         throw new Error('owner is not set');
     }
@@ -38933,6 +38952,12 @@ function buildConfig() {
     optionsMap.add('log-level', LogLevel[config.logLevel]);
     if (config.useRegex !== undefined) {
         optionsMap.add('use-regex', `${config.useRegex}`);
+    }
+    if (config.registryUrl !== undefined) {
+        optionsMap.add('registry-url', `${config.registryUrl}`);
+    }
+    if (config.githubApiUrl !== undefined) {
+        optionsMap.add('github-api-url', `${config.githubApiUrl}`);
     }
     core.startGroup('Runtime configuration');
     optionsMap.print();
@@ -44563,6 +44588,8 @@ class Registry {
     githubPackageRepo;
     // http client library instance
     axios;
+    // registry url
+    baseUrl;
     // current package working on
     targetPackage = '';
     // cache of loaded manifests, by digest
@@ -44577,8 +44604,14 @@ class Registry {
     constructor(config, githubPackageRepo) {
         this.config = config;
         this.githubPackageRepo = githubPackageRepo;
+        if (this.config.registryUrl) {
+            this.baseUrl = this.config.registryUrl;
+        }
+        else {
+            this.baseUrl = 'https://ghcr.io/';
+        }
         this.axios = lib_axios.create({
-            baseURL: 'https://ghcr.io/'
+            baseURL: this.baseUrl
         });
         esm(this.axios, { retries: 3 });
         this.axios.defaults.headers.common['Accept'] =
@@ -44633,7 +44666,7 @@ class Registry {
                             }
                         }
                         else {
-                            throw new Error(`ghcr.io login failed: ${token.response.data}`);
+                            throw new Error(`${this.baseUrl} login failed: ${token.response.data}`);
                         }
                     }
                     else {
@@ -44703,7 +44736,7 @@ class Registry {
             const auth = lib_axios.create();
             esm(auth, { retries: 3 });
             try {
-                await auth.put(`https://ghcr.io/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, config);
+                await auth.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, config);
             }
             catch (error) {
                 if (axios_isAxiosError(error) && error.response) {

@@ -20,6 +20,9 @@ export class Registry {
   // http client library instance
   axios: AxiosInstance
 
+  // registry url
+  baseUrl: string
+
   // current package working on
   targetPackage = ''
 
@@ -37,8 +40,13 @@ export class Registry {
   constructor(config: Config, githubPackageRepo: PackageRepo) {
     this.config = config
     this.githubPackageRepo = githubPackageRepo
+    if (this.config.registryUrl) {
+      this.baseUrl = this.config.registryUrl
+    } else {
+      this.baseUrl = 'https://ghcr.io/'
+    }
     this.axios = axios.create({
-      baseURL: 'https://ghcr.io/'
+      baseURL: this.baseUrl
     })
     axiosRetry(this.axios, { retries: 3 })
     this.axios.defaults.headers.common['Accept'] =
@@ -100,7 +108,9 @@ export class Registry {
                 core.info('authentication challenge succeded')
               }
             } else {
-              throw new Error(`ghcr.io login failed: ${token.response.data}`)
+              throw new Error(
+                `${this.baseUrl} login failed: ${token.response.data}`
+              )
             }
           } else {
             throw new Error(`invalid www-authenticate challenge ${challenge}`)
@@ -180,7 +190,7 @@ export class Registry {
       axiosRetry(auth, { retries: 3 })
       try {
         await auth.put(
-          `https://ghcr.io/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
+          `${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
           manifest,
           config
         )

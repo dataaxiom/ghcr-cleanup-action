@@ -41,14 +41,23 @@ export class Config {
   logLevel: LogLevel
   useRegex?: boolean
   token: string
+  registryUrl?: string
+  githubApiUrl?: string
   octokit: any
 
   constructor(token: string) {
     this.token = token
     this.logLevel = LogLevel.INFO
+  }
 
+  async init(): Promise<void> {
+    let githubUrl = 'https://api.github.com'
+    if (this.githubApiUrl) {
+      githubUrl = this.githubApiUrl
+    }
     this.octokit = new MyOctokit({
-      auth: token,
+      auth: this.token,
+      baseUrl: githubUrl,
       throttle: {
         onRateLimit: (
           retryAfter: number,
@@ -100,9 +109,7 @@ export class Config {
         }
       }
     })
-  }
 
-  async init(): Promise<void> {
     // lookup repo info
     try {
       const result = await this.octokit.request(
@@ -287,6 +294,19 @@ export function buildConfig(): Config {
     config.useRegex = core.getBooleanInput('use-regex')
   }
 
+  if (core.getInput('registry-url')) {
+    config.registryUrl = core.getInput('registry-url')
+    if (!config.registryUrl.endsWith('/')) {
+      config.registryUrl += '/'
+    }
+  }
+  if (core.getInput('github-api-url')) {
+    config.githubApiUrl = core.getInput('github-api-url')
+    if (config.githubApiUrl.endsWith('/')) {
+      config.githubApiUrl = config.githubApiUrl.slice(0, -1)
+    }
+  }
+
   if (!config.owner) {
     throw new Error('owner is not set')
   }
@@ -348,6 +368,13 @@ export function buildConfig(): Config {
 
   if (config.useRegex !== undefined) {
     optionsMap.add('use-regex', `${config.useRegex}`)
+  }
+
+  if (config.registryUrl !== undefined) {
+    optionsMap.add('registry-url', `${config.registryUrl}`)
+  }
+  if (config.githubApiUrl !== undefined) {
+    optionsMap.add('github-api-url', `${config.githubApiUrl}`)
   }
 
   core.startGroup('Runtime configuration')

@@ -132,6 +132,16 @@ inputs:
       Log level (error/warn/info/debug) Default: info
     required: false
 
+  registry-url:
+    description: >
+      Container registry URL (defaults: https://ghcr.io)
+    required: false
+
+  github-api-url:
+    description: >
+      GitHub API URL (defaults: https://api.github.com)
+    required: false
+
 runs:
   using: node20
   main: dist/index.js
