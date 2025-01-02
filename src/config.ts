@@ -8,7 +8,6 @@ import type { EndpointDefaults } from '@octokit/types'
 import { MapPrinter } from './utils.js'
 import humanInterval from 'human-interval'
 
-// @ts-expect-error: esm errror
 const MyOctokit = Octokit.plugin(requestLog, throttling, retry)
 
 export enum LogLevel {
@@ -59,6 +58,7 @@ export class Config {
       auth: this.token,
       baseUrl: githubUrl,
       throttle: {
+        // @ts-expect-error: esm errror
         onRateLimit: (
           retryAfter: number,
           options: EndpointDefaults,
@@ -75,6 +75,7 @@ export class Config {
             return true
           }
         },
+        // @ts-expect-error: esm errror
         onSecondaryRateLimit: (
           retryAfter: number,
           options: EndpointDefaults,

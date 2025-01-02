@@ -372,7 +372,7 @@ jobs:
           tags:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v2
         with:
           subject-name:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
@@ -403,7 +403,7 @@ jobs:
           tags:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image 1
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v2
         with:
           subject-name:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
@@ -419,7 +419,7 @@ jobs:
           tags:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image 2
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v2
         with:
           subject-name:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
