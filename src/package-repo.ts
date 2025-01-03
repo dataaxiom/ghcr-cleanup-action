@@ -18,6 +18,9 @@ export class PackageRepo {
   // Map of tags to digests
   tag2Digest = new Map<string, string>()
 
+  // the result state of the last delete package
+  lastDeleteResult = true
+
   /**
    * Constructor
    *
@@ -214,18 +217,27 @@ export class PackageRepo {
             package_version_id: id
           })
         }
+        this.lastDeleteResult = true
       }
     } catch (error) {
       let ignoreError = false
       if (error instanceof RequestError) {
         if (error.status) {
           // ignore 404's, seen these after a 502 error. whereby the first delete causes a 502 but it really
-          // deleted the package version, the retry then tries again and gets a 404
+          // deleted the package version, the retry then tries again and returns a 404
+          // only disregard 404 if that last call was successful - repeating 404s will fail action
           if (error.status === 404) {
-            ignoreError = true
-            core.warning(
-              `The package "${targetPackage}" version:${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`
-            )
+            if (this.lastDeleteResult === true) {
+              ignoreError = true
+              core.warning(
+                `The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`
+              )
+              this.lastDeleteResult = false
+            } else {
+              core.warning(
+                'Multiple 404 errors have occured, check the package settings and ensure the repository has been granted admin access'
+              )
+            }
           }
         }
       }
