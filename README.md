@@ -279,16 +279,11 @@ jobs:
 Setting `keep-n-untagged` to 0 has the same effect as setting the
 `delete-untagged` option to true, deleting all untagged images.
 
-When used with `delete-tags` the `keep-n-tagged` option will only process tags
-from within the `delete-tags` setting, otherwise by default `keep-n-tagged` will
-operate on the full tag set of the registry.
-
 ### `keep-n-tagged`
 
 Includes for deletion all tagged images but excludes (keeps) a number of them.
 The value of this option sets the number of tagged images to keep. Tagged images
-are sorted by date and the most recent tagged images are kept. May be combined
-with other delete options.
+are sorted by date and the most recent tagged images are kept.
 
 ```yaml
 jobs:
@@ -301,7 +296,11 @@ jobs:
 ```
 
 This option operates on all tagged entries. To narrow it's scope use the
-`exclude-tag` option also.
+`exclude-tags` or the `delete-tags` options.
+
+When used with `delete-tags` the `keep-n-tagged` option will only process tags
+from within the `delete-tags` setting, otherwise by default `keep-n-tagged` will
+operate on the full tag set of the registry.
 
 ## Personal Access Tokens (PAT's)
 
