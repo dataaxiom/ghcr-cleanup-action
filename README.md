@@ -63,14 +63,12 @@ jobs:
 ```
 
 The action calls both the registry API (ghcr.io) and the GitHub package API to
-facilitate support for multi-architecture images. This is required to determine
-the relationships between all of the multi-architecture image contents. It
-downloads the manifest descriptors of all images and maps their content to the
-underlying packages. Which for multi-architecture images the underlying packages
-appear as untagged in GitHub (as seen in the web interface). To safely delete
-untagged images the action determines first if the untagged package is actually
-in use by another image/package and skips these. Likewise to delete an image it
-needs to delete all of the underlying packages.
+support deleting multi-architecture images. The action downloads the manifest
+descriptors of all images and maps their content to the underlying GitHub
+packages. To safely delete untagged images the action determines first if the
+untagged package is referenced from a multi-architecture image and skips these.
+Likewise to delete an image it needs to delete all of the underlying packages of
+a multi-architecture image.
 
 In the above example the package and repository information will be retrieved
 dynamically from the action/project environment.
@@ -117,12 +115,14 @@ the option `delete-untagged` to "true" and will delete all untagged images.
 
 ### Other Options
 
-| Option    | Required | Defaults | Description                                                                                                                   |
-| --------- | :------: | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| use-regex |    no    | false    | If set to true, the `delete-tags`,`exclude-tags` and `package` options expect a regular expression selector (if they are set) |
-| dry-run   |    no    | false    | Simulate a cleanup action but does not make any changes (true/false)                                                          |
-| validate  |    no    | false    | Validate all multi-architecture images in the registry after cleanup                                                          |
-| log-level |    no    | info     | The log level (error/warn/info/debug)                                                                                         |
+| Option         | Required | Defaults                 | Description                                                                                                                   |
+| -------------- | :------: | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| use-regex      |    no    | false                    | If set to true, the `delete-tags`,`exclude-tags` and `package` options expect a regular expression selector (if they are set) |
+| dry-run        |    no    | false                    | Simulate a cleanup action but does not make any changes (true/false)                                                          |
+| validate       |    no    | false                    | Validate all multi-architecture images in the registry after cleanup                                                          |
+| registry-url   |    no    | <https://ghcr.io/>       | Container registry URL                                                                                                        |
+| github-api-url |    no    | <https://api.github.com> | GitHub API URL                                                                                                                |
+| log-level      |    no    | info                     | The log level (error/warn/info/debug)                                                                                         |
 
 ## Delete Options
 
@@ -279,6 +279,10 @@ jobs:
 Setting `keep-n-untagged` to 0 has the same effect as setting the
 `delete-untagged` option to true, deleting all untagged images.
 
+When used with `delete-tags` the `keep-n-tagged` option will only process tags
+from within the `delete-tags` setting, otherwise by default `keep-n-tagged` will
+operate on the full tag set of the registry.
+
 ### `keep-n-tagged`
 
 Includes for deletion all tagged images but excludes (keeps) a number of them.
@@ -391,11 +395,10 @@ jobs:
           delete-partial-images: true
 ```
 
-### Delete all untagged images and keep 3 latest (rc) images
+### Keep 3 latest (rc) images
 
-This sample operates on multiple packages and makes use of a regular expression
-selector. It excludes all versioned images and the latest and main tags from
-processing.
+This sample keeps the latest 3 -rc images. By specifying the delete-tags to
+include all rc images the `keep-n-tagged` then selects the latest 3 of these.
 
 ```yaml
 cleanup-images:
@@ -406,11 +409,9 @@ cleanup-images:
   steps:
     - uses: dataaxiom/ghcr-cleanup-action@v1
       with:
-        packages: 'tiecd/k8s,tiecd/okd,tiecd/gke,tiecd/eks,tiecd/aks,tiecd/node18,tiecd/node20'
-        delete-untagged: true
+        packages: 'tiecd/k8s'
+        delete-tags: "*-rc*
         keep-n-tagged: 3
-        exclude-tags: "^\\d+\\.\\d+\\.\\d+$|^latest$|^main$"
-        use-regex: true
 ```
 
 ### Delete an image when a pull request is closed
