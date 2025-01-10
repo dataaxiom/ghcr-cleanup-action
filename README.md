@@ -409,7 +409,7 @@ cleanup-images:
     - uses: dataaxiom/ghcr-cleanup-action@v1
       with:
         packages: 'tiecd/k8s'
-        delete-tags: "*-rc*
+        delete-tags: '*-rc*'
         keep-n-tagged: 3
 ```
 
