@@ -25,10 +25,13 @@ It includes the following features:
 
 ## Setup
 
-### Setup token permissions
+### Token Setup Options
 
-To allow the injected GITHUB_TOKEN secret to have access to delete images it
-requires its permissions to have been set correctly, either by:
+#### Setup token permissions for the injected GITHUB_TOKEN
+
+If using the injected GITHUB_TOKEN (the default setup) the secret is required to
+have access to delete images. It requires its permissions to have been set
+correctly, either by:
 
 1. In the GitHub site, Settings > Actions > General, set the Workflow
    permissions option to "Read and write permissions".
@@ -43,6 +46,18 @@ requires its permissions to have been set correctly, either by:
        permissions:
          packages: write
    ```
+
+The packakge also requires that the workflow action has been granted the Admin
+access role. This can be set in the specific Pacakage page in GitHub. Under
+Package Settings ensure the repository where the action is run is listed under
+"Manage Actions access" and has been granted the "Admin" role.
+
+#### Setup token permissions for a Personal Access Token
+
+If using a Personal Access Token (PAT) the above setup is not required. However,
+the token is required to have the both `write:packages` and `delete:packages`
+scopes setup. See the [PAT Setup](#personal-access-tokens-pats). The PAT token
+value has to be passed to the action through the `token` option.
 
 ### Define the action
 
@@ -309,7 +324,7 @@ which have been created by a repository project pipeline (or the package has
 been setup to grant admin access to it). For setups where the action is
 accessing a package in a different repository or dynamic package selection is
 being used (`expand-packages` is set to true) a Personal Access Token (PAT) is
-required for the `token`.
+required for the `token` option.
 
 The PAT should be setup as a Classic token. This is due to the GitGub Registry
 API currently only supporting Classic tokens. The token should be setup with
