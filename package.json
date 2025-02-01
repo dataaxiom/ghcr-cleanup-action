@@ -71,7 +71,7 @@
     "@octokit/plugin-retry": "^7.1.2",
     "@octokit/plugin-throttling": "^9.3.2",
     "@octokit/request-error": "^6.1.5",
-    "@octokit/rest": "^21.0.2",
+    "@octokit/rest": "^21.1.0",
     "@octokit/auth-token": "v5.1.1",
     "axios": "^1.7.9",
     "axios-retry": "^4.4.2",
