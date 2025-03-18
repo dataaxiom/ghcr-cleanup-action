@@ -38292,6 +38292,13 @@ function buildConfig() {
     if (core.getInput('expand-packages')) {
         config.expandPackages = core.getBooleanInput('expand-packages');
     }
+    else {
+        // check if the value has a wildcard and expand-packages isn't set
+        if (config.package.includes('*') || config.package.includes('?')) {
+            core.info(`The packages value "${config.package}" contains a wildcard character but the expand-packages option has not been set, auto enabling expand-packages to true`);
+            config.expandPackages = true;
+        }
+    }
     if (core.getInput('tags') && core.getInput('delete-tags')) {
         throw Error('tags and delete-tags cant be used at the same time, use either one');
     }
