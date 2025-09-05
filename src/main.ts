@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { Config, buildConfig } from './config.js'
 import { PackageRepo } from './package-repo.js'
+import { OctokitClient } from './octokit-client.js'
 import wcmatch from 'wildcard-match'
 import { CleanupOrchestrator } from './cleanup-orchestrator.js'
 import { createTokenAuth } from '@octokit/auth-token'
@@ -11,7 +12,13 @@ import { CleanupTaskStatistics } from './utils.js'
  */
 export async function run(): Promise<void> {
   try {
-    const action = new CleanupAction()
+    const config = await buildConfig()
+    const octokitClient = new OctokitClient(
+      config.token,
+      config.githubApiUrl,
+      config.logLevel
+    )
+    const action = new CleanupAction(config, octokitClient)
     await action.run()
   } catch (error) {
     // Fail the workflow run if an error occurs
@@ -22,14 +29,15 @@ export async function run(): Promise<void> {
 class CleanupAction {
   // The action configuration
   config: Config
+  // The Octokit client for API calls
+  octokitClient: OctokitClient
 
-  constructor() {
-    this.config = buildConfig()
+  constructor(config: Config, octokitClient: OctokitClient) {
+    this.config = config
+    this.octokitClient = octokitClient
   }
 
   async run(): Promise<void> {
-    // post initialize configuration
-    await this.config.init()
     const startedAt = Date.now()
 
     let targetPackages = []
@@ -45,7 +53,7 @@ class CleanupAction {
       }
 
       // get the list of available packages in the repo
-      const packageRepo = new PackageRepo(this.config)
+      const packageRepo = new PackageRepo(this.config, this.octokitClient)
       const packagesInUse: string[] = await packageRepo.getPackageList()
 
       if (this.config.useRegex) {
@@ -73,7 +81,11 @@ class CleanupAction {
     let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0)
     const perPackageStats: CleanupTaskStatistics[] = []
     for (const targetPackage of targetPackages) {
-      const orchestrator = new CleanupOrchestrator(this.config, targetPackage)
+      const orchestrator = new CleanupOrchestrator(
+        this.config,
+        targetPackage,
+        this.octokitClient
+      )
       await orchestrator.init()
       await orchestrator.reload()
       const stats = await orchestrator.run()

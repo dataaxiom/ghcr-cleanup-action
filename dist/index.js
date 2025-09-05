@@ -14312,7 +14312,7 @@ const kClosedResolve = Symbol('kClosedResolve')
 const channels = {}
 
 try {
-  const diagnosticsChannel = __nccwpck_require__(4018)
+  const diagnosticsChannel = __nccwpck_require__(1637)
   channels.sendHeaders = diagnosticsChannel.channel('undici:client:sendHeaders')
   channels.beforeConnect = diagnosticsChannel.channel('undici:client:beforeConnect')
   channels.connectError = diagnosticsChannel.channel('undici:client:connectError')
@@ -17972,7 +17972,7 @@ const channels = {}
 let extractBody
 
 try {
-  const diagnosticsChannel = __nccwpck_require__(4018)
+  const diagnosticsChannel = __nccwpck_require__(1637)
   channels.create = diagnosticsChannel.channel('undici:request:create')
   channels.bodySent = diagnosticsChannel.channel('undici:request:bodySent')
   channels.headers = diagnosticsChannel.channel('undici:request:headers')
@@ -31378,7 +31378,7 @@ module.exports = {
 
 
 
-const diagnosticsChannel = __nccwpck_require__(4018)
+const diagnosticsChannel = __nccwpck_require__(1637)
 const { uid, states } = __nccwpck_require__(5913)
 const {
   kReadyState,
@@ -32125,7 +32125,7 @@ module.exports = {
 
 
 const { Writable } = __nccwpck_require__(2203)
-const diagnosticsChannel = __nccwpck_require__(4018)
+const diagnosticsChannel = __nccwpck_require__(1637)
 const { parserStates, opcodes, states, emptyBuffer } = __nccwpck_require__(5913)
 const { kReadyState, kSentClose, kResponse, kReceivedClose } = __nccwpck_require__(2933)
 const { isValidStatusCode, failWebsocketConnection, websocketMessageReceived } = __nccwpck_require__(3574)
@@ -33348,7 +33348,7 @@ module.exports = {
 /***/ ((module, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1637);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3321);
 /**
  * The entrypoint for the action.
  */
@@ -33361,7 +33361,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 1637:
+/***/ 3321:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -33383,6 +33383,74 @@ __nccwpck_require__.d(common_utils_namespaceObject, {
 
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
 var core = __nccwpck_require__(7484);
+;// CONCATENATED MODULE: ./src/utils.ts
+
+function parseChallenge(challenge) {
+    const attributes = new Map();
+    if (challenge.startsWith('Bearer ')) {
+        challenge = challenge.replace('Bearer ', '');
+        const parts = challenge.split(',');
+        for (const part of parts) {
+            const values = part.split('=');
+            let value = values[1];
+            if (value.startsWith('"') && value.endsWith('"')) {
+                value = value.substring(1, value.length - 1);
+            }
+            attributes.set(values[0], value);
+        }
+    }
+    return attributes;
+}
+function isValidChallenge(attributes) {
+    let valid = false;
+    if (attributes.has('realm') &&
+        attributes.has('service') &&
+        attributes.has('scope')) {
+        valid = true;
+    }
+    return valid;
+}
+class MapPrinter {
+    entries = new Map();
+    maxLength = 1;
+    add(entry, defaultValue) {
+        if (entry.length > this.maxLength) {
+            this.maxLength = entry.length;
+        }
+        this.entries.set(entry, defaultValue);
+    }
+    print() {
+        const column = this.maxLength + 10;
+        for (const [key, value] of this.entries) {
+            const spacer = ''.padEnd(column - key.length, ' ');
+            core.info(`${key}${spacer}${value}`);
+        }
+    }
+}
+class CleanupTaskStatistics {
+    // action stats
+    name;
+    numberMultiImagesDeleted;
+    numberImagesDeleted;
+    constructor(name, numberMultiImagesDeleted, numberImagesDeleted) {
+        this.name = name;
+        this.numberMultiImagesDeleted = numberMultiImagesDeleted;
+        this.numberImagesDeleted = numberImagesDeleted;
+    }
+    add(other) {
+        return new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+    }
+    print() {
+        core.startGroup(`[${this.name}] Cleanup statistics`);
+        // print action statistics
+        if (this.numberMultiImagesDeleted > 0) {
+            core.info(`multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
+        }
+        core.info(`total images deleted = ${this.numberImagesDeleted}`);
+        core.endGroup();
+    }
+}
+
 ;// CONCATENATED MODULE: ./node_modules/universal-user-agent/index.js
 function getUserAgent() {
   if (typeof navigator === "object" && "userAgent" in navigator) {
@@ -37241,71 +37309,93 @@ function retry(octokit, octokitOptions) {
 retry.VERSION = plugin_retry_dist_bundle_VERSION;
 
 
-;// CONCATENATED MODULE: ./src/utils.ts
+;// CONCATENATED MODULE: ./src/octokit-client.ts
 
-function parseChallenge(challenge) {
-    const attributes = new Map();
-    if (challenge.startsWith('Bearer ')) {
-        challenge = challenge.replace('Bearer ', '');
-        const parts = challenge.split(',');
-        for (const part of parts) {
-            const values = part.split('=');
-            let value = values[1];
-            if (value.startsWith('"') && value.endsWith('"')) {
-                value = value.substring(1, value.length - 1);
+
+
+
+
+
+
+const MyOctokit = dist_src_Octokit.plugin(requestLog, throttling, retry);
+/**
+ * Manages the Octokit client for GitHub API interactions.
+ * Handles authentication, rate limiting, retries, and logging.
+ */
+class OctokitClient {
+    octokit;
+    constructor(token, githubApiUrl, logLevel = LogLevel.INFO) {
+        const baseUrl = githubApiUrl || 'https://api.github.com';
+        this.octokit = new MyOctokit({
+            auth: token,
+            baseUrl,
+            throttle: {
+                // @ts-expect-error Plugin type definitions don't match the actual runtime behavior
+                onRateLimit: (retryAfter, options, octokit, retryCount) => {
+                    core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
+                    if (retryCount < 3) {
+                        // try up to 3 times
+                        core.info(`Octokit - retrying after ${retryAfter} seconds!`);
+                        return true;
+                    }
+                    return false;
+                },
+                // @ts-expect-error Plugin type definitions don't match the actual runtime behavior
+                onSecondaryRateLimit: (retryAfter, options, octokit) => {
+                    // does not retry, only logs a warning
+                    core.info(`Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`);
+                }
+            },
+            log: {
+                debug: (message) => {
+                    if (logLevel >= LogLevel.DEBUG) {
+                        core.info(`[Octokit DEBUG] ${message}`);
+                    }
+                },
+                info: (message) => {
+                    if (logLevel >= LogLevel.DEBUG) {
+                        core.info(`[Octokit DEBUG] ${message}`);
+                    }
+                },
+                warn: (message) => {
+                    if (logLevel >= LogLevel.WARN) {
+                        core.info(`[Octokit WARN] ${message}`);
+                    }
+                },
+                error: (message) => {
+                    if (logLevel >= LogLevel.INFO) {
+                        core.info(`[Octokit ERROR] ${message}`);
+                    }
+                }
             }
-            attributes.set(values[0], value);
+        });
+    }
+    /**
+     * Get the underlying Octokit instance for direct API calls
+     */
+    getClient() {
+        return this.octokit;
+    }
+    /**
+     * Get repository information
+     */
+    async getRepository(owner, repository) {
+        try {
+            const result = await this.octokit.request(`GET /repos/${owner}/${repository}`);
+            return {
+                isPrivate: result.data.private,
+                ownerType: result.data.owner.type
+            };
         }
-    }
-    return attributes;
-}
-function isValidChallenge(attributes) {
-    let valid = false;
-    if (attributes.has('realm') &&
-        attributes.has('service') &&
-        attributes.has('scope')) {
-        valid = true;
-    }
-    return valid;
-}
-class MapPrinter {
-    entries = new Map();
-    maxLength = 1;
-    add(entry, defaultValue) {
-        if (entry.length > this.maxLength) {
-            this.maxLength = entry.length;
+        catch (error) {
+            if (error instanceof RequestError) {
+                if (error.status === 404) {
+                    core.warning(`The repository is not found, check the owner value "${owner}" or the repository value "${repository}" are correct`);
+                }
+            }
+            // rethrow the error
+            throw error;
         }
-        this.entries.set(entry, defaultValue);
-    }
-    print() {
-        const column = this.maxLength + 10;
-        for (const [key, value] of this.entries) {
-            const spacer = ''.padEnd(column - key.length, ' ');
-            core.info(`${key}${spacer}${value}`);
-        }
-    }
-}
-class CleanupTaskStatistics {
-    // action stats
-    name;
-    numberMultiImagesDeleted;
-    numberImagesDeleted;
-    constructor(name, numberMultiImagesDeleted, numberImagesDeleted) {
-        this.name = name;
-        this.numberMultiImagesDeleted = numberMultiImagesDeleted;
-        this.numberImagesDeleted = numberImagesDeleted;
-    }
-    add(other) {
-        return new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
-    }
-    print() {
-        core.startGroup(`[${this.name}] Cleanup statistics`);
-        // print action statistics
-        if (this.numberMultiImagesDeleted > 0) {
-            core.info(`multi architecture images deleted = ${this.numberMultiImagesDeleted}`);
-        }
-        core.info(`total images deleted = ${this.numberImagesDeleted}`);
-        core.endGroup();
     }
 }
 
@@ -37317,11 +37407,6 @@ var human_interval_default = /*#__PURE__*/__nccwpck_require__.n(human_interval);
 
 
 
-
-
-
-
-const MyOctokit = dist_src_Octokit.plugin(requestLog, throttling, retry);
 var LogLevel;
 (function (LogLevel) {
     LogLevel[LogLevel["ERROR"] = 1] = "ERROR";
@@ -37351,83 +37436,17 @@ class Config {
     validate;
     logLevel;
     useRegex;
-    token;
+    token = '';
     registryUrl;
     githubApiUrl;
-    octokit;
-    constructor(token) {
-        this.token = token;
+    constructor() {
         this.logLevel = LogLevel.INFO;
     }
-    async init() {
-        let githubUrl = 'https://api.github.com';
-        if (this.githubApiUrl) {
-            githubUrl = this.githubApiUrl;
-        }
-        this.octokit = new MyOctokit({
-            auth: this.token,
-            baseUrl: githubUrl,
-            throttle: {
-                // @ts-expect-error: esm errror
-                onRateLimit: (retryAfter, options, octokit, retryCount) => {
-                    core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
-                    if (retryCount < 3) {
-                        // try upto 3 times
-                        core.info(`Octokit - retrying after ${retryAfter} seconds!`);
-                        return true;
-                    }
-                },
-                // @ts-expect-error: esm errror
-                onSecondaryRateLimit: (retryAfter, options, octokit) => {
-                    // does not retry, only logs a warning
-                    core.info(`Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`);
-                }
-            },
-            log: {
-                debug: (message) => {
-                    if (this.logLevel >= LogLevel.DEBUG) {
-                        core.info(`[Octokit DEBUG] ${message}`);
-                    }
-                },
-                info: (message) => {
-                    if (this.logLevel >= LogLevel.DEBUG) {
-                        core.info(`[Octokit DEBUG] ${message}`);
-                    }
-                },
-                warn: (message) => {
-                    if (this.logLevel >= LogLevel.WARN) {
-                        core.info(`[Octokit WARN] ${message}`);
-                    }
-                },
-                error: (message) => {
-                    if (this.logLevel >= LogLevel.INFO) {
-                        core.info(`[Octokit ERROR] ${message}`);
-                    }
-                }
-            }
-        });
-        // lookup repo info
-        try {
-            const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
-            this.isPrivateRepo = result.data.private;
-            this.repoType = result.data.owner.type;
-        }
-        catch (error) {
-            if (error instanceof RequestError) {
-                if (error.status) {
-                    if (error.status === 404) {
-                        core.warning(`The repository is not found, check the owner value "${this.owner}" or the repository value "${this.repository}" are correct`);
-                    }
-                }
-            }
-            // rethrow the error
-            throw error;
-        }
-    }
 }
-function buildConfig() {
+async function buildConfig() {
     const token = core.getInput('token', { required: true });
-    const config = new Config(token);
+    const config = new Config();
+    config.token = token;
     config.owner = core.getInput('owner');
     config.repository = core.getInput('repository');
     if (core.getInput('package') && core.getInput('packages')) {
@@ -37598,6 +37617,11 @@ function buildConfig() {
     if (!config.repository) {
         throw new Error('repository is not set');
     }
+    // Fetch repository information
+    const octokitClient = new OctokitClient(config.token, config.githubApiUrl, config.logLevel);
+    const repoInfo = await octokitClient.getRepository(config.owner, config.repository);
+    config.isPrivateRepo = repoInfo.isPrivate;
+    config.repoType = repoInfo.ownerType;
     const optionsMap = new MapPrinter();
     optionsMap.add('private repository', `${config.isPrivateRepo}`);
     optionsMap.add('project owner', `${config.owner}`);
@@ -37672,6 +37696,8 @@ function buildConfig() {
 class PackageRepo {
     // The action configuration
     config;
+    // The Octokit client for API calls
+    octokitClient;
     // Map of digests to package ids
     digest2Id = new Map();
     // Map of ids to package version definitions
@@ -37684,9 +37710,11 @@ class PackageRepo {
      * Constructor
      *
      * @param config The action configuration
+     * @param octokitClient The Octokit client for API calls
      */
-    constructor(config) {
+    constructor(config, octokitClient) {
         this.config = config;
+        this.octokitClient = octokitClient;
     }
     /**
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
@@ -37697,15 +37725,17 @@ class PackageRepo {
             this.digest2Id.clear();
             this.id2Package.clear();
             this.tag2Digest.clear();
-            let getFunc = this.config.octokit.rest.packages
-                .getAllPackageVersionsForPackageOwnedByOrg;
+            const octokit = this.octokitClient.getClient();
+            // Using 'any' type here because TypeScript cannot unify the different function signatures
+            // for Org vs User package endpoints. The actual type safety is maintained by the
+            // parameters we pass to these functions.
+            let getFunc = octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg;
             let getParams;
             if (this.config.repoType === 'User') {
                 getFunc = this.config.isPrivateRepo
-                    ? this.config.octokit.rest.packages
+                    ? octokit.rest.packages
                         .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-                    : this.config.octokit.rest.packages
-                        .getAllPackageVersionsForPackageOwnedByUser;
+                    : octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser;
                 getParams = {
                     package_type: 'container',
                     package_name: targetPackage,
@@ -37723,7 +37753,7 @@ class PackageRepo {
                     per_page: 100
                 };
             }
-            for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
+            for await (const response of octokit.paginate.iterator(getFunc, getParams)) {
                 for (const packageVersion of response.data) {
                     this.digest2Id.set(packageVersion.name, packageVersion.id);
                     this.id2Package.set(packageVersion.id, packageVersion);
@@ -37829,29 +37859,30 @@ class PackageRepo {
                 core.info(` deleting package id: ${id} digest: ${digest}`);
             }
             if (!this.config.dryRun) {
+                const octokit = this.octokitClient.getClient();
                 if (this.config.repoType === 'User') {
                     if (this.config.isPrivateRepo) {
-                        await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
+                        await octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                             package_type: 'container',
                             package_name: targetPackage,
-                            package_version_id: id
+                            package_version_id: parseInt(id)
                         });
                     }
                     else {
-                        await this.config.octokit.rest.packages.deletePackageVersionForUser({
+                        await octokit.rest.packages.deletePackageVersionForUser({
                             package_type: 'container',
                             package_name: targetPackage,
                             username: this.config.owner,
-                            package_version_id: id
+                            package_version_id: parseInt(id)
                         });
                     }
                 }
                 else {
-                    await this.config.octokit.rest.packages.deletePackageVersionForOrg({
+                    await octokit.rest.packages.deletePackageVersionForOrg({
                         package_type: 'container',
                         package_name: targetPackage,
                         org: this.config.owner,
-                        package_version_id: id
+                        package_version_id: parseInt(id)
                     });
                 }
                 this.lastDeleteResult = true;
@@ -37887,12 +37918,15 @@ class PackageRepo {
      */
     async getPackageList() {
         const packages = [];
+        const octokit = this.octokitClient.getClient();
+        // Using 'any' type here for the same reason as above - different API endpoints have
+        // incompatible signatures that TypeScript cannot unify
         let listFunc;
         let listParams;
         if (this.config.repoType === 'User') {
             listFunc = this.config.isPrivateRepo
-                ? this.config.octokit.rest.packages.listPackagesForAuthenticatedUser
-                : this.config.octokit.rest.packages.listPackagesForUser;
+                ? octokit.rest.packages.listPackagesForAuthenticatedUser
+                : octokit.rest.packages.listPackagesForUser;
             listParams = {
                 package_type: 'container',
                 username: this.config.owner,
@@ -37900,14 +37934,14 @@ class PackageRepo {
             };
         }
         else {
-            listFunc = this.config.octokit.rest.packages.listPackagesForOrganization;
+            listFunc = octokit.rest.packages.listPackagesForOrganization;
             listParams = {
                 package_type: 'container',
                 org: this.config.owner,
                 per_page: 100
             };
         }
-        for await (const response of this.config.octokit.paginate.iterator(listFunc, listParams)) {
+        for await (const response of octokit.paginate.iterator(listFunc, listParams)) {
             for (const data of response.data) {
                 packages.push(data.name);
             }
@@ -44445,6 +44479,7 @@ class ImageDeleter {
 class CleanupOrchestrator {
     config;
     targetPackage;
+    octokitClient;
     packageRepo;
     registry;
     context;
@@ -44460,10 +44495,11 @@ class CleanupOrchestrator {
     excludeTags = [];
     digestUsedBy = new Map();
     statistics;
-    constructor(config, targetPackage) {
+    constructor(config, targetPackage, octokitClient) {
         this.config = config;
         this.targetPackage = targetPackage;
-        this.packageRepo = new PackageRepo(config);
+        this.octokitClient = octokitClient;
+        this.packageRepo = new PackageRepo(config, octokitClient);
         this.registry = new Registry(config, this.packageRepo);
         this.statistics = new CleanupTaskStatistics(targetPackage, 0, 0);
         // Create context for modules
@@ -44594,12 +44630,15 @@ class CleanupOrchestrator {
 
 
 
+
 /*
  * Main program entrypoint
  */
 async function run() {
     try {
-        const action = new CleanupAction();
+        const config = await buildConfig();
+        const octokitClient = new OctokitClient(config.token, config.githubApiUrl, config.logLevel);
+        const action = new CleanupAction(config, octokitClient);
         await action.run();
     }
     catch (error) {
@@ -44611,12 +44650,13 @@ async function run() {
 class CleanupAction {
     // The action configuration
     config;
-    constructor() {
-        this.config = buildConfig();
+    // The Octokit client for API calls
+    octokitClient;
+    constructor(config, octokitClient) {
+        this.config = config;
+        this.octokitClient = octokitClient;
     }
     async run() {
-        // post initialize configuration
-        await this.config.init();
         const startedAt = Date.now();
         let targetPackages = [];
         if (this.config.expandPackages) {
@@ -44628,7 +44668,7 @@ class CleanupAction {
                 throw new Error();
             }
             // get the list of available packages in the repo
-            const packageRepo = new PackageRepo(this.config);
+            const packageRepo = new PackageRepo(this.config, this.octokitClient);
             const packagesInUse = await packageRepo.getPackageList();
             if (this.config.useRegex) {
                 const regex = new RegExp(this.config.package);
@@ -44656,7 +44696,7 @@ class CleanupAction {
         let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0);
         const perPackageStats = [];
         for (const targetPackage of targetPackages) {
-            const orchestrator = new CleanupOrchestrator(this.config, targetPackage);
+            const orchestrator = new CleanupOrchestrator(this.config, targetPackage, this.octokitClient);
             await orchestrator.init();
             await orchestrator.reload();
             const stats = await orchestrator.run();
@@ -44820,7 +44860,7 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("crypto");
 
 /***/ }),
 
-/***/ 4018:
+/***/ 1637:
 /***/ ((module) => {
 
 module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("diagnostics_channel");

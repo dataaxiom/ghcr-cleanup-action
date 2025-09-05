@@ -1,14 +1,7 @@
 import * as core from '@actions/core'
-import { Octokit } from '@octokit/rest'
-import { throttling } from '@octokit/plugin-throttling'
-import { retry } from '@octokit/plugin-retry'
-import { requestLog } from '@octokit/plugin-request-log'
-import { RequestError } from '@octokit/request-error'
-import type { EndpointDefaults } from '@octokit/types'
 import { MapPrinter } from './utils.js'
+import { OctokitClient } from './octokit-client.js'
 import humanInterval from 'human-interval'
-
-const MyOctokit = Octokit.plugin(requestLog, throttling, retry)
 
 export enum LogLevel {
   ERROR = 1,
@@ -39,104 +32,19 @@ export class Config {
   validate?: boolean
   logLevel: LogLevel
   useRegex?: boolean
-  token: string
+  token = ''
   registryUrl?: string
   githubApiUrl?: string
-  octokit: any
 
-  constructor(token: string) {
-    this.token = token
+  constructor() {
     this.logLevel = LogLevel.INFO
-  }
-
-  async init(): Promise<void> {
-    let githubUrl = 'https://api.github.com'
-    if (this.githubApiUrl) {
-      githubUrl = this.githubApiUrl
-    }
-    this.octokit = new MyOctokit({
-      auth: this.token,
-      baseUrl: githubUrl,
-      throttle: {
-        // @ts-expect-error: esm errror
-        onRateLimit: (
-          retryAfter: number,
-          options: EndpointDefaults,
-          octokit: Octokit,
-          retryCount: number
-        ) => {
-          core.info(
-            `Octokit - request quota exhausted for request ${options.method} ${options.url}`
-          )
-
-          if (retryCount < 3) {
-            // try upto 3 times
-            core.info(`Octokit - retrying after ${retryAfter} seconds!`)
-            return true
-          }
-        },
-        // @ts-expect-error: esm errror
-        onSecondaryRateLimit: (
-          retryAfter: number,
-          options: EndpointDefaults,
-          octokit: Octokit
-        ) => {
-          // does not retry, only logs a warning
-          core.info(
-            `Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`
-          )
-        }
-      },
-      log: {
-        debug: (message: string) => {
-          if (this.logLevel >= LogLevel.DEBUG) {
-            core.info(`[Octokit DEBUG] ${message}`)
-          }
-        },
-        info: (message: string) => {
-          if (this.logLevel >= LogLevel.DEBUG) {
-            core.info(`[Octokit DEBUG] ${message}`)
-          }
-        },
-        warn: (message: string) => {
-          if (this.logLevel >= LogLevel.WARN) {
-            core.info(`[Octokit WARN] ${message}`)
-          }
-        },
-        error: (message: string) => {
-          if (this.logLevel >= LogLevel.INFO) {
-            core.info(`[Octokit ERROR] ${message}`)
-          }
-        }
-      }
-    })
-
-    // lookup repo info
-    try {
-      const result = await this.octokit.request(
-        `GET /repos/${this.owner}/${this.repository}`
-      )
-      this.isPrivateRepo = result.data.private
-      this.repoType = result.data.owner.type
-    } catch (error) {
-      if (error instanceof RequestError) {
-        if (error.status) {
-          if (error.status === 404) {
-            core.warning(
-              `The repository is not found, check the owner value "${this.owner}" or the repository value "${this.repository}" are correct`
-            )
-          }
-        }
-      }
-      // rethrow the error
-      throw error
-    }
   }
 }
 
-export function buildConfig(): Config {
+export async function buildConfig(): Promise<Config> {
   const token: string = core.getInput('token', { required: true })
-  const config = new Config(token)
+  const config = new Config()
+  config.token = token
   config.owner = core.getInput('owner')
   config.repository = core.getInput('repository')
 
@@ -325,6 +233,19 @@ export function buildConfig(): Config {
   if (!config.repository) {
     throw new Error('repository is not set')
   }
+
+  // Fetch repository information
+  const octokitClient = new OctokitClient(
+    config.token,
+    config.githubApiUrl,
+    config.logLevel
+  )
+  const repoInfo = await octokitClient.getRepository(
+    config.owner,
+    config.repository
+  )
+  config.isPrivateRepo = repoInfo.isPrivate
+  config.repoType = repoInfo.ownerType
 
   const optionsMap = new MapPrinter()
   optionsMap.add('private repository', `${config.isPrivateRepo}`)

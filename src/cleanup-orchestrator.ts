@@ -2,6 +2,7 @@ import * as core from '@actions/core'
 import { Config } from './config.js'
 import { Registry } from './registry.js'
 import { PackageRepo } from './package-repo.js'
+import { OctokitClient } from './octokit-client.js'
 import { CleanupTaskStatistics } from './utils.js'
 import { ImageFilter } from './image-filter.js'
 import { ManifestAnalyzer } from './manifest-analyzer.js'
@@ -16,6 +17,7 @@ import { CleanupContext } from './cleanup-types.js'
 export class CleanupOrchestrator {
   private config: Config
   private targetPackage: string
+  private octokitClient: OctokitClient
   private packageRepo: PackageRepo
   private registry: Registry
   private context: CleanupContext
@@ -34,10 +36,15 @@ export class CleanupOrchestrator {
   private digestUsedBy = new Map<string, Set<string>>()
   private statistics: CleanupTaskStatistics
 
-  constructor(config: Config, targetPackage: string) {
+  constructor(
+    config: Config,
+    targetPackage: string,
+    octokitClient: OctokitClient
+  ) {
     this.config = config
     this.targetPackage = targetPackage
-    this.packageRepo = new PackageRepo(config)
+    this.octokitClient = octokitClient
+    this.packageRepo = new PackageRepo(config, octokitClient)
     this.registry = new Registry(config, this.packageRepo)
     this.statistics = new CleanupTaskStatistics(targetPackage, 0, 0)
 

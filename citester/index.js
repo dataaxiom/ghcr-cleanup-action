@@ -33962,14 +33962,16 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(fs__WEBPACK_IMPORTED_MODULE_1__);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(7484);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_2__);
-/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(5409);
+/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(2973);
 /* harmony import */ var _package_repo_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(8004);
-/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(9022);
-/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(5317);
-/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_6__);
+/* harmony import */ var _octokit_client_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(1468);
+/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(9022);
+/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(5317);
+/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_7___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_7__);
 /**
  * A utility to prime, setup and test CI use cases
  */
+
 
 
 
@@ -33983,7 +33985,7 @@ function assertString(input) {
     }
 }
 function processWrapper(command, args, options) {
-    const output = (0,child_process__WEBPACK_IMPORTED_MODULE_6__.spawnSync)(command, args, options);
+    const output = (0,child_process__WEBPACK_IMPORTED_MODULE_7__.spawnSync)(command, args, options);
     if (output.error) {
         throw new Error(`error running command: ${output.error}`);
     }
@@ -34094,7 +34096,8 @@ async function run() {
         throw Error('args is not setup');
     }
     assertString(args.token);
-    const config = new _config_js__WEBPACK_IMPORTED_MODULE_3__/* .Config */ .TS(args.token);
+    const config = new _config_js__WEBPACK_IMPORTED_MODULE_3__/* .Config */ .TS();
+    config.token = args.token;
     if (args.owner) {
         assertString(args.owner);
         config.owner = args.owner;
@@ -34136,9 +34139,13 @@ async function run() {
         }
     }
     config.owner = config.owner?.toLowerCase();
-    await config.init();
-    const packageRepo = new _package_repo_js__WEBPACK_IMPORTED_MODULE_4__/* .PackageRepo */ .l(config);
-    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_5__/* .Registry */ .O(config, packageRepo);
+    // Create Octokit client and fetch repository info
+    const octokitClient = new _octokit_client_js__WEBPACK_IMPORTED_MODULE_5__/* .OctokitClient */ .h(config.token, config.githubApiUrl, config.logLevel);
+    const repoInfo = await octokitClient.getRepository(config.owner, config.repository);
+    config.isPrivateRepo = repoInfo.isPrivate;
+    config.repoType = repoInfo.ownerType;
+    const packageRepo = new _package_repo_js__WEBPACK_IMPORTED_MODULE_4__/* .PackageRepo */ .l(config, octokitClient);
+    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_6__/* .Registry */ .O(config, packageRepo);
     await registry.login(config.package);
     const dummyDigest = 'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f';
     if (args.mode === 'prime-dummy') {
@@ -34300,20 +34307,317 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 5409:
+/***/ 2973:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   $b: () => (/* binding */ LogLevel),
+/* harmony export */   TS: () => (/* binding */ Config)
+/* harmony export */ });
+/* unused harmony export buildConfig */
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(7484);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _utils_js__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(1798);
+/* harmony import */ var _octokit_client_js__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(1468);
+/* harmony import */ var human_interval__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(3177);
+/* harmony import */ var human_interval__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__nccwpck_require__.n(human_interval__WEBPACK_IMPORTED_MODULE_3__);
+
+
+
+
+var LogLevel;
+(function (LogLevel) {
+    LogLevel[LogLevel["ERROR"] = 1] = "ERROR";
+    LogLevel[LogLevel["WARN"] = 2] = "WARN";
+    LogLevel[LogLevel["INFO"] = 3] = "INFO";
+    LogLevel[LogLevel["DEBUG"] = 4] = "DEBUG";
+})(LogLevel || (LogLevel = {}));
+class Config {
+    isPrivateRepo = false;
+    repoType = 'Organization';
+    owner = '';
+    repository = '';
+    package = '';
+    expandPackages;
+    defaultPackageUsed = false;
+    deleteTags;
+    excludeTags;
+    olderThanReadable;
+    olderThan;
+    deleteUntagged;
+    deleteGhostImages;
+    deletePartialImages;
+    deleteOrphanedImages;
+    keepNuntagged;
+    keepNtagged;
+    dryRun;
+    validate;
+    logLevel;
+    useRegex;
+    token = '';
+    registryUrl;
+    githubApiUrl;
+    constructor() {
+        this.logLevel = LogLevel.INFO;
+    }
+}
+async function buildConfig() {
+    const token = core.getInput('token', { required: true });
+    const config = new Config();
+    config.token = token;
+    config.owner = core.getInput('owner');
+    config.repository = core.getInput('repository');
+    if (core.getInput('package') && core.getInput('packages')) {
+        throw Error('package and packages cant be used at the same time, use either one');
+    }
+    config.package = core.getInput('package');
+    if (!config.package) {
+        config.package = core.getInput('packages');
+    }
+    // auto populate
+    const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
+    if (GITHUB_REPOSITORY) {
+        const parts = GITHUB_REPOSITORY.split('/');
+        if (parts.length === 2) {
+            if (!config.owner) {
+                config.owner = parts[0];
+            }
+            if (!config.package) {
+                config.package = parts[1];
+                config.defaultPackageUsed = true;
+            }
+            else {
+                config.defaultPackageUsed = false;
+            }
+            if (!config.repository) {
+                config.repository = parts[1];
+            }
+        }
+        else {
+            throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`);
+        }
+    }
+    else {
+        throw Error('GITHUB_REPOSITORY is not set');
+    }
+    if (core.getInput('expand-packages')) {
+        config.expandPackages = core.getBooleanInput('expand-packages');
+    }
+    else {
+        // check if the value has a wildcard and expand-packages isn't set
+        if (config.package.includes('*') || config.package.includes('?')) {
+            core.info(`The packages value "${config.package}" contains a wildcard character but the expand-packages option has not been set, auto enabling expand-packages to true`);
+            config.expandPackages = true;
+        }
+    }
+    if (core.getInput('tags') && core.getInput('delete-tags')) {
+        throw Error('tags and delete-tags cant be used at the same time, use either one');
+    }
+    if (core.getInput('tags')) {
+        config.deleteTags = core.getInput('tags');
+    }
+    else if (core.getInput('delete-tags')) {
+        config.deleteTags = core.getInput('delete-tags');
+    }
+    config.excludeTags = core.getInput('exclude-tags');
+    if (core.getInput('older-than')) {
+        config.olderThan = humanInterval(core.getInput('older-than'));
+        // save the text version of it
+        config.olderThanReadable = core.getInput('older-than');
+        if (config.olderThan != null && isNaN(config.olderThan)) {
+            // check if it has an interval type
+            const regexp = /(second|minute|hour|day|week|month|year)s?/;
+            const match = config.olderThanReadable.match(regexp);
+            if (match) {
+                throw Error(`older-than value "${config.olderThanReadable}" is not a valid interval`);
+            }
+            else {
+                throw Error(`older-than value "${config.olderThanReadable}" is not a valid interval, it's missing an interval such as second, minute, hour, day, week or year`);
+            }
+        }
+    }
+    if (core.getInput('keep-n-tagged')) {
+        const value = parseInt(core.getInput('keep-n-tagged'));
+        if (isNaN(value)) {
+            throw new Error('keep-n-tagged is not number');
+        }
+        else if (value < 0) {
+            throw new Error('keep-n-tagged is negative');
+        }
+        else {
+            config.keepNtagged = value;
+        }
+    }
+    if (core.getInput('keep-n-untagged')) {
+        const value = parseInt(core.getInput('keep-n-untagged'));
+        if (isNaN(value)) {
+            throw new Error('keep-n-untagged is not number');
+        }
+        else if (value < 0) {
+            throw new Error('keep-n-untagged is negative');
+        }
+        else {
+            config.keepNuntagged = value;
+        }
+    }
+    if (core.getInput('delete-untagged')) {
+        config.deleteUntagged = core.getBooleanInput('delete-untagged');
+    }
+    else {
+        // default is deleteUntagged if no options are set
+        if (!core.getInput('tags') &&
+            !core.getInput('delete-tags') &&
+            !core.getInput('delete-ghost-images') &&
+            !core.getInput('delete-partial-images') &&
+            !core.getInput('delete-orphaned-images') &&
+            !core.getInput('keep-n-untagged') &&
+            !core.getInput('keep-n-tagged')) {
+            config.deleteUntagged = true;
+        }
+    }
+    if (config.keepNuntagged && core.getInput('delete-untagged')) {
+        throw new Error('delete-untagged and keep-n-untagged can not be set at the same time');
+    }
+    if (core.getInput('delete-ghost-images')) {
+        config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
+    }
+    if (core.getInput('delete-partial-images')) {
+        config.deletePartialImages = core.getBooleanInput('delete-partial-images');
+    }
+    if (core.getInput('delete-orphaned-images')) {
+        config.deleteOrphanedImages = core.getBooleanInput('delete-orphaned-images');
+    }
+    if (core.getInput('dry-run')) {
+        config.dryRun = core.getBooleanInput('dry-run');
+        if (config.dryRun) {
+            core.info('***** In dry run mode - No packages will be deleted *****');
+        }
+    }
+    if (core.getInput('validate')) {
+        config.validate = core.getBooleanInput('validate');
+    }
+    if (core.getInput('log-level')) {
+        const level = core.getInput('log-level').toLowerCase();
+        if (level === 'error') {
+            config.logLevel = LogLevel.ERROR;
+        }
+        else if (level === 'warn') {
+            config.logLevel = LogLevel.WARN;
+        }
+        else if (level === 'info') {
+            config.logLevel = LogLevel.INFO;
+        }
+        else if (level === 'debug') {
+            config.logLevel = LogLevel.DEBUG;
+        }
+    }
+    if (core.getInput('use-regex')) {
+        config.useRegex = core.getBooleanInput('use-regex');
+    }
+    if (core.getInput('registry-url')) {
+        config.registryUrl = core.getInput('registry-url');
+        if (!config.registryUrl.endsWith('/')) {
+            config.registryUrl += '/';
+        }
+    }
+    if (core.getInput('github-api-url')) {
+        config.githubApiUrl = core.getInput('github-api-url');
+        if (config.githubApiUrl.endsWith('/')) {
+            config.githubApiUrl = config.githubApiUrl.slice(0, -1);
+        }
+    }
+    if (!config.owner) {
+        throw new Error('owner is not set');
+    }
+    if (!config.package) {
+        throw new Error('package is not set');
+    }
+    if (!config.repository) {
+        throw new Error('repository is not set');
+    }
+    // Fetch repository information
+    const octokitClient = new OctokitClient(config.token, config.githubApiUrl, config.logLevel);
+    const repoInfo = await octokitClient.getRepository(config.owner, config.repository);
+    config.isPrivateRepo = repoInfo.isPrivate;
+    config.repoType = repoInfo.ownerType;
+    const optionsMap = new MapPrinter();
+    optionsMap.add('private repository', `${config.isPrivateRepo}`);
+    optionsMap.add('project owner', `${config.owner}`);
+    optionsMap.add('repository', `${config.repository}`);
+    optionsMap.add('package', `${config.package}`);
+    if (config.expandPackages !== undefined) {
+        optionsMap.add('expand-packages', `${config.expandPackages}`);
+    }
+    if (config.deleteTags) {
+        optionsMap.add('delete-tags', config.deleteTags);
+    }
+    if (config.excludeTags) {
+        optionsMap.add('exclude-tags', config.excludeTags);
+    }
+    if (config.olderThan) {
+        try {
+            const cutOff = new Date(Date.now() - config.olderThan);
+            optionsMap.add('older-than', cutOff.toUTCString());
+        }
+        catch (error) {
+            core.info('error processing older-than value');
+            throw error;
+        }
+    }
+    if (config.deleteUntagged !== undefined) {
+        optionsMap.add('delete-untagged', `${config.deleteUntagged}`);
+    }
+    if (config.deleteGhostImages !== undefined) {
+        optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`);
+    }
+    if (config.deletePartialImages !== undefined) {
+        optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
+    }
+    if (config.deleteOrphanedImages !== undefined) {
+        optionsMap.add('delete-orphaned-images', `${config.deleteOrphanedImages}`);
+    }
+    if (config.keepNtagged !== undefined) {
+        optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
+    }
+    if (config.keepNuntagged !== undefined) {
+        optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`);
+    }
+    if (config.dryRun !== undefined) {
+        optionsMap.add('dry-run', `${config.dryRun}`);
+    }
+    if (config.validate !== undefined) {
+        optionsMap.add('validate', `${config.validate}`);
+    }
+    optionsMap.add('log-level', LogLevel[config.logLevel]);
+    if (config.useRegex !== undefined) {
+        optionsMap.add('use-regex', `${config.useRegex}`);
+    }
+    if (config.registryUrl !== undefined) {
+        optionsMap.add('registry-url', `${config.registryUrl}`);
+    }
+    if (config.githubApiUrl !== undefined) {
+        optionsMap.add('github-api-url', `${config.githubApiUrl}`);
+    }
+    core.startGroup('Runtime configuration');
+    optionsMap.print();
+    core.endGroup();
+    return config;
+}
+
+
+/***/ }),
+
+/***/ 1468:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
-  TS: () => (/* binding */ Config),
-  $b: () => (/* binding */ LogLevel)
+  h: () => (/* binding */ OctokitClient)
 });
 
-// UNUSED EXPORTS: buildConfig
-
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
-var lib_core = __nccwpck_require__(7484);
+var core = __nccwpck_require__(7484);
 ;// CONCATENATED MODULE: ./node_modules/universal-user-agent/index.js
 function getUserAgent() {
   if (typeof navigator === "object" && "userAgent" in navigator) {
@@ -38134,12 +38438,9 @@ function retry(octokit, octokitOptions) {
 retry.VERSION = plugin_retry_dist_bundle_VERSION;
 
 
-// EXTERNAL MODULE: ./src/utils.ts
-var utils = __nccwpck_require__(1798);
-// EXTERNAL MODULE: ./node_modules/human-interval/index.js
-var human_interval = __nccwpck_require__(3177);
-;// CONCATENATED MODULE: ./src/config.ts
-
+// EXTERNAL MODULE: ./src/config.ts
+var config = __nccwpck_require__(2973);
+;// CONCATENATED MODULE: ./src/octokit-client.ts
 
 
 
@@ -38148,344 +38449,85 @@ var human_interval = __nccwpck_require__(3177);
 
 
 const MyOctokit = dist_src_Octokit.plugin(requestLog, throttling, retry);
-var LogLevel;
-(function (LogLevel) {
-    LogLevel[LogLevel["ERROR"] = 1] = "ERROR";
-    LogLevel[LogLevel["WARN"] = 2] = "WARN";
-    LogLevel[LogLevel["INFO"] = 3] = "INFO";
-    LogLevel[LogLevel["DEBUG"] = 4] = "DEBUG";
-})(LogLevel || (LogLevel = {}));
-class Config {
-    isPrivateRepo = false;
-    repoType = 'Organization';
-    owner = '';
-    repository = '';
-    package = '';
-    expandPackages;
-    defaultPackageUsed = false;
-    deleteTags;
-    excludeTags;
-    olderThanReadable;
-    olderThan;
-    deleteUntagged;
-    deleteGhostImages;
-    deletePartialImages;
-    deleteOrphanedImages;
-    keepNuntagged;
-    keepNtagged;
-    dryRun;
-    validate;
-    logLevel;
-    useRegex;
-    token;
-    registryUrl;
-    githubApiUrl;
+/**
+ * Manages the Octokit client for GitHub API interactions.
+ * Handles authentication, rate limiting, retries, and logging.
+ */
+class OctokitClient {
     octokit;
-    constructor(token) {
-        this.token = token;
-        this.logLevel = LogLevel.INFO;
-    }
-    async init() {
-        let githubUrl = 'https://api.github.com';
-        if (this.githubApiUrl) {
-            githubUrl = this.githubApiUrl;
-        }
+    constructor(token, githubApiUrl, logLevel = config/* LogLevel */.$b.INFO) {
+        const baseUrl = githubApiUrl || 'https://api.github.com';
         this.octokit = new MyOctokit({
-            auth: this.token,
-            baseUrl: githubUrl,
+            auth: token,
+            baseUrl,
             throttle: {
-                // @ts-expect-error: esm errror
+                // @ts-expect-error Plugin type definitions don't match the actual runtime behavior
                 onRateLimit: (retryAfter, options, octokit, retryCount) => {
-                    lib_core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
+                    core.info(`Octokit - request quota exhausted for request ${options.method} ${options.url}`);
                     if (retryCount < 3) {
-                        // try upto 3 times
-                        lib_core.info(`Octokit - retrying after ${retryAfter} seconds!`);
+                        // try up to 3 times
+                        core.info(`Octokit - retrying after ${retryAfter} seconds!`);
                         return true;
                     }
+                    return false;
                 },
-                // @ts-expect-error: esm errror
+                // @ts-expect-error Plugin type definitions don't match the actual runtime behavior
                 onSecondaryRateLimit: (retryAfter, options, octokit) => {
                     // does not retry, only logs a warning
-                    lib_core.info(`Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`);
+                    core.info(`Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`);
                 }
             },
             log: {
                 debug: (message) => {
-                    if (this.logLevel >= LogLevel.DEBUG) {
-                        lib_core.info(`[Octokit DEBUG] ${message}`);
+                    if (logLevel >= config/* LogLevel */.$b.DEBUG) {
+                        core.info(`[Octokit DEBUG] ${message}`);
                     }
                 },
                 info: (message) => {
-                    if (this.logLevel >= LogLevel.DEBUG) {
-                        lib_core.info(`[Octokit DEBUG] ${message}`);
+                    if (logLevel >= config/* LogLevel */.$b.DEBUG) {
+                        core.info(`[Octokit DEBUG] ${message}`);
                     }
                 },
                 warn: (message) => {
-                    if (this.logLevel >= LogLevel.WARN) {
-                        lib_core.info(`[Octokit WARN] ${message}`);
+                    if (logLevel >= config/* LogLevel */.$b.WARN) {
+                        core.info(`[Octokit WARN] ${message}`);
                     }
                 },
                 error: (message) => {
-                    if (this.logLevel >= LogLevel.INFO) {
-                        lib_core.info(`[Octokit ERROR] ${message}`);
+                    if (logLevel >= config/* LogLevel */.$b.INFO) {
+                        core.info(`[Octokit ERROR] ${message}`);
                     }
                 }
             }
         });
-        // lookup repo info
+    }
+    /**
+     * Get the underlying Octokit instance for direct API calls
+     */
+    getClient() {
+        return this.octokit;
+    }
+    /**
+     * Get repository information
+     */
+    async getRepository(owner, repository) {
         try {
-            const result = await this.octokit.request(`GET /repos/${this.owner}/${this.repository}`);
-            this.isPrivateRepo = result.data.private;
-            this.repoType = result.data.owner.type;
+            const result = await this.octokit.request(`GET /repos/${owner}/${repository}`);
+            return {
+                isPrivate: result.data.private,
+                ownerType: result.data.owner.type
+            };
         }
         catch (error) {
             if (error instanceof dist_src/* RequestError */.G) {
-                if (error.status) {
-                    if (error.status === 404) {
-                        lib_core.warning(`The repository is not found, check the owner value "${this.owner}" or the repository value "${this.repository}" are correct`);
-                    }
+                if (error.status === 404) {
+                    core.warning(`The repository is not found, check the owner value "${owner}" or the repository value "${repository}" are correct`);
                 }
             }
             // rethrow the error
             throw error;
         }
     }
-}
-function buildConfig() {
-    const token = core.getInput('token', { required: true });
-    const config = new Config(token);
-    config.owner = core.getInput('owner');
-    config.repository = core.getInput('repository');
-    if (core.getInput('package') && core.getInput('packages')) {
-        throw Error('package and packages cant be used at the same time, use either one');
-    }
-    config.package = core.getInput('package');
-    if (!config.package) {
-        config.package = core.getInput('packages');
-    }
-    // auto populate
-    const GITHUB_REPOSITORY = process.env['GITHUB_REPOSITORY'];
-    if (GITHUB_REPOSITORY) {
-        const parts = GITHUB_REPOSITORY.split('/');
-        if (parts.length === 2) {
-            if (!config.owner) {
-                config.owner = parts[0];
-            }
-            if (!config.package) {
-                config.package = parts[1];
-                config.defaultPackageUsed = true;
-            }
-            else {
-                config.defaultPackageUsed = false;
-            }
-            if (!config.repository) {
-                config.repository = parts[1];
-            }
-        }
-        else {
-            throw Error(`Error parsing GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}`);
-        }
-    }
-    else {
-        throw Error('GITHUB_REPOSITORY is not set');
-    }
-    if (core.getInput('expand-packages')) {
-        config.expandPackages = core.getBooleanInput('expand-packages');
-    }
-    else {
-        // check if the value has a wildcard and expand-packages isn't set
-        if (config.package.includes('*') || config.package.includes('?')) {
-            core.info(`The packages value "${config.package}" contains a wildcard character but the expand-packages option has not been set, auto enabling expand-packages to true`);
-            config.expandPackages = true;
-        }
-    }
-    if (core.getInput('tags') && core.getInput('delete-tags')) {
-        throw Error('tags and delete-tags cant be used at the same time, use either one');
-    }
-    if (core.getInput('tags')) {
-        config.deleteTags = core.getInput('tags');
-    }
-    else if (core.getInput('delete-tags')) {
-        config.deleteTags = core.getInput('delete-tags');
-    }
-    config.excludeTags = core.getInput('exclude-tags');
-    if (core.getInput('older-than')) {
-        config.olderThan = humanInterval(core.getInput('older-than'));
-        // save the text version of it
-        config.olderThanReadable = core.getInput('older-than');
-        if (config.olderThan != null && isNaN(config.olderThan)) {
-            // check if it has an interval type
-            const regexp = /(second|minute|hour|day|week|month|year)s?/;
-            const match = config.olderThanReadable.match(regexp);
-            if (match) {
-                throw Error(`older-than value "${config.olderThanReadable}" is not a valid interval`);
-            }
-            else {
-                throw Error(`older-than value "${config.olderThanReadable}" is not a valid interval, it's missing an interval such as second, minute, hour, day, week or year`);
-            }
-        }
-    }
-    if (core.getInput('keep-n-tagged')) {
-        const value = parseInt(core.getInput('keep-n-tagged'));
-        if (isNaN(value)) {
-            throw new Error('keep-n-tagged is not number');
-        }
-        else if (value < 0) {
-            throw new Error('keep-n-tagged is negative');
-        }
-        else {
-            config.keepNtagged = value;
-        }
-    }
-    if (core.getInput('keep-n-untagged')) {
-        const value = parseInt(core.getInput('keep-n-untagged'));
-        if (isNaN(value)) {
-            throw new Error('keep-n-untagged is not number');
-        }
-        else if (value < 0) {
-            throw new Error('keep-n-untagged is negative');
-        }
-        else {
-            config.keepNuntagged = value;
-        }
-    }
-    if (core.getInput('delete-untagged')) {
-        config.deleteUntagged = core.getBooleanInput('delete-untagged');
-    }
-    else {
-        // default is deleteUntagged if no options are set
-        if (!core.getInput('tags') &&
-            !core.getInput('delete-tags') &&
-            !core.getInput('delete-ghost-images') &&
-            !core.getInput('delete-partial-images') &&
-            !core.getInput('delete-orphaned-images') &&
-            !core.getInput('keep-n-untagged') &&
-            !core.getInput('keep-n-tagged')) {
-            config.deleteUntagged = true;
-        }
-    }
-    if (config.keepNuntagged && core.getInput('delete-untagged')) {
-        throw new Error('delete-untagged and keep-n-untagged can not be set at the same time');
-    }
-    if (core.getInput('delete-ghost-images')) {
-        config.deleteGhostImages = core.getBooleanInput('delete-ghost-images');
-    }
-    if (core.getInput('delete-partial-images')) {
-        config.deletePartialImages = core.getBooleanInput('delete-partial-images');
-    }
-    if (core.getInput('delete-orphaned-images')) {
-        config.deleteOrphanedImages = core.getBooleanInput('delete-orphaned-images');
-    }
-    if (core.getInput('dry-run')) {
-        config.dryRun = core.getBooleanInput('dry-run');
-        if (config.dryRun) {
-            core.info('***** In dry run mode - No packages will be deleted *****');
-        }
-    }
-    if (core.getInput('validate')) {
-        config.validate = core.getBooleanInput('validate');
-    }
-    if (core.getInput('log-level')) {
-        const level = core.getInput('log-level').toLowerCase();
-        if (level === 'error') {
-            config.logLevel = LogLevel.ERROR;
-        }
-        else if (level === 'warn') {
-            config.logLevel = LogLevel.WARN;
-        }
-        else if (level === 'info') {
-            config.logLevel = LogLevel.INFO;
-        }
-        else if (level === 'debug') {
-            config.logLevel = LogLevel.DEBUG;
-        }
-    }
-    if (core.getInput('use-regex')) {
-        config.useRegex = core.getBooleanInput('use-regex');
-    }
-    if (core.getInput('registry-url')) {
-        config.registryUrl = core.getInput('registry-url');
-        if (!config.registryUrl.endsWith('/')) {
-            config.registryUrl += '/';
-        }
-    }
-    if (core.getInput('github-api-url')) {
-        config.githubApiUrl = core.getInput('github-api-url');
-        if (config.githubApiUrl.endsWith('/')) {
-            config.githubApiUrl = config.githubApiUrl.slice(0, -1);
-        }
-    }
-    if (!config.owner) {
-        throw new Error('owner is not set');
-    }
-    if (!config.package) {
-        throw new Error('package is not set');
-    }
-    if (!config.repository) {
-        throw new Error('repository is not set');
-    }
-    const optionsMap = new MapPrinter();
-    optionsMap.add('private repository', `${config.isPrivateRepo}`);
-    optionsMap.add('project owner', `${config.owner}`);
-    optionsMap.add('repository', `${config.repository}`);
-    optionsMap.add('package', `${config.package}`);
-    if (config.expandPackages !== undefined) {
-        optionsMap.add('expand-packages', `${config.expandPackages}`);
-    }
-    if (config.deleteTags) {
-        optionsMap.add('delete-tags', config.deleteTags);
-    }
-    if (config.excludeTags) {
-        optionsMap.add('exclude-tags', config.excludeTags);
-    }
-    if (config.olderThan) {
-        try {
-            const cutOff = new Date(Date.now() - config.olderThan);
-            optionsMap.add('older-than', cutOff.toUTCString());
-        }
-        catch (error) {
-            core.info('error processing older-than value');
-            throw error;
-        }
-    }
-    if (config.deleteUntagged !== undefined) {
-        optionsMap.add('delete-untagged', `${config.deleteUntagged}`);
-    }
-    if (config.deleteGhostImages !== undefined) {
-        optionsMap.add('delete-ghost-images', `${config.deleteGhostImages}`);
-    }
-    if (config.deletePartialImages !== undefined) {
-        optionsMap.add('delete-partial-images', `${config.deletePartialImages}`);
-    }
-    if (config.deleteOrphanedImages !== undefined) {
-        optionsMap.add('delete-orphaned-images', `${config.deleteOrphanedImages}`);
-    }
-    if (config.keepNtagged !== undefined) {
-        optionsMap.add('keep-n-tagged', `${config.keepNtagged}`);
-    }
-    if (config.keepNuntagged !== undefined) {
-        optionsMap.add('keep-n-untagged', `${config.keepNuntagged}`);
-    }
-    if (config.dryRun !== undefined) {
-        optionsMap.add('dry-run', `${config.dryRun}`);
-    }
-    if (config.validate !== undefined) {
-        optionsMap.add('validate', `${config.validate}`);
-    }
-    optionsMap.add('log-level', LogLevel[config.logLevel]);
-    if (config.useRegex !== undefined) {
-        optionsMap.add('use-regex', `${config.useRegex}`);
-    }
-    if (config.registryUrl !== undefined) {
-        optionsMap.add('registry-url', `${config.registryUrl}`);
-    }
-    if (config.githubApiUrl !== undefined) {
-        optionsMap.add('github-api-url', `${config.githubApiUrl}`);
-    }
-    core.startGroup('Runtime configuration');
-    optionsMap.print();
-    core.endGroup();
-    return config;
 }
 
 
@@ -38499,7 +38541,7 @@ function buildConfig() {
 /* harmony export */ });
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(7484);
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(5409);
+/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(2973);
 /* harmony import */ var _octokit_request_error__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(1015);
 
 
@@ -38510,6 +38552,8 @@ function buildConfig() {
 class PackageRepo {
     // The action configuration
     config;
+    // The Octokit client for API calls
+    octokitClient;
     // Map of digests to package ids
     digest2Id = new Map();
     // Map of ids to package version definitions
@@ -38522,9 +38566,11 @@ class PackageRepo {
      * Constructor
      *
      * @param config The action configuration
+     * @param octokitClient The Octokit client for API calls
      */
-    constructor(config) {
+    constructor(config, octokitClient) {
         this.config = config;
+        this.octokitClient = octokitClient;
     }
     /**
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
@@ -38535,15 +38581,17 @@ class PackageRepo {
             this.digest2Id.clear();
             this.id2Package.clear();
             this.tag2Digest.clear();
-            let getFunc = this.config.octokit.rest.packages
-                .getAllPackageVersionsForPackageOwnedByOrg;
+            const octokit = this.octokitClient.getClient();
+            // Using 'any' type here because TypeScript cannot unify the different function signatures
+            // for Org vs User package endpoints. The actual type safety is maintained by the
+            // parameters we pass to these functions.
+            let getFunc = octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg;
             let getParams;
             if (this.config.repoType === 'User') {
                 getFunc = this.config.isPrivateRepo
-                    ? this.config.octokit.rest.packages
+                    ? octokit.rest.packages
                         .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-                    : this.config.octokit.rest.packages
-                        .getAllPackageVersionsForPackageOwnedByUser;
+                    : octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser;
                 getParams = {
                     package_type: 'container',
                     package_name: targetPackage,
@@ -38561,7 +38609,7 @@ class PackageRepo {
                     per_page: 100
                 };
             }
-            for await (const response of this.config.octokit.paginate.iterator(getFunc, getParams)) {
+            for await (const response of octokit.paginate.iterator(getFunc, getParams)) {
                 for (const packageVersion of response.data) {
                     this.digest2Id.set(packageVersion.name, packageVersion.id);
                     this.id2Package.set(packageVersion.id, packageVersion);
@@ -38667,29 +38715,30 @@ class PackageRepo {
                 _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(` deleting package id: ${id} digest: ${digest}`);
             }
             if (!this.config.dryRun) {
+                const octokit = this.octokitClient.getClient();
                 if (this.config.repoType === 'User') {
                     if (this.config.isPrivateRepo) {
-                        await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
+                        await octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                             package_type: 'container',
                             package_name: targetPackage,
-                            package_version_id: id
+                            package_version_id: parseInt(id)
                         });
                     }
                     else {
-                        await this.config.octokit.rest.packages.deletePackageVersionForUser({
+                        await octokit.rest.packages.deletePackageVersionForUser({
                             package_type: 'container',
                             package_name: targetPackage,
                             username: this.config.owner,
-                            package_version_id: id
+                            package_version_id: parseInt(id)
                         });
                     }
                 }
                 else {
-                    await this.config.octokit.rest.packages.deletePackageVersionForOrg({
+                    await octokit.rest.packages.deletePackageVersionForOrg({
                         package_type: 'container',
                         package_name: targetPackage,
                         org: this.config.owner,
-                        package_version_id: id
+                        package_version_id: parseInt(id)
                     });
                 }
                 this.lastDeleteResult = true;
@@ -38725,12 +38774,15 @@ class PackageRepo {
      */
     async getPackageList() {
         const packages = [];
+        const octokit = this.octokitClient.getClient();
+        // Using 'any' type here for the same reason as above - different API endpoints have
+        // incompatible signatures that TypeScript cannot unify
         let listFunc;
         let listParams;
         if (this.config.repoType === 'User') {
             listFunc = this.config.isPrivateRepo
-                ? this.config.octokit.rest.packages.listPackagesForAuthenticatedUser
-                : this.config.octokit.rest.packages.listPackagesForUser;
+                ? octokit.rest.packages.listPackagesForAuthenticatedUser
+                : octokit.rest.packages.listPackagesForUser;
             listParams = {
                 package_type: 'container',
                 username: this.config.owner,
@@ -38738,14 +38790,14 @@ class PackageRepo {
             };
         }
         else {
-            listFunc = this.config.octokit.rest.packages.listPackagesForOrganization;
+            listFunc = octokit.rest.packages.listPackagesForOrganization;
             listParams = {
                 package_type: 'container',
                 org: this.config.owner,
                 per_page: 100
             };
         }
-        for await (const response of this.config.octokit.paginate.iterator(listFunc, listParams)) {
+        for await (const response of octokit.paginate.iterator(listFunc, listParams)) {
             for (const data of response.data) {
                 packages.push(data.name);
             }
@@ -38784,8 +38836,8 @@ __nccwpck_require__.d(common_utils_namespaceObject, {
 
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
 var core = __nccwpck_require__(7484);
-// EXTERNAL MODULE: ./src/config.ts + 22 modules
-var src_config = __nccwpck_require__(5409);
+// EXTERNAL MODULE: ./src/config.ts
+var src_config = __nccwpck_require__(2973);
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/bind.js
 
 

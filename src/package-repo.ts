@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import { Config, LogLevel } from './config.js'
+import { OctokitClient } from './octokit-client.js'
 import { RequestError } from '@octokit/request-error'
 
 /**
@@ -8,6 +9,9 @@ import { RequestError } from '@octokit/request-error'
 export class PackageRepo {
   // The action configuration
   config: Config
+
+  // The Octokit client for API calls
+  octokitClient: OctokitClient
 
   // Map of digests to package ids
   digest2Id = new Map<string, string>()
@@ -25,9 +29,11 @@ export class PackageRepo {
    * Constructor
    *
    * @param config The action configuration
+   * @param octokitClient The Octokit client for API calls
    */
-  constructor(config: Config) {
+  constructor(config: Config, octokitClient: OctokitClient) {
     this.config = config
+    this.octokitClient = octokitClient
   }
 
   /**
@@ -40,35 +46,37 @@ export class PackageRepo {
       this.id2Package.clear()
       this.tag2Digest.clear()
 
-      let getFunc =
-        this.config.octokit.rest.packages
-          .getAllPackageVersionsForPackageOwnedByOrg
-      let getParams
+      const octokit = this.octokitClient.getClient()
+      // Using 'any' type here because TypeScript cannot unify the different function signatures
+      // for Org vs User package endpoints. The actual type safety is maintained by the
+      // parameters we pass to these functions.
+      let getFunc: any =
+        octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg
+      let getParams: any
 
       if (this.config.repoType === 'User') {
         getFunc = this.config.isPrivateRepo
-          ? this.config.octokit.rest.packages
+          ? octokit.rest.packages
               .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-          : this.config.octokit.rest.packages
-              .getAllPackageVersionsForPackageOwnedByUser
+          : octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser
 
         getParams = {
-          package_type: 'container',
+          package_type: 'container' as const,
           package_name: targetPackage,
           username: this.config.owner,
-          state: 'active',
+          state: 'active' as const,
           per_page: 100
         }
       } else {
         getParams = {
-          package_type: 'container',
+          package_type: 'container' as const,
           package_name: targetPackage,
           org: this.config.owner,
-          state: 'active',
+          state: 'active' as const,
           per_page: 100
         }
       }
-      for await (const response of this.config.octokit.paginate.iterator(
+      for await (const response of octokit.paginate.iterator(
         getFunc,
         getParams
       )) {
@@ -190,31 +198,30 @@ export class PackageRepo {
         core.info(` deleting package id: ${id} digest: ${digest}`)
       }
       if (!this.config.dryRun) {
+        const octokit = this.octokitClient.getClient()
         if (this.config.repoType === 'User') {
           if (this.config.isPrivateRepo) {
-            await this.config.octokit.rest.packages.deletePackageVersionForAuthenticatedUser(
+            await octokit.rest.packages.deletePackageVersionForAuthenticatedUser(
               {
-                package_type: 'container',
+                package_type: 'container' as const,
                 package_name: targetPackage,
-                package_version_id: id
+                package_version_id: parseInt(id)
               }
             )
           } else {
-            await this.config.octokit.rest.packages.deletePackageVersionForUser(
-              {
-                package_type: 'container',
-                package_name: targetPackage,
-                username: this.config.owner,
-                package_version_id: id
-              }
-            )
+            await octokit.rest.packages.deletePackageVersionForUser({
+              package_type: 'container' as const,
+              package_name: targetPackage,
+              username: this.config.owner,
+              package_version_id: parseInt(id)
+            })
           }
         } else {
-          await this.config.octokit.rest.packages.deletePackageVersionForOrg({
-            package_type: 'container',
+          await octokit.rest.packages.deletePackageVersionForOrg({
+            package_type: 'container' as const,
             package_name: targetPackage,
             org: this.config.owner,
-            package_version_id: id
+            package_version_id: parseInt(id)
           })
         }
         this.lastDeleteResult = true
@@ -253,30 +260,33 @@ export class PackageRepo {
    */
   async getPackageList(): Promise<string[]> {
     const packages = []
+    const octokit = this.octokitClient.getClient()
 
-    let listFunc
-    let listParams
+    // Using 'any' type here for the same reason as above - different API endpoints have
+    // incompatible signatures that TypeScript cannot unify
+    let listFunc: any
+    let listParams: any
 
     if (this.config.repoType === 'User') {
       listFunc = this.config.isPrivateRepo
-        ? this.config.octokit.rest.packages.listPackagesForAuthenticatedUser
-        : this.config.octokit.rest.packages.listPackagesForUser
+        ? octokit.rest.packages.listPackagesForAuthenticatedUser
+        : octokit.rest.packages.listPackagesForUser
 
       listParams = {
-        package_type: 'container',
+        package_type: 'container' as const,
         username: this.config.owner,
         per_page: 100
       }
     } else {
-      listFunc = this.config.octokit.rest.packages.listPackagesForOrganization
+      listFunc = octokit.rest.packages.listPackagesForOrganization
       listParams = {
-        package_type: 'container',
+        package_type: 'container' as const,
         org: this.config.owner,
         per_page: 100
       }
     }
 
-    for await (const response of this.config.octokit.paginate.iterator(
+    for await (const response of octokit.paginate.iterator(
       listFunc,
       listParams
     )) {

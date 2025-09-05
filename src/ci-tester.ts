@@ -7,6 +7,7 @@ import fs from 'fs'
 import * as core from '@actions/core'
 import { Config } from './config.js'
 import { PackageRepo } from './package-repo.js'
+import { OctokitClient } from './octokit-client.js'
 import { Registry } from './registry.js'
 import { SpawnSyncOptionsWithStringEncoding, spawnSync } from 'child_process'
 
@@ -150,7 +151,8 @@ export async function run(): Promise<void> {
   }
 
   assertString(args.token)
-  const config = new Config(args.token)
+  const config = new Config()
+  config.token = args.token
 
   if (args.owner) {
     assertString(args.owner)
@@ -199,8 +201,20 @@ export async function run(): Promise<void> {
 
   config.owner = config.owner?.toLowerCase()
 
-  await config.init()
-  const packageRepo = new PackageRepo(config)
+  // Create Octokit client and fetch repository info
+  const octokitClient = new OctokitClient(
+    config.token,
+    config.githubApiUrl,
+    config.logLevel
+  )
+  const repoInfo = await octokitClient.getRepository(
+    config.owner,
+    config.repository
+  )
+  config.isPrivateRepo = repoInfo.isPrivate
+  config.repoType = repoInfo.ownerType
+
+  const packageRepo = new PackageRepo(config, octokitClient)
   const registry = new Registry(config, packageRepo)
   await registry.login(config.package)
 
