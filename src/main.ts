@@ -2,7 +2,7 @@ import * as core from '@actions/core'
 import { Config, buildConfig } from './config.js'
 import { PackageRepo } from './package-repo.js'
 import wcmatch from 'wildcard-match'
-import { CleanupTask } from './cleanup-task.js'
+import { CleanupOrchestrator } from './cleanup-orchestrator.js'
 import { createTokenAuth } from '@octokit/auth-token'
 import { CleanupTaskStatistics } from './utils.js'
 
@@ -73,10 +73,10 @@ class CleanupAction {
     let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0)
     const perPackageStats: CleanupTaskStatistics[] = []
     for (const targetPackage of targetPackages) {
-      const cleanupTask = new CleanupTask(this.config, targetPackage)
-      await cleanupTask.init()
-      await cleanupTask.reload()
-      const stats = await cleanupTask.run()
+      const orchestrator = new CleanupOrchestrator(this.config, targetPackage)
+      await orchestrator.init()
+      await orchestrator.reload()
+      const stats = await orchestrator.run()
       perPackageStats.push(stats)
       globalStatistics = globalStatistics.add(stats)
     }

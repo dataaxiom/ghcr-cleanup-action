@@ -14312,7 +14312,7 @@ const kClosedResolve = Symbol('kClosedResolve')
 const channels = {}
 
 try {
-  const diagnosticsChannel = __nccwpck_require__(1637)
+  const diagnosticsChannel = __nccwpck_require__(4018)
   channels.sendHeaders = diagnosticsChannel.channel('undici:client:sendHeaders')
   channels.beforeConnect = diagnosticsChannel.channel('undici:client:beforeConnect')
   channels.connectError = diagnosticsChannel.channel('undici:client:connectError')
@@ -17972,7 +17972,7 @@ const channels = {}
 let extractBody
 
 try {
-  const diagnosticsChannel = __nccwpck_require__(1637)
+  const diagnosticsChannel = __nccwpck_require__(4018)
   channels.create = diagnosticsChannel.channel('undici:request:create')
   channels.bodySent = diagnosticsChannel.channel('undici:request:bodySent')
   channels.headers = diagnosticsChannel.channel('undici:request:headers')
@@ -31378,7 +31378,7 @@ module.exports = {
 
 
 
-const diagnosticsChannel = __nccwpck_require__(1637)
+const diagnosticsChannel = __nccwpck_require__(4018)
 const { uid, states } = __nccwpck_require__(5913)
 const {
   kReadyState,
@@ -32125,7 +32125,7 @@ module.exports = {
 
 
 const { Writable } = __nccwpck_require__(2203)
-const diagnosticsChannel = __nccwpck_require__(1637)
+const diagnosticsChannel = __nccwpck_require__(4018)
 const { parserStates, opcodes, states, emptyBuffer } = __nccwpck_require__(5913)
 const { kReadyState, kSentClose, kResponse, kReceivedClose } = __nccwpck_require__(2933)
 const { isValidStatusCode, failWebsocketConnection, websocketMessageReceived } = __nccwpck_require__(3574)
@@ -33348,7 +33348,7 @@ module.exports = {
 /***/ ((module, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2782);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1637);
 /**
  * The entrypoint for the action.
  */
@@ -33361,7 +33361,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 2782:
+/***/ 1637:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -43617,182 +43617,200 @@ class Registry {
     }
 }
 
-;// CONCATENATED MODULE: ./src/cleanup-task.ts
+;// CONCATENATED MODULE: ./src/image-filter.ts
 
 
-
-
-
-
-class CleanupTask {
-    // The action configuration
-    config;
-    // The package repository to cleanup
-    targetPackage;
-    // tags which should be excluded from deletion
-    excludeTags = [];
-    // used to interact with the container registry api
-    registry;
-    // used to interact with the github package api
-    packageRepo;
-    // working set of package digests to process filters/keeps options on
-    filterSet = new Set();
-    // digests to delete
-    deleteSet = new Set();
-    // all the tags in use in the registry
-    tagsInUse = new Set();
-    // mapping child digests to parent digests
-    digestUsedBy = new Map();
-    // digests which have been deleted
-    deleted = new Set();
-    // action statistics
-    statistics;
-    constructor(config, targetPackage) {
-        this.config = config;
-        this.targetPackage = targetPackage;
-        this.packageRepo = new PackageRepo(this.config);
-        this.registry = new Registry(this.config, this.packageRepo);
-        this.statistics = new CleanupTaskStatistics(this.targetPackage, 0, 0);
+class ImageFilter {
+    context;
+    constructor(context) {
+        this.context = context;
     }
-    async init() {
-        await this.registry.login(this.targetPackage);
-    }
-    async reload() {
-        this.deleteSet.clear();
-        this.deleted.clear();
-        // prime the list of current packages
-        await this.packageRepo.loadPackages(this.targetPackage, true);
-        // extract tags from the package load
-        this.tagsInUse = this.packageRepo.getTags();
-        // build digestUsedBy map
-        await this.loadDigestUsedByMap();
-        // init filterSet - removed manifest image children, referrers etc
-        await this.initFilterSet();
-        // find excluded tags using regex or matcher
-        this.excludeTags = [];
-        if (this.config.excludeTags) {
-            if (this.config.useRegex) {
-                const regex = new RegExp(this.config.excludeTags);
-                // check all tags for matches first
-                for (const tag of this.tagsInUse) {
-                    if (regex.test(tag)) {
-                        // delete the tag from the filterSet
-                        const digest = this.packageRepo.getDigestByTag(tag);
-                        if (digest) {
-                            this.filterSet.delete(digest);
-                        }
-                        this.excludeTags.push(tag);
+    /**
+     * Applies exclusion filters to the filter set
+     */
+    applyExclusionFilters(filterSet) {
+        const excludeTags = [];
+        if (!this.context.config.excludeTags) {
+            return excludeTags;
+        }
+        const tagsInUse = this.context.packageRepo.getTags();
+        if (this.context.config.useRegex) {
+            const regex = new RegExp(this.context.config.excludeTags);
+            // Check all tags for matches first
+            for (const tag of tagsInUse) {
+                if (regex.test(tag)) {
+                    const digest = this.context.packageRepo.getDigestByTag(tag);
+                    if (digest) {
+                        filterSet.delete(digest);
                     }
-                }
-                // now check for digest based format matches
-                for (const digest of this.packageRepo.getDigests()) {
-                    if (regex.test(digest)) {
-                        // delete the tag from the filterSet
-                        this.filterSet.delete(digest);
-                        this.excludeTags.push(digest);
-                    }
+                    excludeTags.push(tag);
                 }
             }
-            else {
-                const isTagMatch = wildcardMatch(this.config.excludeTags.split(','));
-                // check all tags for matches first
-                for (const tag of this.tagsInUse) {
-                    if (isTagMatch(tag)) {
-                        // delete the tag from the filterSet
-                        const digest = this.packageRepo.getDigestByTag(tag);
-                        if (digest) {
-                            this.filterSet.delete(digest);
-                        }
-                        this.excludeTags.push(tag);
-                    }
-                }
-                // now check for digest based format matches
-                for (const digest of this.packageRepo.getDigests()) {
-                    if (isTagMatch(digest)) {
-                        // delete the tag from the filterSet
-                        this.filterSet.delete(digest);
-                        this.excludeTags.push(digest);
-                    }
+            // Now check for digest based format matches
+            for (const digest of this.context.packageRepo.getDigests()) {
+                if (regex.test(digest)) {
+                    filterSet.delete(digest);
+                    excludeTags.push(digest);
                 }
             }
         }
-        if (this.excludeTags.length > 0) {
-            core.startGroup(`[${this.targetPackage}] Excluding tags from deletion`);
-            for (const tag of this.excludeTags) {
+        else {
+            const isTagMatch = wildcardMatch(this.context.config.excludeTags.split(','));
+            // Check all tags for matches first
+            for (const tag of tagsInUse) {
+                if (isTagMatch(tag)) {
+                    const digest = this.context.packageRepo.getDigestByTag(tag);
+                    if (digest) {
+                        filterSet.delete(digest);
+                    }
+                    excludeTags.push(tag);
+                }
+            }
+            // Now check for digest based format matches
+            for (const digest of this.context.packageRepo.getDigests()) {
+                if (isTagMatch(digest)) {
+                    filterSet.delete(digest);
+                    excludeTags.push(digest);
+                }
+            }
+        }
+        if (excludeTags.length > 0) {
+            core.startGroup(`[${this.context.targetPackage}] Excluding tags from deletion`);
+            for (const tag of excludeTags) {
                 core.info(tag);
             }
             core.endGroup();
         }
-        // only include older-than if set
-        if (this.config.olderThan) {
-            // get the package
-            core.startGroup(`[${this.targetPackage}] Finding images that are older than: ${this.config.olderThanReadable}`);
-            for (const digest of this.filterSet) {
-                const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                if (ghPackage.updated_at) {
-                    const cutOff = new Date(Date.now() - this.config.olderThan);
-                    const packageDate = new Date(ghPackage.updated_at);
-                    if (packageDate >= cutOff) {
-                        // the package it newer then cutoff so remove it from filterSet
-                        this.filterSet.delete(digest);
+        return excludeTags;
+    }
+    /**
+     * Filters images by age
+     */
+    applyAgeFilter(filterSet) {
+        if (!this.context.config.olderThan) {
+            return;
+        }
+        core.startGroup(`[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`);
+        for (const digest of filterSet) {
+            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (ghPackage.updated_at) {
+                const cutOff = new Date(Date.now() - this.context.config.olderThan);
+                const packageDate = new Date(ghPackage.updated_at);
+                if (packageDate >= cutOff) {
+                    // The package is newer than cutoff so remove it from filterSet
+                    filterSet.delete(digest);
+                }
+                else {
+                    const tags = ghPackage.metadata.container.tags;
+                    if (tags.length > 0) {
+                        core.info(`${digest} ${tags}`);
                     }
                     else {
-                        const tags = this.packageRepo.getPackageByDigest(digest).metadata.container
-                            .tags;
-                        if (tags.length > 0) {
-                            core.info(`${digest} ${tags}`);
-                        }
-                        else {
-                            core.info(digest);
-                        }
+                        core.info(digest);
                     }
                 }
             }
-            if (this.filterSet.size === 0) {
-                core.info('no images found');
-            }
-            core.endGroup();
         }
+        if (filterSet.size === 0) {
+            core.info('no images found');
+        }
+        core.endGroup();
     }
-    /*
-     * Builds a map child images back to their parents
+    /**
+     * Expands tags based on wildcard or regex patterns
+     */
+    expandTags(filterSet) {
+        const matchTags = new Set();
+        if (!this.context.config.deleteTags) {
+            return matchTags;
+        }
+        if (this.context.config.useRegex) {
+            const regex = new RegExp(this.context.config.deleteTags);
+            // Build match list from filterSet
+            for (const digest of filterSet) {
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                for (const tag of ghPackage.metadata.container.tags) {
+                    if (regex.test(tag)) {
+                        matchTags.add(tag);
+                    }
+                }
+            }
+            // Check for digest based format matches
+            for (const digest of filterSet) {
+                if (regex.test(digest)) {
+                    matchTags.add(digest);
+                }
+            }
+        }
+        else {
+            const isTagMatch = wildcardMatch(this.context.config.deleteTags.split(','));
+            // Build match list from filterSet
+            for (const digest of filterSet) {
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                for (const tag of ghPackage.metadata.container.tags) {
+                    if (isTagMatch(tag)) {
+                        matchTags.add(tag);
+                    }
+                }
+            }
+            // Check for digest based format matches
+            for (const digest of filterSet) {
+                if (isTagMatch(digest)) {
+                    matchTags.add(digest);
+                }
+            }
+        }
+        return matchTags;
+    }
+}
+
+;// CONCATENATED MODULE: ./src/manifest-analyzer.ts
+
+
+class ManifestAnalyzer {
+    context;
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Builds a map of child images back to their parents
      * The map is used to determine if image can be safely deleted
      */
     async loadDigestUsedByMap() {
-        this.digestUsedBy.clear();
+        const digestUsedBy = new Map();
         let stopWatch = new Date();
-        const digests = this.packageRepo.getDigests();
+        const digests = this.context.packageRepo.getDigests();
         const digestCount = digests.size;
         let processed = 0;
         let skipped = 0;
-        core.startGroup(`[${this.targetPackage}] Loading manifests`);
+        core.startGroup(`[${this.context.targetPackage}] Loading manifests`);
         for (const digest of digests) {
-            const manifest = await this.registry.getManifestByDigest(digest);
+            const manifest = await this.context.registry.getManifestByDigest(digest);
             processed++;
-            if (this.config.logLevel === LogLevel.DEBUG) {
+            if (this.context.config.logLevel === LogLevel.DEBUG) {
                 const encoded = JSON.stringify(manifest, null, 4);
                 core.info(`${digest}:${encoded}`);
             }
             else {
-                // output a status message if 3 seconds has passed
+                // Output a status message if 3 seconds has passed
                 const now = new Date();
                 if (now.getMilliseconds() - stopWatch.getMilliseconds() >= 3000) {
                     core.info(`loaded ${processed} of ${digestCount} manifests`);
-                    stopWatch = new Date(); // reset the clock
+                    stopWatch = new Date(); // Reset the clock
                 }
             }
-            // we only map multi-arch images
+            // We only map multi-arch images
             if (manifest.manifests) {
                 for (const imageManifest of manifest.manifests) {
-                    // only add existing packages
+                    // Only add existing packages
                     if (digests.has(imageManifest.digest)) {
-                        let parents = this.digestUsedBy.get(imageManifest.digest);
+                        let parents = digestUsedBy.get(imageManifest.digest);
                         if (!parents) {
                             parents = new Set();
-                            this.digestUsedBy.set(imageManifest.digest, parents);
+                            digestUsedBy.set(imageManifest.digest, parents);
                         }
                         parents.add(digest);
-                        // now remove so we don't download the child manifest later on in loop
+                        // Now remove so we don't download the child manifest later on in loop
                         digests.delete(imageManifest.digest);
                         skipped++;
                         processed++;
@@ -43802,31 +43820,32 @@ class CleanupTask {
         }
         core.info(`loaded ${processed} manifests, ${skipped} skipped`);
         core.endGroup();
+        return digestUsedBy;
     }
-    /*
+    /**
      * Remove all multi architecture platform images from the filterSet including its
      * referrer image if present. Filtering/processing only occurs on top level images.
      */
     async initFilterSet() {
-        const digests = this.packageRepo.getDigests();
+        const digests = this.context.packageRepo.getDigests();
         for (const digest of digests) {
-            const manifest = await this.registry.getManifestByDigest(digest);
+            const manifest = await this.context.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
                 for (const imageManifest of manifest.manifests) {
                     digests.delete(imageManifest.digest);
                 }
             }
-            // process any associated images which have been tagged using the digest
+            // Process any associated images which have been tagged using the digest
             const digestTag = digest.replace('sha256:', 'sha256-');
-            const tags = this.packageRepo.getTags();
+            const tags = this.context.packageRepo.getTags();
             for (const tag of tags) {
                 if (tag.startsWith(digestTag)) {
-                    // remove it
-                    const tagDigest = this.packageRepo.getDigestByTag(tag);
+                    // Remove it
+                    const tagDigest = this.context.packageRepo.getDigestByTag(tag);
                     if (tagDigest) {
                         digests.delete(tagDigest);
-                        // process any children
-                        const childManifest = await this.registry.getManifestByTag(tag);
+                        // Process any children
+                        const childManifest = await this.context.registry.getManifestByTag(tag);
                         if (childManifest.manifests) {
                             for (const manifestEntry of childManifest.manifests) {
                                 digests.delete(manifestEntry.digest);
@@ -43836,61 +43855,12 @@ class CleanupTask {
                 }
             }
         }
-        // save digests to filterSet
-        this.filterSet = digests;
+        return digests;
     }
-    // validate manifests list packages
-    async validate() {
-        core.startGroup(`[${this.targetPackage}] Validating multi-architecture/referrers images`);
-        // cycle thru digests checking them
-        let error = false;
-        const processedManifests = new Set();
-        const digests = this.packageRepo.getDigests();
-        for (const digest of digests) {
-            // is the digest a multi arch image?
-            if (!processedManifests.has(digest)) {
-                const manifest = await this.registry.getManifestByDigest(digest);
-                const tags = this.packageRepo.getPackageByDigest(digest).metadata.container.tags;
-                if (manifest.manifests) {
-                    for (const childImage of manifest.manifests) {
-                        // mark it as processed
-                        processedManifests.add(childImage.digest);
-                        if (!this.packageRepo.getIdByDigest(childImage.digest)) {
-                            error = true;
-                            if (tags.length > 0) {
-                                core.warning(`digest ${childImage.digest} not found on image ${tags}`);
-                            }
-                            else {
-                                core.warning(`digest ${childImage.digest} not found on untagged image ${digest}`);
-                            }
-                        }
-                        // remove it from further processing - we don't need to validate child manifests
-                        digests.delete(childImage.digest);
-                    }
-                }
-            }
-        }
-        // check for orphaned tags (referrers/cosign etc)
-        for (const tag of this.tagsInUse) {
-            if (tag.startsWith('sha256-')) {
-                let digest = tag.replace('sha256-', 'sha256:');
-                if (digest.length > 71) {
-                    // trim additional chars
-                    digest = digest.substring(0, 71);
-                }
-                if (!this.packageRepo.getIdByDigest(digest)) {
-                    error = true;
-                    core.warning(`parent image for referrer tag ${tag} not found in repository`);
-                }
-            }
-        }
-        if (!error) {
-            core.info('no errors found');
-        }
-        core.endGroup();
-    }
+    /**
+     * Builds a label for a manifest based on its type
+     */
     async buildLabel(imageManifest) {
-        // build the 'label'
         let label = '';
         if (imageManifest.platform) {
             if (imageManifest.platform.architecture) {
@@ -43903,9 +43873,9 @@ class CleanupTask {
                 label = `architecture: ${label}`;
             }
             else {
-                // check if it's a buildx attestation
-                const manifest = await this.registry.getManifestByDigest(imageManifest.digest);
-                // kinda crude
+                // Check if it's a buildx attestation
+                const manifest = await this.context.registry.getManifestByDigest(imageManifest.digest);
+                // Kinda crude
                 if (manifest.layers) {
                     if (manifest.layers[0].mediaType === 'application/vnd.in-toto+json') {
                         label = 'application/vnd.in-toto+json';
@@ -43914,7 +43884,7 @@ class CleanupTask {
             }
         }
         else if (imageManifest.artifactType) {
-            // check if it's a github attestation
+            // Check if it's a github attestation
             if (imageManifest.artifactType.startsWith('application/vnd.dev.sigstore.bundle')) {
                 label = 'sigstore attestation';
             }
@@ -43924,456 +43894,32 @@ class CleanupTask {
         }
         return label;
     }
-    async deleteImage(ghPackage) {
-        if (!this.deleted.has(ghPackage.name)) {
-            // get the manifest first
-            const manifest = await this.registry.getManifestByDigest(ghPackage.name);
-            // now delete it
-            await this.packageRepo.deletePackageVersion(this.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
-            this.deleted.add(ghPackage.name);
-            this.statistics.numberImagesDeleted += 1;
-            // if manifests based image now delete it's children
-            if (manifest.manifests) {
-                this.statistics.numberMultiImagesDeleted += 1;
-                for (const imageManifest of manifest.manifests) {
-                    const manifestPackage = this.packageRepo.getPackageByDigest(imageManifest.digest);
-                    if (manifestPackage) {
-                        if (!this.deleted.has(manifestPackage.name)) {
-                            // check if the digest isn't in use by another image
-                            const parents = this.digestUsedBy.get(manifestPackage.name);
-                            if (parents) {
-                                if (parents.size === 1 && parents.has(ghPackage.name)) {
-                                    // it's only referenced from this image so delete it
-                                    await this.packageRepo.deletePackageVersion(this.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.buildLabel(imageManifest));
-                                    this.deleted.add(manifestPackage.name);
-                                    this.statistics.numberImagesDeleted += 1;
-                                    // remove the parent - no other references to it
-                                    this.digestUsedBy.delete(manifestPackage.name);
-                                }
-                                else {
-                                    core.info(` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`);
-                                    // skip the deletion since it's in use by another image - just remove the usedBy reference
-                                    parents.delete(ghPackage.name);
-                                }
-                            }
-                            else {
-                                // should never be here
-                                core.info(` digestUsedBy not correctly setup for ${manifestPackage.name}`);
-                            }
-                        }
-                    }
-                    else {
-                        core.info(` skipping digest ${imageManifest.digest}, not found`);
-                    }
-                }
-            }
-            // process any referrers/cosign etc - using tag approach
-            const digestTag = ghPackage.name.replace('sha256:', 'sha256-');
-            const tags = this.packageRepo.getTags();
-            for (const tag of tags) {
-                if (tag.startsWith(digestTag) &&
-                    !this.excludeTags.includes(digestTag)) {
-                    // find the package
-                    const manifestDigest = this.packageRepo.getDigestByTag(tag);
-                    if (manifestDigest) {
-                        const attestationPackage = this.packageRepo.getPackageByDigest(manifestDigest);
-                        // recursively delete it
-                        await this.deleteImage(attestationPackage);
-                    }
-                }
-            }
-        }
-    }
-    async deleteGhostImages() {
-        core.startGroup(`[${this.targetPackage}] Finding ghost images to delete`);
-        let foundGhostImage = false;
-        for (const digest of this.filterSet) {
-            let ghostImage = false;
-            // is a ghost image if all of the child manifests don't exist
-            const manfiest = await this.registry.getManifestByDigest(digest);
-            if (manfiest.manifests) {
-                let missing = 0;
-                for (const imageManfiest of manfiest.manifests) {
-                    if (!this.packageRepo.getIdByDigest(imageManfiest.digest)) {
-                        missing += 1;
-                    }
-                }
-                if (missing === manfiest.manifests.length) {
-                    ghostImage = true;
-                    foundGhostImage = true;
-                }
-            }
-            if (ghostImage) {
-                // setup the ghost image to be deleted
-                this.filterSet.delete(digest);
-                this.deleteSet.add(digest);
-                const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                if (ghPackage.metadata.container.tags.length > 0) {
-                    core.info(`${digest} ${ghPackage.metadata.container.tags}`);
-                }
-                else {
-                    core.info(`${digest}`);
-                }
-            }
-        }
-        if (!foundGhostImage) {
-            core.info('no ghost images found');
-        }
-        core.endGroup();
-    }
-    async deletePartialImages() {
-        core.startGroup(`[${this.targetPackage}] Finding partial images to delete`);
-        let partialImagesFound = false;
-        for (const digest of this.filterSet) {
-            let partialImage = false;
-            // is a partial image if some of the child manifests don't exist
-            const manfiest = await this.registry.getManifestByDigest(digest);
-            if (manfiest.manifests) {
-                for (const imageManfiest of manfiest.manifests) {
-                    if (!this.packageRepo.getIdByDigest(imageManfiest.digest)) {
-                        partialImage = true;
-                        partialImagesFound = true;
-                        break;
-                    }
-                }
-            }
-            if (partialImage) {
-                // setup the partial image to be deleted
-                this.filterSet.delete(digest);
-                this.deleteSet.add(digest);
-                const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                if (ghPackage.metadata.container.tags.length > 0) {
-                    core.info(`${digest} ${ghPackage.metadata.container.tags}`);
-                }
-                else {
-                    core.info(`${digest}`);
-                }
-            }
-        }
-        if (!partialImagesFound) {
-            core.info('no partial images found');
-        }
-        core.endGroup();
-    }
-    async deleteOrphanedImages() {
-        core.startGroup(`[${this.targetPackage}] Finding orphaned images (tags) to delete`);
-        let orphanedImagesFound = false;
-        for (const tag of this.packageRepo.getTags()) {
-            if (tag.startsWith('sha256-')) {
-                let digest = tag.replace('sha256-', 'sha256:');
-                if (digest.length > 71) {
-                    // trim additional chars
-                    digest = digest.substring(0, 71);
-                }
-                // now check if that digest exists
-                if (this.packageRepo.getIdByDigest(digest) === undefined) {
-                    const orphanDigest = this.packageRepo.getDigestByTag(tag);
-                    if (orphanDigest) {
-                        this.deleteSet.add(orphanDigest);
-                        this.filterSet.delete(orphanDigest);
-                        core.info(tag);
-                        orphanedImagesFound = true;
-                    }
-                }
-            }
-        }
-        if (!orphanedImagesFound) {
-            core.info('no orphaned images found');
-        }
-        core.endGroup();
-    }
-    /*
-     * Expand the tag
-     **/
-    expandTags() {
-        const matchTags = new Set();
-        if (this.config.deleteTags) {
-            if (this.config.useRegex) {
-                const regex = new RegExp(this.config.deleteTags);
-                // build match list from filterSet
-                for (const digest of this.filterSet) {
-                    const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                    for (const tag of ghPackage.metadata.container.tags) {
-                        if (regex.test(tag)) {
-                            matchTags.add(tag);
-                        }
-                    }
-                }
-                // now check for digest based format matches - only check on filterset
-                for (const digest of this.filterSet) {
-                    if (regex.test(digest)) {
-                        // delete the tag from the filterSet
-                        matchTags.add(digest);
-                    }
-                }
-            }
-            else {
-                // find the tags that match wildcard patterns
-                const isTagMatch = wildcardMatch(this.config.deleteTags.split(','));
-                // build match list from filterSet
-                for (const digest of this.filterSet) {
-                    const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                    for (const tag of ghPackage.metadata.container.tags) {
-                        if (isTagMatch(tag)) {
-                            matchTags.add(tag);
-                        }
-                    }
-                }
-                // now check for digest based format matches
-                for (const digest of this.filterSet) {
-                    if (isTagMatch(digest)) {
-                        matchTags.add(digest);
-                    }
-                }
-            }
-        }
-        return matchTags;
-    }
-    async deleteByTag() {
-        if (this.config.deleteTags) {
-            // get the tags that match the config option
-            const matchTags = this.expandTags();
-            if (matchTags.size > 0) {
-                // build seperate sets for the untagging events and the standard deletions
-                const untaggingTags = new Set();
-                const standardTags = new Set();
-                // first process untagging events - do a pre scan to check if in this mode
-                for (const tag of matchTags) {
-                    if (!this.excludeTags.includes(tag)) {
-                        // get the package
-                        if (tag.startsWith('sha256:')) {
-                            standardTags.add(tag);
-                        }
-                        else {
-                            const manifestDigest = this.packageRepo.getDigestByTag(tag);
-                            if (manifestDigest) {
-                                const ghPackage = this.packageRepo.getPackageByDigest(manifestDigest);
-                                if (ghPackage.metadata.container.tags.length > 1) {
-                                    untaggingTags.add(tag);
-                                }
-                                else if (ghPackage.metadata.container.tags.length === 1) {
-                                    standardTags.add(tag);
-                                }
-                            }
-                        }
-                    }
-                }
-                if (untaggingTags.size > 0) {
-                    const displayTags = Array.from(untaggingTags.values());
-                    core.startGroup(`[${this.targetPackage}] Untagging images: ${displayTags}`);
-                    for (const tag of untaggingTags) {
-                        // lets recheck there is more than 1 tag, else add it to standard set for later deletion
-                        // it could be situation where all tags are being deleted
-                        const manifestDigest = this.packageRepo.getDigestByTag(tag);
-                        if (manifestDigest) {
-                            const ghPackage = this.packageRepo.getPackageByDigest(manifestDigest);
-                            if (ghPackage.metadata.container.tags.length === 1) {
-                                standardTags.add(tag);
-                            }
-                            else {
-                                core.info(`${tag}`);
-                                // get the package
-                                const manifest = await this.registry.getManifestByDigest(manifestDigest);
-                                // preform a "ghcr.io" image deletion
-                                // as the registry doesn't support manifest deletion directly
-                                // we instead assign the tag to a different manifest first
-                                // then we delete it
-                                // clone the manifest
-                                const newManifest = JSON.parse(JSON.stringify(manifest));
-                                // create a fake manifest to separate the tag
-                                if (newManifest.manifests) {
-                                    // a multi architecture image
-                                    newManifest.manifests = [];
-                                    await this.registry.putManifest(tag, newManifest, true);
-                                }
-                                else {
-                                    newManifest.layers = [];
-                                    await this.registry.putManifest(tag, newManifest, false);
-                                }
-                                // reload package ids to find the new package id/digest
-                                await this.packageRepo.loadPackages(this.targetPackage, false);
-                                // reload the manifest
-                                const untaggedDigest = this.packageRepo.getDigestByTag(tag);
-                                if (untaggedDigest) {
-                                    const id = this.packageRepo.getIdByDigest(untaggedDigest);
-                                    if (id) {
-                                        await this.packageRepo.deletePackageVersion(this.targetPackage, id, untaggedDigest, [tag]);
-                                        this.statistics.numberImagesDeleted += 1;
-                                    }
-                                    else {
-                                        core.info(`couldn't find newly created package with digest ${untaggedDigest} to delete`);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    core.endGroup();
-                }
-                // reload the state
-                if (untaggingTags.size > 0) {
-                    core.info('Reloading action due to untagging');
-                    await this.reload();
-                }
-                // only process tag deletions here if keep-n-tagged is not set
-                if (standardTags.size > 0 && this.config.keepNtagged == null) {
-                    core.startGroup(`[${this.targetPackage}] Find tagged images to delete: ${this.config.deleteTags}`);
-                    for (const tag of standardTags) {
-                        core.info(tag);
-                        // get the package
-                        let manifestDigest;
-                        if (tag.startsWith('sha256:')) {
-                            manifestDigest = tag;
-                        }
-                        else {
-                            manifestDigest = this.packageRepo.getDigestByTag(tag);
-                        }
-                        if (manifestDigest) {
-                            this.deleteSet.add(manifestDigest);
-                            this.filterSet.delete(manifestDigest);
-                        }
-                    }
-                    core.endGroup();
-                }
-            }
-            else {
-                core.startGroup(`[${this.targetPackage}] Finding tagged images to delete: ${this.config.deleteTags}`);
-                core.info('no matching tags found');
-                core.endGroup();
-            }
-        }
-    }
-    async keepNuntagged() {
-        if (this.config.keepNuntagged != null) {
-            core.startGroup(`[${this.targetPackage}] Finding untagged images to delete, keeping ${this.config.keepNuntagged} versions`);
-            // create a temporary array of untagged images to process on
-            const unTaggedPackages = [];
-            // find untagged images in the filterSet
-            for (const digest of this.filterSet) {
-                const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                if (ghPackage.metadata.container.tags.length === 0) {
-                    unTaggedPackages.push(ghPackage);
-                }
-            }
-            // now sort and remove extra untagged images
-            if (unTaggedPackages.length > 0) {
-                // sort descending
-                unTaggedPackages.sort((a, b) => {
-                    return Date.parse(b.updated_at) - Date.parse(a.updated_at);
-                });
-                // now delete the remainder untagged packages/images minus the keep value
-                if (unTaggedPackages.length > this.config.keepNuntagged) {
-                    const deletePackages = unTaggedPackages.splice(this.config.keepNuntagged);
-                    for (const deletePackage of deletePackages) {
-                        this.deleteSet.add(deletePackage.name);
-                        this.filterSet.delete(deletePackage.name);
-                        core.info(`${deletePackage.name}`);
-                    }
-                    if (deletePackages.length === 0) {
-                        core.info('no untagged images found to delete');
-                    }
-                }
-            }
-            else {
-                core.info('no untagged images found to delete');
-            }
-            core.endGroup();
-        }
-    }
-    async keepNtagged() {
-        if (this.config.keepNtagged != null) {
-            core.startGroup(`[${this.targetPackage}] Finding tagged images to delete, keeping ${this.config.keepNtagged} versions`);
-            // create a temporary array of tagged images to process on
-            const taggedPackages = [];
-            if (this.config.deleteTags != null) {
-                // apply the keep-n mode only on the supplied/expanded tags
-                const matchTags = this.expandTags();
-                for (const tag of matchTags) {
-                    const digest = this.packageRepo.getDigestByTag(tag);
-                    if (digest) {
-                        const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                        if (ghPackage) {
-                            taggedPackages.push(ghPackage);
-                        }
-                    }
-                }
-            }
-            else {
-                // copy images with tags from the full set
-                for (const digest of this.filterSet) {
-                    const ghPackage = this.packageRepo.getPackageByDigest(digest);
-                    if (ghPackage.metadata.container.tags.length > 0) {
-                        taggedPackages.push(ghPackage);
-                    }
-                }
-            }
-            // sort descending
-            taggedPackages.sort((a, b) => {
-                return Date.parse(b.updated_at) - Date.parse(a.updated_at);
-            });
-            // trim packages to keep and delete the remainder
-            if (taggedPackages.length > this.config.keepNtagged) {
-                const deletePackages = taggedPackages.splice(this.config.keepNtagged);
-                // now set these up to be deleted
-                for (const deletePackage of deletePackages) {
-                    this.deleteSet.add(deletePackage.name);
-                    this.filterSet.delete(deletePackage.name);
-                    const ghPackage = this.packageRepo.getPackageByDigest(deletePackage.name);
-                    core.info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
-                }
-            }
-            else {
-                core.info('no tagged images found to delete');
-            }
-            core.endGroup();
-        }
-    }
-    /*
-     * Add to deleteSet all digests which have no tags
+    /**
+     * Pre-loads manifests needed for deletion process
      */
-    async deleteUntagged() {
-        core.startGroup(`[${this.targetPackage}] Finding all untagged images to delete`);
-        let untaggedImageFound = false;
-        // find untagged images in the filterSet
-        for (const digest of this.filterSet) {
-            const ghPackage = this.packageRepo.getPackageByDigest(digest);
-            if (ghPackage.metadata.container.tags.length === 0) {
-                this.deleteSet.add(digest);
-                this.filterSet.delete(digest);
-                core.info(`${digest}`);
-                untaggedImageFound = true;
-            }
-        }
-        if (!untaggedImageFound) {
-            core.info('no untagged images found');
-        }
-        core.endGroup();
-    }
-    // makes sure all required manfiests are downloaded before the deletion
-    // process runs. ensuring only package api calls are made during deletion
-    // minimizing chances of failed registry calls affecting deletion
-    async primeManifests() {
-        const digests = this.packageRepo.getDigests();
-        for (const digest of this.deleteSet) {
-            const manifest = await this.registry.getManifestByDigest(digest);
+    async primeManifests(deleteSet) {
+        const digests = this.context.packageRepo.getDigests();
+        for (const digest of deleteSet) {
+            const manifest = await this.context.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
                 for (const imageManifest of manifest.manifests) {
-                    // call the buildLabel method which will prime manifest if its needed
-                    if (digests.has(imageManifest)) {
+                    // Call the buildLabel method which will prime manifest if needed
+                    if (digests.has(imageManifest.digest)) {
                         await this.buildLabel(imageManifest);
                     }
                 }
             }
-            // process tagged digests (referrers)
+            // Process tagged digests (referrers)
             const digestTag = digest.replace('sha256:', 'sha256-');
-            const tags = this.packageRepo.getTags();
+            const tags = this.context.packageRepo.getTags();
             for (const tag of tags) {
                 if (tag.startsWith(digestTag)) {
-                    const tagDigest = this.packageRepo.getDigestByTag(tag);
+                    const tagDigest = this.context.packageRepo.getDigestByTag(tag);
                     if (tagDigest) {
-                        const tagManifest = await this.registry.getManifestByDigest(tagDigest);
+                        const tagManifest = await this.context.registry.getManifestByDigest(tagDigest);
                         if (tagManifest.manifests) {
                             for (const manifestEntry of tagManifest.manifests) {
-                                if (digests.has(manifestEntry)) {
+                                if (digests.has(manifestEntry.digest)) {
                                     await this.buildLabel(manifestEntry);
                                 }
                             }
@@ -44383,60 +43929,657 @@ class CleanupTask {
             }
         }
     }
-    /*
-     * Deletes all the digets in the deleteSet from the package repository
+}
+
+;// CONCATENATED MODULE: ./src/image-validator.ts
+
+class ImageValidator {
+    context;
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Validate manifests list packages
      */
-    async doDelete() {
-        // make sure we have the necessary manifests cached before we start the
-        // deletion process
-        await this.primeManifests();
-        // now delete the images
-        core.startGroup(`[${this.targetPackage}] Deleting packages`);
-        if (this.deleteSet.size > 0) {
-            for (const deleteDigest of this.deleteSet) {
-                const deleteImage = this.packageRepo.getPackageByDigest(deleteDigest);
-                await this.deleteImage(deleteImage);
+    async validate() {
+        core.startGroup(`[${this.context.targetPackage}] Validating multi-architecture/referrers images`);
+        let hasErrors = false;
+        const processedManifests = new Set();
+        const digests = this.context.packageRepo.getDigests();
+        for (const digest of digests) {
+            if (!processedManifests.has(digest)) {
+                const manifest = await this.context.registry.getManifestByDigest(digest);
+                const tags = this.context.packageRepo.getPackageByDigest(digest).metadata.container
+                    .tags;
+                if (manifest.manifests) {
+                    for (const childImage of manifest.manifests) {
+                        processedManifests.add(childImage.digest);
+                        if (!this.context.packageRepo.getIdByDigest(childImage.digest)) {
+                            hasErrors = true;
+                            if (tags.length > 0) {
+                                core.warning(`digest ${childImage.digest} not found on image ${tags}`);
+                            }
+                            else {
+                                core.warning(`digest ${childImage.digest} not found on untagged image ${digest}`);
+                            }
+                        }
+                        digests.delete(childImage.digest);
+                    }
+                }
+            }
+        }
+        // Check for orphaned tags (referrers/cosign etc)
+        const tagsInUse = this.context.packageRepo.getTags();
+        for (const tag of tagsInUse) {
+            if (tag.startsWith('sha256-')) {
+                let digest = tag.replace('sha256-', 'sha256:');
+                if (digest.length > 71) {
+                    digest = digest.substring(0, 71);
+                }
+                if (!this.context.packageRepo.getIdByDigest(digest)) {
+                    hasErrors = true;
+                    core.warning(`parent image for referrer tag ${tag} not found in repository`);
+                }
+            }
+        }
+        if (!hasErrors) {
+            core.info('no errors found');
+        }
+        core.endGroup();
+        // Return basic result - can be extended later
+        return {
+            hasErrors,
+            ghostImages: new Set(),
+            partialImages: new Set(),
+            orphanedImages: new Set()
+        };
+    }
+    /**
+     * Find ghost images (all child manifests missing)
+     */
+    async findGhostImages(filterSet) {
+        core.startGroup(`[${this.context.targetPackage}] Finding ghost images to delete`);
+        const ghostImages = new Set();
+        for (const digest of filterSet) {
+            const manifest = await this.context.registry.getManifestByDigest(digest);
+            if (manifest.manifests) {
+                let missing = 0;
+                for (const imageManifest of manifest.manifests) {
+                    if (!this.context.packageRepo.getIdByDigest(imageManifest.digest)) {
+                        missing += 1;
+                    }
+                }
+                if (missing === manifest.manifests.length) {
+                    ghostImages.add(digest);
+                    const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                    if (ghPackage.metadata.container.tags.length > 0) {
+                        core.info(`${digest} ${ghPackage.metadata.container.tags}`);
+                    }
+                    else {
+                        core.info(`${digest}`);
+                    }
+                }
+            }
+        }
+        if (ghostImages.size === 0) {
+            core.info('no ghost images found');
+        }
+        core.endGroup();
+        return ghostImages;
+    }
+    /**
+     * Find partial images (some child manifests missing)
+     */
+    async findPartialImages(filterSet) {
+        core.startGroup(`[${this.context.targetPackage}] Finding partial images to delete`);
+        const partialImages = new Set();
+        for (const digest of filterSet) {
+            const manifest = await this.context.registry.getManifestByDigest(digest);
+            if (manifest.manifests) {
+                for (const imageManifest of manifest.manifests) {
+                    if (!this.context.packageRepo.getIdByDigest(imageManifest.digest)) {
+                        partialImages.add(digest);
+                        const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                        if (ghPackage.metadata.container.tags.length > 0) {
+                            core.info(`${digest} ${ghPackage.metadata.container.tags}`);
+                        }
+                        else {
+                            core.info(`${digest}`);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        if (partialImages.size === 0) {
+            core.info('no partial images found');
+        }
+        core.endGroup();
+        return partialImages;
+    }
+    /**
+     * Find orphaned images (parent image doesn't exist)
+     */
+    findOrphanedImages() {
+        core.startGroup(`[${this.context.targetPackage}] Finding orphaned images (tags) to delete`);
+        const orphanedImages = new Set();
+        for (const tag of this.context.packageRepo.getTags()) {
+            if (tag.startsWith('sha256-')) {
+                let digest = tag.replace('sha256-', 'sha256:');
+                if (digest.length > 71) {
+                    digest = digest.substring(0, 71);
+                }
+                // Check if that digest exists
+                if (this.context.packageRepo.getIdByDigest(digest) === undefined) {
+                    const orphanDigest = this.context.packageRepo.getDigestByTag(tag);
+                    if (orphanDigest) {
+                        orphanedImages.add(orphanDigest);
+                        core.info(tag);
+                    }
+                }
+            }
+        }
+        if (orphanedImages.size === 0) {
+            core.info('no orphaned images found');
+        }
+        core.endGroup();
+        return orphanedImages;
+    }
+}
+
+;// CONCATENATED MODULE: ./src/deletion-strategy.ts
+
+
+class DeletionStrategy {
+    context;
+    imageFilter;
+    constructor(context) {
+        this.context = context;
+        this.imageFilter = new ImageFilter(context);
+    }
+    /**
+     * Process tag deletions including untagging operations
+     */
+    async processTagDeletions(filterSet, excludeTags) {
+        const plan = {
+            deleteSet: new Set(),
+            untagOperations: new Map()
+        };
+        if (!this.context.config.deleteTags) {
+            return plan;
+        }
+        const matchTags = this.imageFilter.expandTags(filterSet);
+        if (matchTags.size === 0) {
+            core.startGroup(`[${this.context.targetPackage}] Finding tagged images to delete: ${this.context.config.deleteTags}`);
+            core.info('no matching tags found');
+            core.endGroup();
+            return plan;
+        }
+        // Separate untagging events and standard deletions
+        const untaggingTags = new Set();
+        const standardTags = new Set();
+        for (const tag of matchTags) {
+            if (!excludeTags.includes(tag)) {
+                if (tag.startsWith('sha256:')) {
+                    standardTags.add(tag);
+                }
+                else {
+                    const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
+                    if (manifestDigest) {
+                        const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+                        if (ghPackage.metadata.container.tags.length > 1) {
+                            untaggingTags.add(tag);
+                            if (!plan.untagOperations.has(manifestDigest)) {
+                                plan.untagOperations.set(manifestDigest, []);
+                            }
+                            const operations = plan.untagOperations.get(manifestDigest);
+                            if (operations) {
+                                operations.push(tag);
+                            }
+                        }
+                        else if (ghPackage.metadata.container.tags.length === 1) {
+                            standardTags.add(tag);
+                        }
+                    }
+                }
+            }
+        }
+        // Process standard deletions - only if keep-n-tagged is not set
+        // When keep-n-tagged IS set, it will handle ALL tagged deletions later
+        if (standardTags.size > 0 && this.context.config.keepNtagged == null) {
+            core.startGroup(`[${this.context.targetPackage}] Find tagged images to delete: ${this.context.config.deleteTags}`);
+            for (const tag of standardTags) {
+                core.info(tag);
+                let manifestDigest;
+                if (tag.startsWith('sha256:')) {
+                    manifestDigest = tag;
+                }
+                else {
+                    manifestDigest = this.context.packageRepo.getDigestByTag(tag);
+                }
+                if (manifestDigest) {
+                    plan.deleteSet.add(manifestDigest);
+                    filterSet.delete(manifestDigest);
+                }
+            }
+            core.endGroup();
+        }
+        return plan;
+    }
+    /**
+     * Keep N untagged images
+     */
+    keepNUntagged(filterSet) {
+        const deleteSet = new Set();
+        if (this.context.config.keepNuntagged == null) {
+            return deleteSet;
+        }
+        core.startGroup(`[${this.context.targetPackage}] Finding untagged images to delete, keeping ${this.context.config.keepNuntagged} versions`);
+        const unTaggedPackages = [];
+        for (const digest of filterSet) {
+            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (ghPackage.metadata.container.tags.length === 0) {
+                unTaggedPackages.push(ghPackage);
+            }
+        }
+        if (unTaggedPackages.length > 0) {
+            // Sort descending by date
+            unTaggedPackages.sort((a, b) => {
+                return Date.parse(b.updated_at) - Date.parse(a.updated_at);
+            });
+            if (unTaggedPackages.length > this.context.config.keepNuntagged) {
+                const deletePackages = unTaggedPackages.splice(this.context.config.keepNuntagged);
+                for (const deletePackage of deletePackages) {
+                    deleteSet.add(deletePackage.name);
+                    filterSet.delete(deletePackage.name);
+                    core.info(`${deletePackage.name}`);
+                }
+            }
+        }
+        if (deleteSet.size === 0) {
+            core.info('no untagged images found to delete');
+        }
+        core.endGroup();
+        return deleteSet;
+    }
+    /**
+     * Keep N tagged images
+     */
+    keepNTagged(filterSet) {
+        const deleteSet = new Set();
+        if (this.context.config.keepNtagged == null) {
+            return deleteSet;
+        }
+        core.startGroup(`[${this.context.targetPackage}] Finding tagged images to delete, keeping ${this.context.config.keepNtagged} versions`);
+        const taggedPackages = [];
+        if (this.context.config.deleteTags != null) {
+            // Apply keep-n mode only on the supplied/expanded tags
+            const matchTags = this.imageFilter.expandTags(filterSet);
+            for (const tag of matchTags) {
+                const digest = this.context.packageRepo.getDigestByTag(tag);
+                if (digest) {
+                    const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                    if (ghPackage) {
+                        taggedPackages.push(ghPackage);
+                    }
+                }
+            }
+        }
+        else {
+            // Copy images with tags from the full set
+            for (const digest of filterSet) {
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (ghPackage.metadata.container.tags.length > 0) {
+                    taggedPackages.push(ghPackage);
+                }
+            }
+        }
+        // Sort descending by date
+        taggedPackages.sort((a, b) => {
+            return Date.parse(b.updated_at) - Date.parse(a.updated_at);
+        });
+        if (taggedPackages.length > this.context.config.keepNtagged) {
+            const deletePackages = taggedPackages.splice(this.context.config.keepNtagged);
+            for (const deletePackage of deletePackages) {
+                deleteSet.add(deletePackage.name);
+                filterSet.delete(deletePackage.name);
+                const ghPackage = this.context.packageRepo.getPackageByDigest(deletePackage.name);
+                core.info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
+            }
+        }
+        else {
+            core.info('no tagged images found to delete');
+        }
+        core.endGroup();
+        return deleteSet;
+    }
+    /**
+     * Delete all untagged images
+     */
+    deleteAllUntagged(filterSet) {
+        const deleteSet = new Set();
+        core.startGroup(`[${this.context.targetPackage}] Finding all untagged images to delete`);
+        for (const digest of filterSet) {
+            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (ghPackage.metadata.container.tags.length === 0) {
+                deleteSet.add(digest);
+                filterSet.delete(digest);
+                core.info(`${digest}`);
+            }
+        }
+        if (deleteSet.size === 0) {
+            core.info('no untagged images found');
+        }
+        core.endGroup();
+        return deleteSet;
+    }
+}
+
+;// CONCATENATED MODULE: ./src/image-deleter.ts
+
+
+class ImageDeleter {
+    context;
+    manifestAnalyzer;
+    deleted;
+    digestUsedBy;
+    constructor(context, digestUsedBy) {
+        this.context = context;
+        this.manifestAnalyzer = new ManifestAnalyzer(context);
+        this.deleted = new Set();
+        this.digestUsedBy = digestUsedBy;
+    }
+    /**
+     * Perform untagging operations
+     */
+    async performUntagging(untagOperations) {
+        if (untagOperations.size === 0) {
+            return false;
+        }
+        const allTags = [];
+        for (const tags of untagOperations.values()) {
+            allTags.push(...tags);
+        }
+        core.startGroup(`[${this.context.targetPackage}] Untagging images: ${allTags}`);
+        for (const [manifestDigest, tags] of untagOperations) {
+            for (const tag of tags) {
+                // Recheck there is more than 1 tag
+                const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+                if (ghPackage.metadata.container.tags.length > 1) {
+                    core.info(`${tag}`);
+                    const manifest = await this.context.registry.getManifestByDigest(manifestDigest);
+                    // Clone the manifest
+                    const newManifest = JSON.parse(JSON.stringify(manifest));
+                    // Create a fake manifest to separate the tag
+                    if (newManifest.manifests) {
+                        newManifest.manifests = [];
+                        await this.context.registry.putManifest(tag, newManifest, true);
+                    }
+                    else {
+                        newManifest.layers = [];
+                        await this.context.registry.putManifest(tag, newManifest, false);
+                    }
+                    // Reload package ids to find the new package id/digest
+                    await this.context.packageRepo.loadPackages(this.context.targetPackage, false);
+                    // Delete the untagged version
+                    const untaggedDigest = this.context.packageRepo.getDigestByTag(tag);
+                    if (untaggedDigest) {
+                        const id = this.context.packageRepo.getIdByDigest(untaggedDigest);
+                        if (id) {
+                            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, id, untaggedDigest, [tag]);
+                        }
+                        else {
+                            core.info(`couldn't find newly created package with digest ${untaggedDigest} to delete`);
+                        }
+                    }
+                }
+            }
+        }
+        core.endGroup();
+        return true;
+    }
+    /**
+     * Delete a single image and its children
+     */
+    async deleteImage(ghPackage) {
+        let imagesDeleted = 0;
+        let multiImagesDeleted = 0;
+        if (this.deleted.has(ghPackage.name)) {
+            return { deleted: imagesDeleted, multiDeleted: multiImagesDeleted };
+        }
+        // Get the manifest first
+        const manifest = await this.context.registry.getManifestByDigest(ghPackage.name);
+        // Delete the package
+        await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
+        this.deleted.add(ghPackage.name);
+        imagesDeleted += 1;
+        // If manifests based image, delete children
+        if (manifest.manifests) {
+            multiImagesDeleted += 1;
+            for (const imageManifest of manifest.manifests) {
+                const manifestPackage = this.context.packageRepo.getPackageByDigest(imageManifest.digest);
+                if (manifestPackage && !this.deleted.has(manifestPackage.name)) {
+                    const parents = this.digestUsedBy.get(manifestPackage.name);
+                    if (parents) {
+                        if (parents.size === 1 && parents.has(ghPackage.name)) {
+                            // Only referenced from this image
+                            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.manifestAnalyzer.buildLabel(imageManifest));
+                            this.deleted.add(manifestPackage.name);
+                            imagesDeleted += 1;
+                            this.digestUsedBy.delete(manifestPackage.name);
+                        }
+                        else {
+                            core.info(` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`);
+                            parents.delete(ghPackage.name);
+                        }
+                    }
+                }
+            }
+        }
+        // Process referrers/cosign
+        const digestTag = ghPackage.name.replace('sha256:', 'sha256-');
+        const tags = this.context.packageRepo.getTags();
+        for (const tag of tags) {
+            if (tag.startsWith(digestTag)) {
+                const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
+                if (manifestDigest) {
+                    const attestationPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+                    if (attestationPackage) {
+                        const result = await this.deleteImage(attestationPackage);
+                        imagesDeleted += result.deleted;
+                        multiImagesDeleted += result.multiDeleted;
+                    }
+                }
+            }
+        }
+        return { deleted: imagesDeleted, multiDeleted: multiImagesDeleted };
+    }
+    /**
+     * Delete all images in the delete set
+     */
+    async deleteImages(deleteSet) {
+        // Prime manifests
+        await this.manifestAnalyzer.primeManifests(deleteSet);
+        core.startGroup(`[${this.context.targetPackage}] Deleting packages`);
+        let totalDeleted = 0;
+        let totalMultiDeleted = 0;
+        if (deleteSet.size > 0) {
+            for (const deleteDigest of deleteSet) {
+                const deleteImage = this.context.packageRepo.getPackageByDigest(deleteDigest);
+                const result = await this.deleteImage(deleteImage);
+                totalDeleted += result.deleted;
+                totalMultiDeleted += result.multiDeleted;
             }
         }
         else {
             core.info(`Nothing to delete`);
         }
         core.endGroup();
+        return {
+            deleted: this.deleted,
+            numberImagesDeleted: totalDeleted,
+            numberMultiImagesDeleted: totalMultiDeleted
+        };
+    }
+    /**
+     * Reset the deletion state
+     */
+    reset() {
+        this.deleted.clear();
+    }
+}
+
+;// CONCATENATED MODULE: ./src/cleanup-orchestrator.ts
+
+
+
+
+
+
+
+
+
+/**
+ * Orchestrates the cleanup process using modular components
+ */
+class CleanupOrchestrator {
+    config;
+    targetPackage;
+    packageRepo;
+    registry;
+    context;
+    // Modules
+    imageFilter;
+    manifestAnalyzer;
+    imageValidator;
+    deletionStrategy;
+    imageDeleter = null;
+    // State
+    filterSet = new Set();
+    deleteSet = new Set();
+    excludeTags = [];
+    digestUsedBy = new Map();
+    statistics;
+    constructor(config, targetPackage) {
+        this.config = config;
+        this.targetPackage = targetPackage;
+        this.packageRepo = new PackageRepo(config);
+        this.registry = new Registry(config, this.packageRepo);
+        this.statistics = new CleanupTaskStatistics(targetPackage, 0, 0);
+        // Create context for modules
+        this.context = {
+            config,
+            registry: this.registry,
+            packageRepo: this.packageRepo,
+            targetPackage
+        };
+        // Initialize modules
+        this.imageFilter = new ImageFilter(this.context);
+        this.manifestAnalyzer = new ManifestAnalyzer(this.context);
+        this.imageValidator = new ImageValidator(this.context);
+        this.deletionStrategy = new DeletionStrategy(this.context);
+    }
+    async init() {
+        await this.registry.login(this.targetPackage);
+    }
+    async reload() {
+        this.deleteSet.clear();
+        // Prime the list of current packages
+        await this.packageRepo.loadPackages(this.targetPackage, true);
+        // Build digestUsedBy map
+        this.digestUsedBy = await this.manifestAnalyzer.loadDigestUsedByMap();
+        // Initialize imageDeleter with the digestUsedBy map
+        this.imageDeleter = new ImageDeleter(this.context, this.digestUsedBy);
+        // Initialize filterSet - remove manifest image children, referrers etc
+        this.filterSet = await this.manifestAnalyzer.initFilterSet();
+        // Apply exclusion filters
+        this.excludeTags = this.imageFilter.applyExclusionFilters(this.filterSet);
+        // Apply age filter
+        this.imageFilter.applyAgeFilter(this.filterSet);
     }
     async run() {
-        // process tag deletions first - to support untagging
+        // Process tag deletions first - to support untagging
         if (this.config.deleteTags) {
-            await this.deleteByTag();
+            const plan = await this.deletionStrategy.processTagDeletions(this.filterSet, this.excludeTags);
+            // Perform untagging if needed
+            let reloadOccurred = false;
+            if (plan.untagOperations.size > 0 && this.imageDeleter) {
+                const reloadNeeded = await this.imageDeleter.performUntagging(plan.untagOperations);
+                if (reloadNeeded) {
+                    core.info('Reloading action due to untagging');
+                    await this.reload();
+                    reloadOccurred = true;
+                }
+            }
+            // Only process the original plan if we didn't reload
+            // If we reloaded, we need to re-process tag deletions
+            if (!reloadOccurred) {
+                for (const digest of plan.deleteSet) {
+                    this.deleteSet.add(digest);
+                }
+            }
+            else {
+                // After reload, process all tag deletions again
+                const newPlan = await this.deletionStrategy.processTagDeletions(this.filterSet, this.excludeTags);
+                for (const digest of newPlan.deleteSet) {
+                    this.deleteSet.add(digest);
+                }
+            }
         }
+        // Process ghost/partial/orphaned images
         if (this.config.deletePartialImages) {
-            await this.deletePartialImages();
+            const partialImages = await this.imageValidator.findPartialImages(this.filterSet);
+            for (const digest of partialImages) {
+                this.deleteSet.add(digest);
+                this.filterSet.delete(digest);
+            }
         }
         else if (this.config.deleteGhostImages) {
-            await this.deleteGhostImages();
+            const ghostImages = await this.imageValidator.findGhostImages(this.filterSet);
+            for (const digest of ghostImages) {
+                this.deleteSet.add(digest);
+                this.filterSet.delete(digest);
+            }
         }
         if (this.config.deleteOrphanedImages) {
-            await this.deleteOrphanedImages();
+            const orphanedImages = this.imageValidator.findOrphanedImages();
+            for (const digest of orphanedImages) {
+                this.deleteSet.add(digest);
+                this.filterSet.delete(digest);
+            }
         }
+        // Process keep-n policies
         if (this.config.keepNtagged != null) {
-            // we are in the cleanup tagged images mode
-            await this.keepNtagged();
+            const toDelete = this.deletionStrategy.keepNTagged(this.filterSet);
+            for (const digest of toDelete) {
+                this.deleteSet.add(digest);
+            }
         }
         if (this.config.keepNuntagged != null) {
-            // we are in the cleanup untagged images mode
-            await this.keepNuntagged();
+            const toDelete = this.deletionStrategy.keepNUntagged(this.filterSet);
+            for (const digest of toDelete) {
+                this.deleteSet.add(digest);
+            }
         }
         else if (this.config.deleteUntagged) {
-            // delete all untagged images
-            await this.deleteUntagged();
+            const toDelete = this.deletionStrategy.deleteAllUntagged(this.filterSet);
+            for (const digest of toDelete) {
+                this.deleteSet.add(digest);
+            }
         }
-        // now preform the actual deletion
-        await this.doDelete();
-        // print out the statistics
+        // Perform the actual deletion
+        if (this.imageDeleter) {
+            const result = await this.imageDeleter.deleteImages(this.deleteSet);
+            this.statistics.numberImagesDeleted = result.numberImagesDeleted;
+            this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
+        }
+        // Print statistics
         this.statistics.print();
+        // Run validation if requested
         if (this.config.validate) {
             core.info(` [${this.targetPackage}] Running Validation Task `);
             await this.reload();
-            await this.validate();
+            await this.imageValidator.validate();
             core.info('');
         }
         return this.statistics;
@@ -44513,10 +44656,10 @@ class CleanupAction {
         let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0);
         const perPackageStats = [];
         for (const targetPackage of targetPackages) {
-            const cleanupTask = new CleanupTask(this.config, targetPackage);
-            await cleanupTask.init();
-            await cleanupTask.reload();
-            const stats = await cleanupTask.run();
+            const orchestrator = new CleanupOrchestrator(this.config, targetPackage);
+            await orchestrator.init();
+            await orchestrator.reload();
+            const stats = await orchestrator.run();
             perPackageStats.push(stats);
             globalStatistics = globalStatistics.add(stats);
         }
@@ -44677,7 +44820,7 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("crypto");
 
 /***/ }),
 
-/***/ 1637:
+/***/ 4018:
 /***/ ((module) => {
 
 module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("diagnostics_channel");
