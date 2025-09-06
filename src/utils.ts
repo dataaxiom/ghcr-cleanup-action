@@ -7,11 +7,13 @@ export function parseChallenge(challenge: string): Map<string, string> {
     const parts = challenge.split(',')
     for (const part of parts) {
       const values = part.split('=')
-      let value = values[1]
-      if (value.startsWith('"') && value.endsWith('"')) {
-        value = value.substring(1, value.length - 1)
+      if (values.length >= 2) {
+        let value = values[1] || ''
+        if (value.startsWith('"') && value.endsWith('"')) {
+          value = value.substring(1, value.length - 1)
+        }
+        attributes.set(values[0], value)
       }
-      attributes.set(values[0], value)
     }
   }
   return attributes

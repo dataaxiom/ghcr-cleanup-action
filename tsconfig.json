@@ -19,7 +19,9 @@
     "./dist",
     "./citester",
     "./node_modules",
-    "./__tests__",
-    "./coverage"
+    "./src/**/*.test.ts",
+    "./src/__tests__",
+    "./coverage",
+    "./vitest.config.ts"
   ]
 }

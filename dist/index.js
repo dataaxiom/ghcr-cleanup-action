@@ -7952,7 +7952,7 @@ function save(namespaces) {
 function load() {
 	let r;
 	try {
-		r = exports.storage.getItem('debug');
+		r = exports.storage.getItem('debug') || exports.storage.getItem('DEBUG') ;
 	} catch (error) {
 		// Swallow
 		// XXX (@Qix-) should we be logging these?
@@ -8180,7 +8180,7 @@ function setup(env) {
 
 		const split = (typeof namespaces === 'string' ? namespaces : '')
 			.trim()
-			.replace(' ', ',')
+			.replace(/\s+/g, ',')
 			.split(',')
 			.filter(Boolean);
 
@@ -33392,11 +33392,13 @@ function parseChallenge(challenge) {
         const parts = challenge.split(',');
         for (const part of parts) {
             const values = part.split('=');
-            let value = values[1];
-            if (value.startsWith('"') && value.endsWith('"')) {
-                value = value.substring(1, value.length - 1);
+            if (values.length >= 2) {
+                let value = values[1] || '';
+                if (value.startsWith('"') && value.endsWith('"')) {
+                    value = value.substring(1, value.length - 1);
+                }
+                attributes.set(values[0], value);
             }
-            attributes.set(values[0], value);
         }
     }
     return attributes;

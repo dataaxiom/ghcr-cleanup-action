@@ -3,3 +3,4 @@ dist/
 citester/
 node_modules/
 coverage/
+vitest.config.ts
