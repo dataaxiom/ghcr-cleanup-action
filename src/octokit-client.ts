@@ -28,7 +28,6 @@ export class OctokitClient {
       auth: token,
       baseUrl,
       throttle: {
-        // @ts-expect-error Plugin type definitions don't match the actual runtime behavior
         onRateLimit: (
           retryAfter: number,
           options: EndpointDefaults,
@@ -46,7 +45,6 @@ export class OctokitClient {
           }
           return false
         },
-        // @ts-expect-error Plugin type definitions don't match the actual runtime behavior
         onSecondaryRateLimit: (
           retryAfter: number,
           options: EndpointDefaults,

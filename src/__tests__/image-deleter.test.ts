@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest'
 import * as core from '@actions/core'
 import { ImageDeleter } from '../image-deleter'
 import { CleanupContext } from '../cleanup-types'
@@ -13,7 +13,7 @@ describe('ImageDeleter', () => {
   let context: CleanupContext
   let mockPackageRepo: any
   let mockRegistry: any
-  let mockManifestAnalyzer: vi.Mocked<ManifestAnalyzer>
+  let mockManifestAnalyzer: Mocked<ManifestAnalyzer>
   let digestUsedBy: Map<string, Set<string>>
 
   beforeEach(() => {
@@ -51,7 +51,9 @@ describe('ImageDeleter', () => {
       primeManifests: vi.fn().mockResolvedValue(undefined),
       buildLabel: vi.fn().mockResolvedValue('label')
     } as any
-    vi.mocked(ManifestAnalyzer).mockImplementation(() => mockManifestAnalyzer)
+    vi.mocked(ManifestAnalyzer).mockImplementation(function () {
+      return mockManifestAnalyzer
+    } as any)
 
     deleter = new ImageDeleter(context, digestUsedBy)
   })

@@ -6,10 +6,7 @@ on:
     types: [assigned, opened, synchronize, reopened]
 
 permissions:
-  id-token: write
-  packages: write
   contents: read
-  attestations: write
 
 concurrency:
   group: ci-tests
@@ -22,14 +19,18 @@ jobs:
   general-tests:
     name: General Tests
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         id: setup-node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .node-version
           cache: npm
@@ -54,6 +55,9 @@ jobs:
     name: Test
     runs-on: ubuntu-24.04
     needs: general-tests
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
       max-parallel: 1
@@ -193,115 +197,67 @@ jobs:
     steps:
       # Setup for test execution
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .node-version
           cache: npm
 
       # Execution of respective test
       - name: 'Starting Test: ${{ matrix.tests.title }}'
+        env:
+          TEST_PURPOSE: ${{ matrix.tests.purpose }}
+          TEST_DELETE_TAGS: ${{ matrix.tests.delete-tags }}
+          TEST_DELETE_UNTAGGED: ${{ matrix.tests.delete-untagged }}
+          TEST_DELETE_GHOST_IMAGES: ${{ matrix.tests.delete-ghost-images }}
+          TEST_DELETE_PARTIAL_IMAGES: ${{ matrix.tests.delete-partial-images }}
+          TEST_DELETE_ORPHANED_IMAGES:
+            ${{ matrix.tests.delete-orphaned-images }}
+          TEST_KEEP_N_TAGGED: ${{ matrix.tests.keep-n-tagged }}
+          TEST_KEEP_N_UNTAGGED: ${{ matrix.tests.keep-n-untagged }}
+          TEST_EXCLUDE_TAGS: ${{ matrix.tests.exclude-tags }}
+          TEST_OLDER_THAN: ${{ matrix.tests.older-than }}
+          TEST_DRY_RUN: ${{ matrix.tests.dry-run }}
+          TEST_USE_REGEX: ${{ matrix.tests.use-regex }}
+          TEST_VALIDATE: ${{ matrix.tests.validate }}
+          TEST_REGISTRY_URL: ${{ matrix.tests.registry-url }}
+          TEST_GITHUB_API_URL: ${{ matrix.tests.github-api-url }}
         run: |
-          echo "Purpose of test: ${{ matrix.tests.purpose }}"
-
-          DELETE_TAGS=""
-          if [ -n "${{ matrix.tests.delete-tags }}" ]; then
-            DELETE_TAGS="${{ matrix.tests.delete-tags }}"
-          fi
-
-          DELETE_UNTAGGED=""
-          if [ -n "${{ matrix.tests.delete-untagged }}" ]; then
-            DELETE_UNTAGGED="${{ matrix.tests.delete-untagged }}"
-          fi
-
-          DELETE_GHOST_IMAGES=""
-          if [ -n "${{ matrix.tests.delete-ghost-images }}" ]; then
-            DELETE_GHOST_IMAGES="${{ matrix.tests.delete-ghost-images }}"
-          fi
-
-          DELETE_PARTIAL_IMAGES=""
-          if [ -n "${{ matrix.tests.delete-partial-images }}" ]; then
-            DELETE_PARTIAL_IMAGES="${{ matrix.tests.delete-partial-images }}"
-          fi
-
-          DELETE_ORPHANED_IMAGES=""
-          if [ -n "${{ matrix.tests.delete-orphaned-images }}" ]; then
-            DELETE_ORPHANED_IMAGES="${{ matrix.tests.delete-orphaned-images }}"
-          fi
-
-          KEEP_N_TAGGED=""
-          if [ -n "${{ matrix.tests.keep-n-tagged }}" ]; then
-            KEEP_N_TAGGED="${{ matrix.tests.keep-n-tagged }}"
-          fi
-
-          KEEP_N_UNTAGGED=""
-          if [ -n "${{ matrix.tests.keep-n-untagged }}" ]; then
-            KEEP_N_UNTAGGED="${{ matrix.tests.keep-n-untagged }}"
-          fi
-
-          EXCLUDE_TAGS=""
-          if [ -n "${{ matrix.tests.exclude-tags }}" ]; then
-            EXCLUDE_TAGS="${{ matrix.tests.exclude-tags }}"
-          fi
-
-          OLDER_THAN=""
-          if [ -n "${{ matrix.tests.older-than }}" ]; then
-            OLDER_THAN="${{ matrix.tests.older-than }}"
-          fi
-
-          DRY_RUN=""
-          if [ -n "${{ matrix.tests.dry-run }}" ]; then
-            DRY_RUN="${{ matrix.tests.dry-run }}"
-          fi
-
-          USE_REGEX=""
-          if [ -n "${{ matrix.tests.use-regex }}" ]; then
-            USE_REGEX="${{ matrix.tests.use-regex }}"
-          fi
-
-          VALIDATE=""
-          if [ -n "${{ matrix.tests.validate }}" ]; then
-            VALIDATE="${{ matrix.tests.validate }}"
-          fi
-
-          REGISTRY_URL=""
-          if [ -n "${{ matrix.tests.registry-url }}" ]; then
-            REGISTRY_URL="${{ matrix.tests.registry-url }}"
-          fi
-
-          GITHUB_API_URL=""
-          if [ -n "${{ matrix.tests.github-api-url }}" ]; then
-            GITHUB_API_URL="${{ matrix.tests.github-api-url }}"
-          fi
+          echo "Purpose of test: $TEST_PURPOSE"
 
           DELAY="0"
-          if [ -n "$KEEP_N_TAGGED" ] || [ -n "$KEEP_N_UNTAGGED" ]; then
+          if [ -n "$TEST_KEEP_N_TAGGED" ] || [ -n "$TEST_KEEP_N_UNTAGGED" ]; then
             DELAY="3000"
           fi
 
-          { echo "DELETE_TAGS=$DELETE_TAGS";
-            echo "DELETE_UNTAGGED=$DELETE_UNTAGGED";
-            echo "DELETE_GHOST_IMAGES=$DELETE_GHOST_IMAGES";
-            echo "DELETE_PARTIAL_IMAGES=$DELETE_PARTIAL_IMAGES";
-            echo "DELETE_ORPHANED_IMAGES=$DELETE_ORPHANED_IMAGES";
-            echo "KEEP_N_TAGGED=$KEEP_N_TAGGED";
-            echo "KEEP_N_UNTAGGED=$KEEP_N_UNTAGGED";
-            echo "EXCLUDE_TAGS=$EXCLUDE_TAGS";
-            echo "OLDER_THAN=$OLDER_THAN";
-            echo "DRY_RUN=$DRY_RUN";
-            echo "USE_REGEX=$USE_REGEX";
-            echo "REGISTRY_URL=$REGISTRY_URL";
-            echo "GITHUB_API_URL=$GITHUB_API_URL";
-            echo "VALIDATE=$VALIDATE";
+          { echo "DELETE_TAGS=$TEST_DELETE_TAGS";
+            echo "DELETE_UNTAGGED=$TEST_DELETE_UNTAGGED";
+            echo "DELETE_GHOST_IMAGES=$TEST_DELETE_GHOST_IMAGES";
+            echo "DELETE_PARTIAL_IMAGES=$TEST_DELETE_PARTIAL_IMAGES";
+            echo "DELETE_ORPHANED_IMAGES=$TEST_DELETE_ORPHANED_IMAGES";
+            echo "KEEP_N_TAGGED=$TEST_KEEP_N_TAGGED";
+            echo "KEEP_N_UNTAGGED=$TEST_KEEP_N_UNTAGGED";
+            echo "EXCLUDE_TAGS=$TEST_EXCLUDE_TAGS";
+            echo "OLDER_THAN=$TEST_OLDER_THAN";
+            echo "DRY_RUN=$TEST_DRY_RUN";
+            echo "USE_REGEX=$TEST_USE_REGEX";
+            echo "REGISTRY_URL=$TEST_REGISTRY_URL";
+            echo "GITHUB_API_URL=$TEST_GITHUB_API_URL";
+            echo "VALIDATE=$TEST_VALIDATE";
             echo "DELAY=$DELAY"; } >> "$GITHUB_ENV"
 
       - name: ' > Priming Test Environment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEST_FOLDER: ${{ matrix.tests.folder }}
         run: |
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} \
-            --directory tests/${{ matrix.tests.folder }} \
-            --mode prime --delay ${{ env.DELAY }}
+          node citester/index.js --token "$GH_TOKEN" \
+            --directory "tests/$TEST_FOLDER" \
+            --mode prime --delay "$DELAY"
 
       - name: ' > Running Workflow'
         uses: ./
@@ -323,9 +279,12 @@ jobs:
           log-level: info
 
       - name: ' > Validating Outcome'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEST_FOLDER: ${{ matrix.tests.folder }}
         run: |
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} \
-            --directory tests/${{ matrix.tests.folder }} \
+          node citester/index.js --token "$GH_TOKEN" \
+            --directory "tests/$TEST_FOLDER" \
             --mode validate
 
   github-attestation-tests:
@@ -334,21 +293,27 @@ jobs:
     env:
       REGISTRY: ghcr.io
     needs: integration-tests
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
 
     steps:
       # Setup for test execution
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .node-version
-          cache: npm
 
       # referrer/attestation tests
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -359,12 +324,14 @@ jobs:
 
       # attestation tagged test
       - name: Prime Test - Attestation Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-tagged --mode prime
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/attestation-tagged --mode prime
       - name: Build and push image
         id: push1
-        uses: docker/build-push-action@v6.10.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: tests/attestation-tagged
           file: tests/attestation-tagged/Dockerfile.image
@@ -372,7 +339,7 @@ jobs:
           tags:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-name:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
@@ -384,18 +351,22 @@ jobs:
           delete-tags: test
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Validate Test Results - Attestation Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-tagged --mode validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/attestation-tagged --mode validate
 
       # attestation untagged test
       - name: Prime Test - Attestation UnTagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-untagged --mode prime
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/attestation-untagged --mode prime
       - name: Build and push image 1
         id: push2
-        uses: docker/build-push-action@v6.10.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: tests/attestation-untagged
           file: tests/attestation-untagged/Dockerfile.image1
@@ -403,7 +374,7 @@ jobs:
           tags:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image 1
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-name:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
@@ -411,7 +382,7 @@ jobs:
           push-to-registry: true
       - name: Build and push image 2
         id: push3
-        uses: docker/build-push-action@v6.10.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: tests/attestation-untagged
           file: tests/attestation-untagged/Dockerfile.image2
@@ -419,43 +390,52 @@ jobs:
           tags:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:test
       - name: Attest Image 2
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-name:
             ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}
           subject-digest: ${{ steps.push3.outputs.digest }}
           push-to-registry: true
       - name: Save Digests - Attestation UnTagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-untagged --mode save-expected --tag test
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/attestation-untagged --mode save-expected --tag test
       - name: Run Test - Attestation UnTagged
         uses: ./
         with:
           validate: true
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Validate Test Results - Attestation Tagged
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/attestation-untagged --mode validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/attestation-untagged --mode validate
 
   cosign-test:
     name: Cosign Test
     needs: github-attestation-tests
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .node-version
-          cache: npm
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -465,12 +445,14 @@ jobs:
           echo "repository=${GITHUB_REPOSITORY@L}" >> "$GITHUB_OUTPUT"
 
       - name: Prime Test - Cosign Test
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/cosign --mode prime
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/cosign --mode prime
 
       - name: Build and push image
-        uses: docker/build-push-action@v6.10.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: tests/cosign
           file: tests/cosign/Dockerfile.image
@@ -480,14 +462,17 @@ jobs:
             }}:cosign
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign container image
-        run: |
-          cosign sign -y ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository }}:cosign
         env:
+          IMAGE_REF:
+            ${{ env.REGISTRY }}/${{ steps.lower-repo.outputs.repository
+            }}:cosign
           TAGS: cosign
           COSIGN_EXPERIMENTAL: false
+        run: |
+          cosign sign -y "$IMAGE_REF"
 
       - name: Run Test - Cosign
         uses: ./
@@ -496,18 +481,25 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate Test Results - Cosign
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/cosign --mode validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/cosign --mode validate
 
   multi-package-cleanup:
     name: Cleanup Multiple Packages
     runs-on: ubuntu-24.04
     needs: cosign-test
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Run Test - Multi-package Cleanup
         uses: ./
@@ -522,22 +514,29 @@ jobs:
     name: Shared Images Tagged Test
     runs-on: ubuntu-24.04
     needs: multi-package-cleanup
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prime Test - Shared Images Tagged Test
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared-images-tagged --mode prime
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/shared-images-tagged --mode prime
 
       - name: Create builder
         run: docker buildx create --name mybuilder --use --bootstrap
@@ -559,9 +558,11 @@ jobs:
           tests/shared-images-tagged
 
       - name: Save Digests - Shared Images Tagged Test
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared-images-tagged --mode save-expected --tag image2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/shared-images-tagged --mode save-expected --tag image2
 
       - name: Run Test - Shared Images Tagged Test
         uses: ./
@@ -571,30 +572,39 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate Test Results - Shared Images Tagged Test
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared-images-tagged --mode validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/shared-images-tagged --mode validate
 
   shared-image-untagged-test:
     name: Shared Images Untagged Test
     runs-on: ubuntu-24.04
     needs: shared-image-tagged-test
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prime Test - Shared Images Untagged Test
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared-images-untagged --mode prime
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/shared-images-untagged --mode prime
 
       - name: Create builder
         run: docker buildx create --name mybuilder --use --bootstrap
@@ -616,9 +626,11 @@ jobs:
           tests/shared-images-untagged
 
       - name: Reload dummy - Shared Images Untagged Test
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared-images-untagged --mode prime-dummy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/shared-images-untagged --mode prime-dummy
 
       - name: Run Test - Shared Images Untagged Test
         uses: ./
@@ -627,20 +639,27 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate Test Results - Shared Images Untagged Test
-        run:
-          node citester/index.js --token ${{ secrets.GITHUB_TOKEN }} --directory
-          tests/shared-images-untagged --mode validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node citester/index.js --token "$GH_TOKEN" --directory \
+            tests/shared-images-untagged --mode validate
 
   multi-package-cleanup-regex:
     name: Cleanup Multiple Packages - Regex
     runs-on: ubuntu-24.04
     needs: shared-image-untagged-test
+    permissions:
+      contents: read
+      packages: write
     env:
-      GHCR_PAT: ${{secrets.GHCR_PAT}}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Run Test - Multi-package Cleanup
         if: ${{ env.GHCR_PAT }}

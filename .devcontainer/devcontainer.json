@@ -1,6 +1,6 @@
 {
   "name": "GitHub Actions (TypeScript)",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:20",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
   "postCreateCommand": "npm install",
   "customizations": {
     "codespaces": {
@@ -18,13 +18,15 @@
         "github.vscode-pull-request-github",
         "me-dutour-mathieu.vscode-github-actions",
         "redhat.vscode-yaml",
-        "rvest.vs-code-prettier-eslint",
         "yzhang.markdown-all-in-one"
       ],
       "settings": {
         "editor.defaultFormatter": "esbenp.prettier-vscode",
         "editor.tabSize": 2,
         "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
         "markdown.extension.list.indentationSize": "adaptive",
         "markdown.extension.italic.indicator": "_",
         "markdown.extension.orderedList.marker": "one"

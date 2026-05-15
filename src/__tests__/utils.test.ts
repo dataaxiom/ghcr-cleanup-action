@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  vi,
+  type MockedFunction
+} from 'vitest'
 import * as core from '@actions/core'
 import {
   parseChallenge,
@@ -154,7 +161,7 @@ describe('utils', () => {
     })
 
     it('should print entries with proper spacing', () => {
-      const mockInfo = core.info as vi.MockedFunction<typeof core.info>
+      const mockInfo = core.info as MockedFunction<typeof core.info>
 
       printer.add('key1', 'value1')
       printer.add('longer_key', 'value2')
@@ -180,7 +187,7 @@ describe('utils', () => {
     })
 
     it('should handle empty printer', () => {
-      const mockInfo = core.info as vi.MockedFunction<typeof core.info>
+      const mockInfo = core.info as MockedFunction<typeof core.info>
 
       printer.print()
 
@@ -227,13 +234,11 @@ describe('utils', () => {
     })
 
     it('should print statistics with multi-arch images', () => {
-      const mockStartGroup = core.startGroup as vi.MockedFunction<
+      const mockStartGroup = core.startGroup as MockedFunction<
         typeof core.startGroup
       >
-      const mockInfo = core.info as vi.MockedFunction<typeof core.info>
-      const mockEndGroup = core.endGroup as vi.MockedFunction<
-        typeof core.endGroup
-      >
+      const mockInfo = core.info as MockedFunction<typeof core.info>
+      const mockEndGroup = core.endGroup as MockedFunction<typeof core.endGroup>
 
       const stats = new CleanupTaskStatistics('test-package', 3, 15)
       stats.print()
@@ -249,13 +254,11 @@ describe('utils', () => {
     })
 
     it('should print statistics without multi-arch images when zero', () => {
-      const mockStartGroup = core.startGroup as vi.MockedFunction<
+      const mockStartGroup = core.startGroup as MockedFunction<
         typeof core.startGroup
       >
-      const mockInfo = core.info as vi.MockedFunction<typeof core.info>
-      const mockEndGroup = core.endGroup as vi.MockedFunction<
-        typeof core.endGroup
-      >
+      const mockInfo = core.info as MockedFunction<typeof core.info>
+      const mockEndGroup = core.endGroup as MockedFunction<typeof core.endGroup>
 
       const stats = new CleanupTaskStatistics('test-package', 0, 10)
       stats.print()

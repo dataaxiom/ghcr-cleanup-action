@@ -50,7 +50,7 @@ export async function buildConfig(): Promise<Config> {
 
   if (core.getInput('package') && core.getInput('packages')) {
     throw Error(
-      'package and packages cant be used at the same time, use either one'
+      'package and packages cannot be used at the same time, use either one'
     )
   }
   config.package = core.getInput('package')
@@ -96,7 +96,7 @@ export async function buildConfig(): Promise<Config> {
 
   if (core.getInput('tags') && core.getInput('delete-tags')) {
     throw Error(
-      'tags and delete-tags cant be used at the same time, use either one'
+      'tags and delete-tags cannot be used at the same time, use either one'
     )
   }
   if (core.getInput('tags')) {

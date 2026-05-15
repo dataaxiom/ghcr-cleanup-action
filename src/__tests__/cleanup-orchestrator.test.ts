@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest'
 import * as core from '@actions/core'
 import { CleanupOrchestrator } from '../cleanup-orchestrator'
 import { Config } from '../config'
@@ -26,13 +26,13 @@ describe('CleanupOrchestrator', () => {
   let config: Config
   let octokitClient: OctokitClient
   let orchestrator: CleanupOrchestrator
-  let mockRegistry: vi.Mocked<Registry>
-  let mockPackageRepo: vi.Mocked<PackageRepo>
-  let mockImageFilter: vi.Mocked<ImageFilter>
-  let mockManifestAnalyzer: vi.Mocked<ManifestAnalyzer>
-  let mockImageValidator: vi.Mocked<ImageValidator>
-  let mockDeletionStrategy: vi.Mocked<DeletionStrategy>
-  let mockImageDeleter: vi.Mocked<ImageDeleter>
+  let mockRegistry: Mocked<Registry>
+  let mockPackageRepo: Mocked<PackageRepo>
+  let mockImageFilter: Mocked<ImageFilter>
+  let mockManifestAnalyzer: Mocked<ManifestAnalyzer>
+  let mockImageValidator: Mocked<ImageValidator>
+  let mockDeletionStrategy: Mocked<DeletionStrategy>
+  let mockImageDeleter: Mocked<ImageDeleter>
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -72,27 +72,35 @@ describe('CleanupOrchestrator', () => {
     mockRegistry = {
       login: vi.fn().mockResolvedValue(undefined)
     } as any
-    vi.mocked(Registry).mockImplementation(() => mockRegistry)
+    vi.mocked(Registry).mockImplementation(function () {
+      return mockRegistry
+    } as any)
 
     // Mock PackageRepo
     mockPackageRepo = {
       loadPackages: vi.fn().mockResolvedValue(undefined)
     } as any
-    vi.mocked(PackageRepo).mockImplementation(() => mockPackageRepo)
+    vi.mocked(PackageRepo).mockImplementation(function () {
+      return mockPackageRepo
+    } as any)
 
     // Mock ImageFilter
     mockImageFilter = {
       applyExclusionFilters: vi.fn().mockReturnValue([]),
       applyAgeFilter: vi.fn()
     } as any
-    vi.mocked(ImageFilter).mockImplementation(() => mockImageFilter)
+    vi.mocked(ImageFilter).mockImplementation(function () {
+      return mockImageFilter
+    } as any)
 
     // Mock ManifestAnalyzer
     mockManifestAnalyzer = {
       loadDigestUsedByMap: vi.fn().mockResolvedValue(new Map()),
       initFilterSet: vi.fn().mockResolvedValue(new Set())
     } as any
-    vi.mocked(ManifestAnalyzer).mockImplementation(() => mockManifestAnalyzer)
+    vi.mocked(ManifestAnalyzer).mockImplementation(function () {
+      return mockManifestAnalyzer
+    } as any)
 
     // Mock ImageValidator
     mockImageValidator = {
@@ -101,7 +109,9 @@ describe('CleanupOrchestrator', () => {
       findOrphanedImages: vi.fn().mockReturnValue(new Set()),
       validate: vi.fn().mockResolvedValue(undefined)
     } as any
-    vi.mocked(ImageValidator).mockImplementation(() => mockImageValidator)
+    vi.mocked(ImageValidator).mockImplementation(function () {
+      return mockImageValidator
+    } as any)
 
     // Mock DeletionStrategy
     mockDeletionStrategy = {
@@ -113,7 +123,9 @@ describe('CleanupOrchestrator', () => {
       keepNUntagged: vi.fn().mockReturnValue(new Set()),
       deleteAllUntagged: vi.fn().mockReturnValue(new Set())
     } as any
-    vi.mocked(DeletionStrategy).mockImplementation(() => mockDeletionStrategy)
+    vi.mocked(DeletionStrategy).mockImplementation(function () {
+      return mockDeletionStrategy
+    } as any)
 
     // Mock ImageDeleter
     mockImageDeleter = {
@@ -123,7 +135,9 @@ describe('CleanupOrchestrator', () => {
         numberMultiImagesDeleted: 0
       })
     } as any
-    vi.mocked(ImageDeleter).mockImplementation(() => mockImageDeleter)
+    vi.mocked(ImageDeleter).mockImplementation(function () {
+      return mockImageDeleter
+    } as any)
 
     // Mock CleanupTaskStatistics
     const mockStats = {
@@ -131,7 +145,9 @@ describe('CleanupOrchestrator', () => {
       numberImagesDeleted: 0,
       numberMultiImagesDeleted: 0
     }
-    vi.mocked(CleanupTaskStatistics).mockImplementation(() => mockStats as any)
+    vi.mocked(CleanupTaskStatistics).mockImplementation(function () {
+      return mockStats as any
+    })
 
     orchestrator = new CleanupOrchestrator(
       config,

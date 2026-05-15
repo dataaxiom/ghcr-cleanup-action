@@ -1,0 +1,32 @@
+rules:
+  # The GHCR_PAT secret is used in exactly one job (multi-package-cleanup-regex)
+  # as the `token:` input to a composite action - never interpolated into a
+  # shell `run:` block, never logged, and guarded by `if: env.GHCR_PAT`. The
+  # defence-in-depth gain from a dedicated GitHub Environment isn't worth the
+  # per-fork setup cost for this single-secret use case.
+  secrets-outside-env:
+    ignore:
+      - ci.yml
+
+  # False positive: zizmor flags any setup-node + docker/build-push-action pair
+  # as potential cache-poisoning, but our setup-node invocations in
+  # github-attestation-tests and cosign-test deliberately omit `cache: npm` -
+  # setup-node does not cache unless explicitly told to. Node is installed in
+  # those jobs only to run citester/index.js (already-bundled JS), not to
+  # install npm packages. zizmor's own audit confidence is "Low" here.
+  cache-poisoning:
+    ignore:
+      - ci.yml
+
+  # `pull_request_target` is the intended trigger here. The integration tests
+  # need GHCR write access from fork PRs (the test images push to
+  # ghcr.io/<owner>/<repo>), and `pull_request` downgrades GITHUB_TOKEN to
+  # read-only for fork PRs - breaking the test design. This repo only uses
+  # ghcr.io for ephemeral CI test artifacts; nothing is published from here, so
+  # the trade-off favours integration coverage over zizmor's blanket warning.
+  # Safety: the workflow never checks out the PR's HEAD - actions/checkout
+  # defaults to the base ref under pull_request_target, so untrusted PR code
+  # does not execute with secrets.
+  dangerous-triggers:
+    ignore:
+      - ci.yml

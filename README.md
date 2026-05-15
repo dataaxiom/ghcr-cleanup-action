@@ -49,7 +49,7 @@ correctly, either by:
    ```
 
 The packakge also requires that the workflow action has been granted the Admin
-access role. This can be set in the specific Pacakage page in GitHub. Under
+access role. This can be set in the specific Package page in GitHub. Under
 Package Settings ensure the repository where the action is run is listed under
 "Manage Actions access" and has been granted the "Admin" role.
 
@@ -170,7 +170,7 @@ for its syntax. It supports the ?, \* and \*\* wildcard characters.
 To use a regular expression instead of a comma-seperated list set the
 `use-regex` option to true.
 
-Tag values can additionaly be expressed in the sha256: digest string format.
+Tag values can additionally be expressed in the sha256: digest string format.
 
 ### `delete-untagged`
 
@@ -205,7 +205,7 @@ for its syntax. It supports the ?, \* and \*\* wildcard characters.
 To use a regular expression instead of a comma-seperated list set the
 `use-regex` option to true.
 
-Tag values can additionaly be expressed in the sha256 digest string format.
+Tag values can additionally be expressed in the sha256 digest string format.
 
 ```yaml
 jobs:
@@ -266,7 +266,7 @@ jobs:
 
 ### `delete-orphaned-images`
 
-This option removes tagged images where the assoicated parent image does not
+This option removes tagged images where the associated parent image does not
 exist. It searches for images with tags starting with "sha256-" and then
 searches for the equivalent sha256: digest. If an image digest is not found then
 it's flagged for deletion. This picks up orphaned referrers and cosign images.
@@ -509,7 +509,7 @@ The high level processing of the action occurs as follows:
    untagged images for deletion.
 1. Or process `delete-untagged`, staging all untagged images in filter set for
    deletion.
-1. Preform the deletion on all staged packages, including their children if
+1. Perform the deletion on all staged packages, including their children if
    present.
 
 ## Operations

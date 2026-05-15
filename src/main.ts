@@ -140,7 +140,7 @@ class CleanupAction {
     ])
 
     // Configuration overview
-    const configPairs: [string, string][] = []
+    const configPairs: Array<[string, string]> = []
     configPairs.push(['owner', `${this.config.owner}`])
     configPairs.push(['repository', `${this.config.repository}`])
     configPairs.push(['packages', `${targetPackages.join(', ')}`])

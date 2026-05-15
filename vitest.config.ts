@@ -30,7 +30,7 @@ export default defineConfig({
       '@/': new URL('./src/', import.meta.url).pathname
     }
   },
-  esbuild: {
-    target: 'node20'
+  oxc: {
+    target: 'node24'
   }
 })

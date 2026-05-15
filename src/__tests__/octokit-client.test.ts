@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  vi,
+  type MockedFunction,
+  type Mock
+} from 'vitest'
 import * as core from '@actions/core'
 import { RequestError } from '@octokit/request-error'
 import { OctokitClient } from '../octokit-client'
@@ -8,10 +16,12 @@ import { LogLevel } from '../config'
 vi.mock('@actions/core')
 
 vi.mock('@octokit/rest', () => {
-  const MockOctokit = vi.fn(() => ({
-    request: vi.fn()
-  }))
-  MockOctokit.plugin = vi.fn(() => MockOctokit)
+  const MockOctokit = vi.fn(function () {
+    return { request: vi.fn() }
+  }) as ReturnType<typeof vi.fn> & { plugin: ReturnType<typeof vi.fn> }
+  MockOctokit.plugin = vi.fn(function () {
+    return MockOctokit
+  })
 
   return {
     Octokit: MockOctokit
@@ -29,11 +39,11 @@ vi.mock('@octokit/plugin-request-log', () => ({
 }))
 
 describe('OctokitClient', () => {
-  let mockWarning: vi.MockedFunction<typeof core.warning>
+  let mockWarning: MockedFunction<typeof core.warning>
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockWarning = core.warning as vi.MockedFunction<typeof core.warning>
+    mockWarning = core.warning as MockedFunction<typeof core.warning>
   })
 
   describe('constructor', () => {
@@ -98,7 +108,7 @@ describe('OctokitClient', () => {
 
   describe('getRepository', () => {
     let client: OctokitClient
-    let mockRequest: vi.Mock
+    let mockRequest: Mock
 
     beforeEach(() => {
       client = new OctokitClient('test-token')

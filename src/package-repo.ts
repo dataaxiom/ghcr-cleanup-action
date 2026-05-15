@@ -242,7 +242,7 @@ export class PackageRepo {
               this.lastDeleteResult = false
             } else {
               core.warning(
-                'Multiple 404 errors have occured, check the package settings and ensure the repository has been granted admin access'
+                'Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access'
               )
             }
           }

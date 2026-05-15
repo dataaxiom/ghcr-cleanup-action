@@ -22,11 +22,13 @@ jobs:
     steps:
       - name: Checkout
         id: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         id: setup-node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .node-version
           cache: npm
@@ -57,10 +59,10 @@ jobs:
 
       # If `dist/` was different than expected, upload the expected version as a
       # workflow artifact.
-      - if: ${{ failure() && steps.diff.outcome == 'failure' }}
+      - if: ${{ failure() && steps.diff-dist.outcome == 'failure' }}
         name: Upload Artifact
         id: upload-dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
@@ -82,10 +84,10 @@ jobs:
           fi
       # If `citester/` was different than expected, upload the expected version as a
       # workflow artifact.
-      - if: ${{ failure() && steps.diff.outcome == 'failure' }}
+      - if: ${{ failure() && steps.diff-citester.outcome == 'failure' }}
         name: Upload Artifact
         id: upload-citester
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: citester
           path: citester/

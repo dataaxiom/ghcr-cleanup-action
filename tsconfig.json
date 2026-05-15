@@ -5,7 +5,6 @@
     "module": "node16",
     "rootDir": "./src",
     "moduleResolution": "node16",
-    "baseUrl": "./",
     "sourceMap": true,
     "outDir": "./dist",
     "noImplicitAny": true,

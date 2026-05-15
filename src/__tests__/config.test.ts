@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  type MockedFunction,
+  type MockedClass
+} from 'vitest'
 import * as core from '@actions/core'
 import { Config, LogLevel, buildConfig } from '../config'
 import { OctokitClient } from '../octokit-client'
@@ -53,23 +62,21 @@ describe('Config', () => {
   })
 
   describe('buildConfig', () => {
-    let mockGetInput: vi.MockedFunction<typeof core.getInput>
-    let mockGetBooleanInput: vi.MockedFunction<typeof core.getBooleanInput>
-    let mockInfo: vi.MockedFunction<typeof core.info>
-    let mockStartGroup: vi.MockedFunction<typeof core.startGroup>
-    let mockEndGroup: vi.MockedFunction<typeof core.endGroup>
-    let mockOctokitClient: vi.MockedClass<typeof OctokitClient>
+    let mockGetInput: MockedFunction<typeof core.getInput>
+    let mockGetBooleanInput: MockedFunction<typeof core.getBooleanInput>
+    let mockInfo: MockedFunction<typeof core.info>
+    let mockStartGroup: MockedFunction<typeof core.startGroup>
+    let mockEndGroup: MockedFunction<typeof core.endGroup>
+    let mockOctokitClient: MockedClass<typeof OctokitClient>
 
     beforeEach(() => {
-      mockGetInput = core.getInput as vi.MockedFunction<typeof core.getInput>
-      mockGetBooleanInput = core.getBooleanInput as vi.MockedFunction<
+      mockGetInput = core.getInput as MockedFunction<typeof core.getInput>
+      mockGetBooleanInput = core.getBooleanInput as MockedFunction<
         typeof core.getBooleanInput
       >
-      mockInfo = core.info as vi.MockedFunction<typeof core.info>
-      mockStartGroup = core.startGroup as vi.MockedFunction<
-        typeof core.startGroup
-      >
-      mockEndGroup = core.endGroup as vi.MockedFunction<typeof core.endGroup>
+      mockInfo = core.info as MockedFunction<typeof core.info>
+      mockStartGroup = core.startGroup as MockedFunction<typeof core.startGroup>
+      mockEndGroup = core.endGroup as MockedFunction<typeof core.endGroup>
       mockOctokitClient = vi.mocked(OctokitClient)
 
       // Setup default mocks
@@ -147,7 +154,7 @@ describe('Config', () => {
       })
 
       await expect(buildConfig()).rejects.toThrow(
-        'package and packages cant be used at the same time, use either one'
+        'package and packages cannot be used at the same time, use either one'
       )
     })
 
@@ -211,7 +218,7 @@ describe('Config', () => {
       })
 
       await expect(buildConfig()).rejects.toThrow(
-        'tags and delete-tags cant be used at the same time, use either one'
+        'tags and delete-tags cannot be used at the same time, use either one'
       )
     })
 

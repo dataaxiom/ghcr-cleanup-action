@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest'
 import * as core from '@actions/core'
 import { DeletionStrategy } from '../deletion-strategy'
 import { CleanupContext } from '../cleanup-types'
@@ -10,7 +10,7 @@ vi.mock('../image-filter')
 describe('DeletionStrategy', () => {
   let strategy: DeletionStrategy
   let context: CleanupContext
-  let mockImageFilter: vi.Mocked<ImageFilter>
+  let mockImageFilter: Mocked<ImageFilter>
   let mockPackageRepo: any
   let mockRegistry: any
 
@@ -47,7 +47,9 @@ describe('DeletionStrategy', () => {
     mockImageFilter = {
       expandTags: vi.fn().mockReturnValue(new Set())
     } as any
-    vi.mocked(ImageFilter).mockImplementation(() => mockImageFilter)
+    vi.mocked(ImageFilter).mockImplementation(function () {
+      return mockImageFilter
+    } as any)
 
     strategy = new DeletionStrategy(context)
   })
