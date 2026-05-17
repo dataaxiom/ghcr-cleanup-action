@@ -30,3 +30,11 @@ rules:
   dangerous-triggers:
     ignore:
       - ci.yml
+
+  # update-coverage-badge.yml is a manual `workflow_dispatch` that intentionally
+  # leaves persist-credentials at its default so it can commit + push the
+  # regenerated badges/coverage.svg back to the branch it ran on. Removing
+  # credentials would break the workflow's purpose.
+  artipacked:
+    ignore:
+      - update-coverage-badge.yml

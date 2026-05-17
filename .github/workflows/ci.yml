@@ -49,7 +49,33 @@ jobs:
 
       - name: Test
         id: npm-ci-test
-        run: npm run ci-test
+        run: npx vitest run --passWithNoTests --coverage
+
+      - name: Coverage Report
+        id: coverage-report
+        run: |
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "::warning::No coverage summary found - skipping report"
+            exit 0
+          fi
+
+          STATEMENTS=$(jq -r '.total.statements.pct' coverage/coverage-summary.json)
+          BRANCHES=$(jq -r '.total.branches.pct' coverage/coverage-summary.json)
+          FUNCTIONS=$(jq -r '.total.functions.pct' coverage/coverage-summary.json)
+          LINES=$(jq -r '.total.lines.pct' coverage/coverage-summary.json)
+
+          {
+            echo "## Coverage Report"
+            echo ""
+            echo "| Metric | Coverage |"
+            echo "| --- | --- |"
+            echo "| Statements | ${STATEMENTS}% |"
+            echo "| Branches | ${BRANCHES}% |"
+            echo "| Functions | ${FUNCTIONS}% |"
+            echo "| Lines | ${LINES}% |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Statements coverage: ${STATEMENTS}%"
 
   integration-tests:
     name: Test

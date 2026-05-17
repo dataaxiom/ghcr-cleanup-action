@@ -51,20 +51,38 @@ class CleanupAction {
         )
         throw new Error()
       }
+      // Fine-grained PATs (github_pat_*) do not currently support GitHub
+      // Container Registry access (GitHub roadmap item #558 was removed in
+      // 2024 without a replacement). They pass the tokenType=='oauth' check
+      // above, so reject them up-front with a clear message instead of
+      // letting them fail later with an opaque 403 from the API.
+      if (authentication.token.startsWith('github_pat_')) {
+        core.setFailed(
+          'expand-packages requires a classic Personal Access Token. Fine-grained PATs do not currently support GitHub Container Registry access.'
+        )
+        throw new Error()
+      }
 
       // get the list of available packages in the repo
       const packageRepo = new PackageRepo(this.config, this.octokitClient)
       const packagesInUse: string[] = await packageRepo.getPackageList()
 
       if (this.config.useRegex) {
-        const regex = new RegExp(this.config.package)
+        const regex = new RegExp(this.config.package.trim())
         targetPackages = packagesInUse.filter(name => regex.test(name))
       } else {
-        const isTagMatch = wcmatch(this.config.package.split(','))
+        const patterns = this.config.package
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+        const isTagMatch = wcmatch(patterns)
         targetPackages = packagesInUse.filter(name => isTagMatch(name))
       }
     } else {
-      targetPackages = this.config.package.split(',')
+      targetPackages = this.config.package
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
     }
 
     if (targetPackages.length === 0) {

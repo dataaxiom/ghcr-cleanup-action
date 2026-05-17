@@ -45,6 +45,11 @@ export class PackageRepo {
       this.digest2Id.clear()
       this.id2Package.clear()
       this.tag2Digest.clear()
+      // reset the 404-tolerance flag so each fresh load starts with a clean
+      // "last delete succeeded" baseline (the flag tolerates a single 404 that
+      // follows a real delete - we don't want a stale `false` from a prior
+      // package leaking in if this repo is ever reused).
+      this.lastDeleteResult = true
 
       const octokit = this.octokitClient.getClient()
       // Using 'any' type here because TypeScript cannot unify the different function signatures
