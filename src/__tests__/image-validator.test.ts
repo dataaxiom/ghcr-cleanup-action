@@ -277,7 +277,11 @@ describe('ImageValidator', () => {
       expect(core.info).toHaveBeenCalledWith('partial2')
     })
 
-    it('should not include ghost images', async () => {
+    // Regression: issue #110 - partial-images was flagging fully ghost
+    // images too (any missing child triggered the flag). The fix requires
+    // at least one missing AND at least one present, so fully-missing
+    // ghost images are excluded and delete-ghost-images handles them.
+    it('should not include fully ghost images (issue #110)', async () => {
       const filterSet = new Set(['ghost'])
 
       mockRegistry.getManifestByDigest.mockResolvedValue({
@@ -294,7 +298,31 @@ describe('ImageValidator', () => {
 
       const result = await validator.findPartialImages(filterSet)
 
-      expect(result).toContain('ghost')
+      expect(result).not.toContain('ghost')
+      expect(result.size).toBe(0)
+    })
+
+    it('includes an image when exactly one of many children is missing', async () => {
+      const filterSet = new Set(['partial'])
+
+      mockRegistry.getManifestByDigest.mockResolvedValue({
+        manifests: [
+          { digest: 'sha256:exists1' },
+          { digest: 'sha256:exists2' },
+          { digest: 'sha256:missing' }
+        ]
+      })
+
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) =>
+        digest === 'sha256:missing' ? undefined : 'exists-id'
+      )
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        metadata: { container: { tags: [] } }
+      })
+
+      const result = await validator.findPartialImages(filterSet)
+
+      expect(result).toContain('partial')
     })
 
     it('should handle empty filterSet', async () => {
