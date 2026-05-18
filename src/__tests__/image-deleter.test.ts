@@ -292,6 +292,96 @@ describe('ImageDeleter', () => {
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
     })
 
+    it('cascades subject-bearing OCI 1.1 referrers when their subject is deleted', async () => {
+      // Regression for FINDINGS.md #20 / upstream issue #104: a bare
+      // OCI 1.1 referrer (no tag, no sha256-* fallback) was previously
+      // dropped by delete-untagged because nothing linked it back to
+      // its subject. The subjectReferrers reverse index now lets the
+      // deleter take it down alongside its subject.
+      const subjectPackage = {
+        id: 'subject-id',
+        name: 'sha256:subject',
+        metadata: { container: { tags: ['v1.0'] } }
+      }
+      const referrerPackage = {
+        id: 'referrer-id',
+        name: 'sha256:referrer',
+        metadata: { container: { tags: [] } }
+      }
+
+      mockRegistry.getManifestByDigest.mockResolvedValue({})
+      mockPackageRepo.getPackageByDigest.mockImplementation(
+        (digest: string) => {
+          if (digest === 'sha256:referrer') return referrerPackage
+          return subjectPackage
+        }
+      )
+
+      const subjectReferrers = new Map([
+        ['sha256:subject', new Set(['sha256:referrer'])]
+      ])
+      deleter = new ImageDeleter(context, digestUsedBy, subjectReferrers)
+
+      const result = await deleter.deleteImage(subjectPackage)
+
+      expect(result.deleted).toBe(2)
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
+        'test-package',
+        'subject-id',
+        'sha256:subject',
+        ['v1.0']
+      )
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
+        'test-package',
+        'referrer-id',
+        'sha256:referrer',
+        []
+      )
+    })
+
+    it('does not double-delete a referrer reachable via both sha256-* tag and subject', async () => {
+      // Hybrid output (cosign --registry-referrers-mode oci-1-1 on ghcr)
+      // creates BOTH a sha256-* fallback tag AND a subject descriptor
+      // pointing at the same target. Make sure we only delete the
+      // referrer package once.
+      const subjectDigest = `sha256:${'a'.repeat(64)}`
+      const referrerDigest = 'sha256:referrer'
+      const fallbackTag = `sha256-${'a'.repeat(64)}.sig`
+
+      const subjectPackage = {
+        id: 'subject-id',
+        name: subjectDigest,
+        metadata: { container: { tags: ['v1.0'] } }
+      }
+      const referrerPackage = {
+        id: 'referrer-id',
+        name: referrerDigest,
+        metadata: { container: { tags: [fallbackTag] } }
+      }
+
+      mockRegistry.getManifestByDigest.mockResolvedValue({})
+      mockPackageRepo.getTags.mockReturnValue([fallbackTag])
+      mockPackageRepo.getDigestByTag.mockImplementation((tag: string) =>
+        tag === fallbackTag ? referrerDigest : undefined
+      )
+      mockPackageRepo.getPackageByDigest.mockImplementation(
+        (digest: string) => {
+          if (digest === referrerDigest) return referrerPackage
+          return subjectPackage
+        }
+      )
+
+      const subjectReferrers = new Map([
+        [subjectDigest, new Set([referrerDigest])]
+      ])
+      deleter = new ImageDeleter(context, digestUsedBy, subjectReferrers)
+
+      const result = await deleter.deleteImage(subjectPackage)
+
+      expect(result.deleted).toBe(2)
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
+    })
+
     it('should handle recursive attestation deletion', async () => {
       const parentPackage = {
         id: 'parent-id',

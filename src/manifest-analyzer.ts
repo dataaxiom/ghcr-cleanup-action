@@ -10,11 +10,19 @@ export class ManifestAnalyzer {
   }
 
   /**
-   * Builds a map of child images back to their parents
-   * The map is used to determine if image can be safely deleted
+   * Builds two relationship maps in a single pass:
+   *  - digestUsedBy: child digest → set of multi-arch parent indexes
+   *  - subjectReferrers: subject digest → set of OCI 1.1 referrer digests
+   *    (manifests with a `subject` descriptor; subject may or may not be in
+   *    the repo — entries where the subject is missing surface as orphans
+   *    in the validator).
    */
-  async loadDigestUsedByMap(): Promise<Map<string, Set<string>>> {
+  async loadDigestUsedByMap(): Promise<{
+    digestUsedBy: Map<string, Set<string>>
+    subjectReferrers: Map<string, Set<string>>
+  }> {
     const digestUsedBy = new Map<string, Set<string>>()
+    const subjectReferrers = new Map<string, Set<string>>()
     let stopWatch = new Date()
     const digests = this.context.packageRepo.getDigests()
     const digestCount = digests.size
@@ -67,19 +75,50 @@ export class ManifestAnalyzer {
           }
         }
       }
+
+      // OCI 1.1 subject-bearing referrer (sigstore bundle, etc). ghcr.io
+      // does not implement the /referrers API but does echo the subject
+      // field, so we build the reverse index ourselves. Record the link
+      // even when the subject is not in the repo so the validator can
+      // surface orphans.
+      const subjectDigest = manifest.subject?.digest
+      if (subjectDigest) {
+        let referrers = subjectReferrers.get(subjectDigest)
+        if (!referrers) {
+          referrers = new Set<string>()
+          subjectReferrers.set(subjectDigest, referrers)
+        }
+        referrers.add(digest)
+      }
     }
     core.info(`loaded ${processed} manifests, ${skipped} skipped`)
     core.endGroup()
 
-    return digestUsedBy
+    return { digestUsedBy, subjectReferrers }
   }
 
   /**
-   * Remove all multi architecture platform images from the filterSet including its
-   * referrer image if present. Filtering/processing only occurs on top level images.
+   * Remove all multi architecture platform images from the filterSet including
+   * its referrer image if present (whether linked via a sha256-* tag or via an
+   * OCI 1.1 subject descriptor). Filtering/processing only occurs on top
+   * level images.
    */
-  async initFilterSet(): Promise<Set<string>> {
+  async initFilterSet(
+    subjectReferrers: Map<string, Set<string>> = new Map()
+  ): Promise<Set<string>> {
     const digests = this.context.packageRepo.getDigests()
+
+    // Remove all OCI 1.1 subject-bearing referrers from top-level
+    // processing — they are not stand-alone artifacts. If the subject is
+    // still in the repo, the referrer follows it through the cascade. If
+    // the subject is missing, the referrer is an orphan and is reached
+    // via delete-orphaned-images (symmetric with how orphaned sha256-*
+    // fallback tags work).
+    for (const referrers of subjectReferrers.values()) {
+      for (const referrerDigest of referrers) {
+        digests.delete(referrerDigest)
+      }
+    }
 
     for (const digest of digests) {
       const manifest = await this.context.registry.getManifestByDigest(digest)

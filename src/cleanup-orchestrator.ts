@@ -34,6 +34,7 @@ export class CleanupOrchestrator {
   private deleteSet = new Set<string>()
   private excludeTags: string[] = []
   private digestUsedBy = new Map<string, Set<string>>()
+  private subjectReferrers = new Map<string, Set<string>>()
   private statistics: CleanupTaskStatistics
 
   constructor(
@@ -73,14 +74,22 @@ export class CleanupOrchestrator {
     // Prime the list of current packages
     await this.packageRepo.loadPackages(this.targetPackage, true)
 
-    // Build digestUsedBy map
-    this.digestUsedBy = await this.manifestAnalyzer.loadDigestUsedByMap()
+    // Build digestUsedBy + subjectReferrers maps in one pass
+    const analysis = await this.manifestAnalyzer.loadDigestUsedByMap()
+    this.digestUsedBy = analysis.digestUsedBy
+    this.subjectReferrers = analysis.subjectReferrers
 
-    // Initialize imageDeleter with the digestUsedBy map
-    this.imageDeleter = new ImageDeleter(this.context, this.digestUsedBy)
+    // Initialize imageDeleter with both relationship maps
+    this.imageDeleter = new ImageDeleter(
+      this.context,
+      this.digestUsedBy,
+      this.subjectReferrers
+    )
 
     // Initialize filterSet - remove manifest image children, referrers etc
-    this.filterSet = await this.manifestAnalyzer.initFilterSet()
+    this.filterSet = await this.manifestAnalyzer.initFilterSet(
+      this.subjectReferrers
+    )
 
     // Apply exclusion filters
     this.excludeTags = this.imageFilter.applyExclusionFilters(this.filterSet)
@@ -162,7 +171,9 @@ export class CleanupOrchestrator {
     }
 
     if (this.config.deleteOrphanedImages) {
-      const orphanedImages = this.imageValidator.findOrphanedImages()
+      const orphanedImages = this.imageValidator.findOrphanedImages(
+        this.subjectReferrers
+      )
       for (const digest of orphanedImages) {
         this.deleteSet.add(digest)
         this.filterSet.delete(digest)
@@ -203,7 +214,7 @@ export class CleanupOrchestrator {
     if (this.config.validate) {
       core.info(` [${this.targetPackage}] Running Validation Task `)
       await this.reload()
-      await this.imageValidator.validate()
+      await this.imageValidator.validate(this.subjectReferrers)
       core.info('')
     }
 

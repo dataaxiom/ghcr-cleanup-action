@@ -49,9 +49,9 @@ describe('ManifestAnalyzer', () => {
         layers: [{ digest: 'sha256:layer1' }]
       })
 
-      const map = await analyzer.loadDigestUsedByMap()
+      const { digestUsedBy } = await analyzer.loadDigestUsedByMap()
 
-      expect(map.size).toBe(0)
+      expect(digestUsedBy.size).toBe(0)
     })
 
     it('maps each child digest to its multi-arch parent', async () => {
@@ -72,7 +72,7 @@ describe('ManifestAnalyzer', () => {
         }
       )
 
-      const map = await analyzer.loadDigestUsedByMap()
+      const { digestUsedBy: map } = await analyzer.loadDigestUsedByMap()
 
       expect(map.get(childAmd)).toEqual(new Set([parent]))
       expect(map.get(childArm)).toEqual(new Set([parent]))
@@ -98,7 +98,7 @@ describe('ManifestAnalyzer', () => {
         }
       )
 
-      const map = await analyzer.loadDigestUsedByMap()
+      const { digestUsedBy: map } = await analyzer.loadDigestUsedByMap()
 
       expect(map.get(sharedChild)).toEqual(new Set([parentA, parentB]))
     })
@@ -120,7 +120,7 @@ describe('ManifestAnalyzer', () => {
         }
       )
 
-      const map = await analyzer.loadDigestUsedByMap()
+      const { digestUsedBy: map } = await analyzer.loadDigestUsedByMap()
 
       expect(map.get(sharedChild)).toEqual(new Set([parentA, parentB]))
     })
@@ -142,7 +142,7 @@ describe('ManifestAnalyzer', () => {
         }
       )
 
-      const map = await analyzer.loadDigestUsedByMap()
+      const { digestUsedBy: map } = await analyzer.loadDigestUsedByMap()
 
       expect(map.get(sharedChild)).toEqual(new Set([parentA, parentB, parentC]))
     })
@@ -169,7 +169,7 @@ describe('ManifestAnalyzer', () => {
         }
       )
 
-      const map = await analyzer.loadDigestUsedByMap()
+      const { digestUsedBy: map } = await analyzer.loadDigestUsedByMap()
 
       expect(map.get(shared)).toEqual(new Set([parentA, parentB]))
       expect(map.get(onlyA)).toEqual(new Set([parentA]))
@@ -184,9 +184,74 @@ describe('ManifestAnalyzer', () => {
         manifests: [{ digest: 'sha256:missing-child' }]
       })
 
-      const map = await analyzer.loadDigestUsedByMap()
+      const { digestUsedBy } = await analyzer.loadDigestUsedByMap()
 
-      expect(map.size).toBe(0)
+      expect(digestUsedBy.size).toBe(0)
+    })
+
+    it('builds a subjectReferrers reverse index for OCI 1.1 referrers', async () => {
+      // Regression for FINDINGS.md #20 / upstream issue #104: a bare
+      // OCI 1.1 referrer carries a subject descriptor pointing at its
+      // target image but is itself untagged. We index it so cleanup
+      // and validation can follow the link without depending on the
+      // ghcr /referrers API (which is not implemented).
+      const subject = 'sha256:subject'
+      const referrer = 'sha256:referrer'
+      mockPackageRepo.getDigests.mockReturnValue(new Set([subject, referrer]))
+      mockRegistry.getManifestByDigest.mockImplementation(
+        async (digest: string) => {
+          if (digest === referrer) {
+            return {
+              artifactType: 'application/vnd.dev.sigstore.bundle.v0.3+json',
+              subject: { digest: subject }
+            }
+          }
+          return { layers: [] }
+        }
+      )
+
+      const { subjectReferrers } = await analyzer.loadDigestUsedByMap()
+
+      expect(subjectReferrers.get(subject)).toEqual(new Set([referrer]))
+    })
+
+    it('records multiple referrers pointing at the same subject', async () => {
+      const subject = 'sha256:subject'
+      const refA = 'sha256:refA'
+      const refB = 'sha256:refB'
+      mockPackageRepo.getDigests.mockReturnValue(new Set([subject, refA, refB]))
+      mockRegistry.getManifestByDigest.mockImplementation(
+        async (digest: string) => {
+          if (digest === refA || digest === refB) {
+            return {
+              artifactType: 'application/vnd.dev.sigstore.bundle.v0.3+json',
+              subject: { digest: subject }
+            }
+          }
+          return { layers: [] }
+        }
+      )
+
+      const { subjectReferrers } = await analyzer.loadDigestUsedByMap()
+
+      expect(subjectReferrers.get(subject)).toEqual(new Set([refA, refB]))
+    })
+
+    it('records subject-referrers even when the subject is not in the repo (orphaned)', async () => {
+      // Subject is missing locally — the referrer is left behind by a
+      // previous cleanup that deleted only the target. We still index
+      // it so the validator can surface the orphan.
+      const referrer = 'sha256:referrer'
+      const missingSubject = 'sha256:missing-subject'
+      mockPackageRepo.getDigests.mockReturnValue(new Set([referrer]))
+      mockRegistry.getManifestByDigest.mockResolvedValue({
+        artifactType: 'application/vnd.dev.sigstore.bundle.v0.3+json',
+        subject: { digest: missingSubject }
+      })
+
+      const { subjectReferrers } = await analyzer.loadDigestUsedByMap()
+
+      expect(subjectReferrers.get(missingSubject)).toEqual(new Set([referrer]))
     })
   })
 
@@ -209,6 +274,43 @@ describe('ManifestAnalyzer', () => {
 
       expect(filterSet.has(parent)).toBe(true)
       expect(filterSet.has(child)).toBe(false)
+    })
+
+    it('removes OCI 1.1 subject-bearing referrers passed via the reverse index', async () => {
+      const subject = 'sha256:subject'
+      const referrer = 'sha256:referrer'
+      mockPackageRepo.getDigests.mockReturnValue(new Set([subject, referrer]))
+      mockPackageRepo.getTags.mockReturnValue(new Set())
+      mockRegistry.getManifestByDigest.mockResolvedValue({ layers: [] })
+
+      const subjectReferrers = new Map<string, Set<string>>([
+        [subject, new Set([referrer])]
+      ])
+
+      const filterSet = await analyzer.initFilterSet(subjectReferrers)
+
+      expect(filterSet.has(subject)).toBe(true)
+      expect(filterSet.has(referrer)).toBe(false)
+    })
+
+    it('also removes orphaned referrers (subject not in repo) from the filter set', async () => {
+      // A subject-bearing referrer is never a top-level artifact, even
+      // when its subject has gone missing. Orphans are reached via
+      // delete-orphaned-images (symmetric with how orphaned sha256-*
+      // fallback tags work) — never via delete-untagged.
+      const missingSubject = 'sha256:missing-subject'
+      const orphanReferrer = 'sha256:orphan-referrer'
+      mockPackageRepo.getDigests.mockReturnValue(new Set([orphanReferrer]))
+      mockPackageRepo.getTags.mockReturnValue(new Set())
+      mockRegistry.getManifestByDigest.mockResolvedValue({ layers: [] })
+
+      const subjectReferrers = new Map<string, Set<string>>([
+        [missingSubject, new Set([orphanReferrer])]
+      ])
+
+      const filterSet = await analyzer.initFilterSet(subjectReferrers)
+
+      expect(filterSet.has(orphanReferrer)).toBe(false)
     })
 
     it('removes referrer-tagged digests (e.g. .sig) and their children', async () => {
