@@ -52054,8 +52054,6 @@ class Registry {
     targetPackage = '';
     // cache of loaded manifests, by digest
     manifestCache = new Map();
-    // map of referrer manifests
-    //referrersCache = new Map<string, any>()
     /**
      * Constructor
      *

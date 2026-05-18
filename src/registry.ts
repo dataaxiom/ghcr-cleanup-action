@@ -29,9 +29,6 @@ export class Registry {
   // cache of loaded manifests, by digest
   manifestCache = new Map<string, any>()
 
-  // map of referrer manifests
-  //referrersCache = new Map<string, any>()
-
   /**
    * Constructor
    *
@@ -240,27 +237,4 @@ export class Registry {
       )
     }
   }
-
-  // TODO
-  // ghcr.io not yet supporting referrers api?
-  /*async getReferrersManifest(digest: string): Promise<any> {
-    if (this.referrersCache.has(digest)) {
-      return this.referrersCache.get(digest)
-    } else {
-      const response = await this.axios.get(
-        `/v2/${this.config.owner}/${this.targetPackage}/referrers/${digest}`,
-        {
-          transformResponse: [
-            data => {
-              return data
-            }
-          ]
-        }
-      )
-      const obj = JSON.parse(response?.data)
-      // save it for later use
-      this.referrersCache.set(digest, obj)
-      return obj
-    }
-  } */
 }
