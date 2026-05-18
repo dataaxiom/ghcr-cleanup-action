@@ -42280,7 +42280,7 @@ class OctokitClient {
                     }
                 },
                 error: (message) => {
-                    if (logLevel >= config/* LogLevel */.$b.INFO) {
+                    if (logLevel >= config/* LogLevel */.$b.ERROR) {
                         core/* info */.pq(`[Octokit ERROR] ${message}`);
                     }
                 }
@@ -49830,7 +49830,7 @@ class Registry {
             'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json';
         (0,lib/* setGlobalConfig */.e1)({
             data: false,
-            logger: core/* info */.pq.bind(this)
+            logger: core/* info */.pq
         });
         // set the axios logging on if log level is debug
         if (this.config.logLevel === src_config/* LogLevel */.$b.DEBUG) {
