@@ -126,7 +126,11 @@ export class ImageFilter {
       // Build match list from filterSet
       for (const digest of filterSet) {
         const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
-        if (!ghPackage) continue
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${digest} not in package cache`
+          )
+        }
         for (const tag of ghPackage.metadata.container.tags) {
           if (regex.test(tag)) {
             matchTags.add(tag)
@@ -144,7 +148,11 @@ export class ImageFilter {
       // Build match list from filterSet
       for (const digest of filterSet) {
         const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
-        if (!ghPackage) continue
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${digest} not in package cache`
+          )
+        }
         for (const tag of ghPackage.metadata.container.tags) {
           if (isTagMatch(tag)) {
             matchTags.add(tag)

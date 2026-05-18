@@ -52,7 +52,11 @@ export class DeletionStrategy {
           if (manifestDigest) {
             const ghPackage =
               this.context.packageRepo.getPackageByDigest(manifestDigest)
-            if (!ghPackage) continue
+            if (!ghPackage) {
+              throw new Error(
+                `cache invariant: digest ${manifestDigest} not in package cache`
+              )
+            }
             if (ghPackage.metadata.container.tags.length > 1) {
               untaggingTags.add(tag)
               if (!plan.untagOperations.has(manifestDigest)) {
@@ -112,7 +116,11 @@ export class DeletionStrategy {
     const unTaggedPackages: GhPackage[] = []
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
-      if (!ghPackage) continue
+      if (!ghPackage) {
+        throw new Error(
+          `cache invariant: digest ${digest} not in package cache`
+        )
+      }
       if (ghPackage.metadata.container.tags.length === 0) {
         unTaggedPackages.push(ghPackage)
       }
@@ -170,8 +178,12 @@ export class DeletionStrategy {
         const ghPackage = this.context.packageRepo.getPackageByDigest(
           deletePackage.name
         )
-        const tags = ghPackage?.metadata.container.tags ?? []
-        core.info(`${deletePackage.name} ${tags}`)
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${deletePackage.name} not in package cache`
+          )
+        }
+        core.info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`)
       }
     } else {
       core.info('no tagged images found to delete')
@@ -220,9 +232,12 @@ export class DeletionStrategy {
         const digest = this.context.packageRepo.getDigestByTag(tag)
         if (digest && !byDigest.has(digest)) {
           const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
-          if (ghPackage) {
-            byDigest.set(digest, ghPackage)
+          if (!ghPackage) {
+            throw new Error(
+              `cache invariant: digest ${digest} not in package cache`
+            )
           }
+          byDigest.set(digest, ghPackage)
         }
       }
     } else {
@@ -230,7 +245,12 @@ export class DeletionStrategy {
       for (const digest of filterSet) {
         if (byDigest.has(digest)) continue
         const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
-        if (ghPackage && ghPackage.metadata.container.tags.length > 0) {
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${digest} not in package cache`
+          )
+        }
+        if (ghPackage.metadata.container.tags.length > 0) {
           byDigest.set(digest, ghPackage)
         }
       }
@@ -255,7 +275,11 @@ export class DeletionStrategy {
 
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
-      if (!ghPackage) continue
+      if (!ghPackage) {
+        throw new Error(
+          `cache invariant: digest ${digest} not in package cache`
+        )
+      }
       if (ghPackage.metadata.container.tags.length === 0) {
         deleteSet.add(digest)
         filterSet.delete(digest)

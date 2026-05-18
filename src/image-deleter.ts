@@ -46,7 +46,11 @@ export class ImageDeleter {
         // Recheck there is more than 1 tag
         const ghPackage =
           this.context.packageRepo.getPackageByDigest(manifestDigest)
-        if (!ghPackage) continue
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${manifestDigest} not in package cache`
+          )
+        }
         if (ghPackage.metadata.container.tags.length > 1) {
           core.info(`${tag}`)
 
@@ -214,7 +218,11 @@ export class ImageDeleter {
       for (const deleteDigest of deleteSet) {
         const deleteImage =
           this.context.packageRepo.getPackageByDigest(deleteDigest)
-        if (!deleteImage) continue
+        if (!deleteImage) {
+          throw new Error(
+            `cache invariant: digest ${deleteDigest} not in package cache`
+          )
+        }
         const result = await this.deleteImage(deleteImage)
         totalDeleted += result.deleted
         totalMultiDeleted += result.multiDeleted

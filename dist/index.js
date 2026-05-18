@@ -52345,8 +52345,9 @@ class ImageFilter {
             // Build match list from filterSet
             for (const digest of filterSet) {
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (!ghPackage)
-                    continue;
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
                 for (const tag of ghPackage.metadata.container.tags) {
                     if (regex.test(tag)) {
                         matchTags.add(tag);
@@ -52365,8 +52366,9 @@ class ImageFilter {
             // Build match list from filterSet
             for (const digest of filterSet) {
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (!ghPackage)
-                    continue;
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
                 for (const tag of ghPackage.metadata.container.tags) {
                     if (isTagMatch(tag)) {
                         matchTags.add(tag);
@@ -52615,8 +52617,9 @@ class ImageValidator {
             if (!processedManifests.has(digest)) {
                 const manifest = await this.context.registry.getManifestByDigest(digest);
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (!ghPackage)
-                    continue;
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
                 const tags = ghPackage.metadata.container.tags;
                 if (manifest.manifests) {
                     for (const childImage of manifest.manifests) {
@@ -52685,7 +52688,10 @@ class ImageValidator {
                 if (missing === manifest.manifests.length) {
                     ghostImages.add(digest);
                     const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (ghPackage && ghPackage.metadata.container.tags.length > 0) {
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                    }
+                    if (ghPackage.metadata.container.tags.length > 0) {
                         info(`${digest} ${ghPackage.metadata.container.tags}`);
                     }
                     else {
@@ -52723,7 +52729,10 @@ class ImageValidator {
                 if (missing > 0 && missing < manifest.manifests.length) {
                     partialImages.add(digest);
                     const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (ghPackage && ghPackage.metadata.container.tags.length > 0) {
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                    }
+                    if (ghPackage.metadata.container.tags.length > 0) {
                         info(`${digest} ${ghPackage.metadata.container.tags}`);
                     }
                     else {
@@ -52815,8 +52824,9 @@ class DeletionStrategy {
                     const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
                     if (manifestDigest) {
                         const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
-                        if (!ghPackage)
-                            continue;
+                        if (!ghPackage) {
+                            throw new Error(`cache invariant: digest ${manifestDigest} not in package cache`);
+                        }
                         if (ghPackage.metadata.container.tags.length > 1) {
                             untaggingTags.add(tag);
                             if (!plan.untagOperations.has(manifestDigest)) {
@@ -52868,8 +52878,9 @@ class DeletionStrategy {
         const unTaggedPackages = [];
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-            if (!ghPackage)
-                continue;
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${digest} not in package cache`);
+            }
             if (ghPackage.metadata.container.tags.length === 0) {
                 unTaggedPackages.push(ghPackage);
             }
@@ -52910,8 +52921,10 @@ class DeletionStrategy {
                 deleteSet.add(deletePackage.name);
                 filterSet.delete(deletePackage.name);
                 const ghPackage = this.context.packageRepo.getPackageByDigest(deletePackage.name);
-                const tags = ghPackage?.metadata.container.tags ?? [];
-                info(`${deletePackage.name} ${tags}`);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${deletePackage.name} not in package cache`);
+                }
+                info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
             }
         }
         else {
@@ -52957,9 +52970,10 @@ class DeletionStrategy {
                 const digest = this.context.packageRepo.getDigestByTag(tag);
                 if (digest && !byDigest.has(digest)) {
                     const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (ghPackage) {
-                        byDigest.set(digest, ghPackage);
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
                     }
+                    byDigest.set(digest, ghPackage);
                 }
             }
         }
@@ -52969,7 +52983,10 @@ class DeletionStrategy {
                 if (byDigest.has(digest))
                     continue;
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (ghPackage && ghPackage.metadata.container.tags.length > 0) {
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
+                if (ghPackage.metadata.container.tags.length > 0) {
                     byDigest.set(digest, ghPackage);
                 }
             }
@@ -52986,8 +53003,9 @@ class DeletionStrategy {
         startGroup(`[${this.context.targetPackage}] Finding all untagged images to delete`);
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-            if (!ghPackage)
-                continue;
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${digest} not in package cache`);
+            }
             if (ghPackage.metadata.container.tags.length === 0) {
                 deleteSet.add(digest);
                 filterSet.delete(digest);
@@ -53034,8 +53052,9 @@ class ImageDeleter {
             for (const tag of tags) {
                 // Recheck there is more than 1 tag
                 const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
-                if (!ghPackage)
-                    continue;
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${manifestDigest} not in package cache`);
+                }
                 if (ghPackage.metadata.container.tags.length > 1) {
                     info(`${tag}`);
                     const manifest = await this.context.registry.getManifestByDigest(manifestDigest);
@@ -53155,8 +53174,9 @@ class ImageDeleter {
         if (deleteSet.size > 0) {
             for (const deleteDigest of deleteSet) {
                 const deleteImage = this.context.packageRepo.getPackageByDigest(deleteDigest);
-                if (!deleteImage)
-                    continue;
+                if (!deleteImage) {
+                    throw new Error(`cache invariant: digest ${deleteDigest} not in package cache`);
+                }
                 const result = await this.deleteImage(deleteImage);
                 totalDeleted += result.deleted;
                 totalMultiDeleted += result.multiDeleted;
