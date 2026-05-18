@@ -114,7 +114,9 @@ export class ImageValidator {
   }
 
   /**
-   * Find partial images (some child manifests missing)
+   * Find partial images: multi-arch images where some, but not all, child
+   * manifests are missing. Images where every child is missing are fully
+   * ghost images and are handled by findGhostImages instead.
    */
   async findPartialImages(filterSet: Set<string>): Promise<Set<string>> {
     core.startGroup(
@@ -125,17 +127,22 @@ export class ImageValidator {
     for (const digest of filterSet) {
       const manifest = await this.context.registry.getManifestByDigest(digest)
       if (manifest.manifests) {
+        let missing = 0
         for (const imageManifest of manifest.manifests) {
           if (!this.context.packageRepo.getIdByDigest(imageManifest.digest)) {
-            partialImages.add(digest)
-            const ghPackage =
-              this.context.packageRepo.getPackageByDigest(digest)
-            if (ghPackage.metadata.container.tags.length > 0) {
-              core.info(`${digest} ${ghPackage.metadata.container.tags}`)
-            } else {
-              core.info(`${digest}`)
-            }
-            break
+            missing += 1
+          }
+        }
+        // Partial: at least one child missing AND at least one child present.
+        // Excludes the all-missing case (ghost images) so the two options
+        // don't overlap.
+        if (missing > 0 && missing < manifest.manifests.length) {
+          partialImages.add(digest)
+          const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+          if (ghPackage.metadata.container.tags.length > 0) {
+            core.info(`${digest} ${ghPackage.metadata.container.tags}`)
+          } else {
+            core.info(`${digest}`)
           }
         }
       }
