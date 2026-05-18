@@ -73,7 +73,7 @@ export class OctokitClient {
           }
         },
         error: (message: string) => {
-          if (logLevel >= LogLevel.INFO) {
+          if (logLevel >= LogLevel.ERROR) {
             core.info(`[Octokit ERROR] ${message}`)
           }
         }

@@ -44117,7 +44117,7 @@ class OctokitClient {
                     }
                 },
                 error: (message) => {
-                    if (logLevel >= LogLevel.INFO) {
+                    if (logLevel >= LogLevel.ERROR) {
                         info(`[Octokit ERROR] ${message}`);
                     }
                 }
