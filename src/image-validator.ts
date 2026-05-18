@@ -12,7 +12,9 @@ export class ImageValidator {
   /**
    * Validate manifests list packages
    */
-  async validate(): Promise<ValidationResult> {
+  async validate(
+    subjectReferrers: Map<string, Set<string>> = new Map()
+  ): Promise<ValidationResult> {
     core.startGroup(
       `[${this.context.targetPackage}] Validating multi-architecture/referrers images`
     )
@@ -58,6 +60,20 @@ export class ImageValidator {
         core.warning(
           `parent image for referrer tag ${tag} not found in repository`
         )
+      }
+    }
+
+    // Check for orphaned OCI 1.1 subject-bearing referrers
+    for (const [subjectDigest, referrers] of subjectReferrers) {
+      if (!this.context.packageRepo.getIdByDigest(subjectDigest)) {
+        for (const referrerDigest of referrers) {
+          if (this.context.packageRepo.getIdByDigest(referrerDigest)) {
+            hasErrors = true
+            core.warning(
+              `subject ${subjectDigest} for referrer ${referrerDigest} not found in repository`
+            )
+          }
+        }
       }
     }
 
@@ -157,9 +173,13 @@ export class ImageValidator {
   }
 
   /**
-   * Find orphaned images (parent image doesn't exist)
+   * Find orphaned images (parent image doesn't exist). Covers both the
+   * sha256-* fallback tag shape and OCI 1.1 subject-bearing referrers
+   * whose subject is no longer in the repo.
    */
-  findOrphanedImages(): Set<string> {
+  findOrphanedImages(
+    subjectReferrers: Map<string, Set<string>> = new Map()
+  ): Set<string> {
     core.startGroup(
       `[${this.context.targetPackage}] Finding orphaned images (tags) to delete`
     )
@@ -175,6 +195,17 @@ export class ImageValidator {
         if (orphanDigest) {
           orphanedImages.add(orphanDigest)
           core.info(tag)
+        }
+      }
+    }
+
+    for (const [subjectDigest, referrers] of subjectReferrers) {
+      if (this.context.packageRepo.getIdByDigest(subjectDigest) === undefined) {
+        for (const referrerDigest of referrers) {
+          if (this.context.packageRepo.getIdByDigest(referrerDigest)) {
+            orphanedImages.add(referrerDigest)
+            core.info(`${referrerDigest} (subject ${subjectDigest} missing)`)
+          }
         }
       }
     }

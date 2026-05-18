@@ -409,5 +409,65 @@ describe('ImageValidator', () => {
 
       expect(result.size).toBe(0)
     })
+
+    it('finds OCI 1.1 referrers whose subject is missing from the repo', () => {
+      // FINDINGS.md #20 / upstream issue #104. The referrer carries a
+      // subject descriptor pointing at a digest that's no longer in
+      // the repo; flag it for orphan deletion.
+      const missingSubject = 'sha256:missing-subject'
+      const referrerDigest = 'sha256:referrer'
+      mockPackageRepo.getTags.mockReturnValue([])
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) => {
+        if (digest === missingSubject) return undefined
+        if (digest === referrerDigest) return 'referrer-id'
+        return undefined
+      })
+
+      const subjectReferrers = new Map([
+        [missingSubject, new Set([referrerDigest])]
+      ])
+
+      const result = validator.findOrphanedImages(subjectReferrers)
+
+      expect(result).toContain(referrerDigest)
+      expect(core.info).toHaveBeenCalledWith(
+        `${referrerDigest} (subject ${missingSubject} missing)`
+      )
+    })
+
+    it('does not flag subject-referrers when the subject is still present', () => {
+      const subject = 'sha256:subject'
+      const referrerDigest = 'sha256:referrer'
+      mockPackageRepo.getTags.mockReturnValue([])
+      mockPackageRepo.getIdByDigest.mockImplementation(() => 'pkg-id')
+
+      const subjectReferrers = new Map([[subject, new Set([referrerDigest])]])
+
+      const result = validator.findOrphanedImages(subjectReferrers)
+
+      expect(result.size).toBe(0)
+    })
+  })
+
+  describe('validate (subject-referrer orphans)', () => {
+    it('warns when a referrer subject is missing from the repo', async () => {
+      const subject = 'sha256:missing-subject'
+      const referrer = 'sha256:referrer'
+      mockPackageRepo.getDigests.mockReturnValue(new Set())
+      mockPackageRepo.getTags.mockReturnValue([])
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) => {
+        if (digest === subject) return undefined
+        return 'pkg-id'
+      })
+
+      const subjectReferrers = new Map([[subject, new Set([referrer])]])
+
+      const result = await validator.validate(subjectReferrers)
+
+      expect(result.hasErrors).toBe(true)
+      expect(core.warning).toHaveBeenCalledWith(
+        `subject ${subject} for referrer ${referrer} not found in repository`
+      )
+    })
   })
 })

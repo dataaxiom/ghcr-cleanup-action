@@ -95,7 +95,10 @@ describe('CleanupOrchestrator', () => {
 
     // Mock ManifestAnalyzer
     mockManifestAnalyzer = {
-      loadDigestUsedByMap: vi.fn().mockResolvedValue(new Map()),
+      loadDigestUsedByMap: vi.fn().mockResolvedValue({
+        digestUsedBy: new Map(),
+        subjectReferrers: new Map()
+      }),
       initFilterSet: vi.fn().mockResolvedValue(new Set())
     } as any
     vi.mocked(ManifestAnalyzer).mockImplementation(function () {
@@ -214,7 +217,10 @@ describe('CleanupOrchestrator', () => {
       const digestMap = new Map([['digest1', new Set(['tag1'])]])
       const filterSet = new Set(['image1', 'image2'])
 
-      mockManifestAnalyzer.loadDigestUsedByMap.mockResolvedValue(digestMap)
+      mockManifestAnalyzer.loadDigestUsedByMap.mockResolvedValue({
+        digestUsedBy: digestMap,
+        subjectReferrers: new Map()
+      })
       mockManifestAnalyzer.initFilterSet.mockResolvedValue(filterSet)
       mockImageFilter.applyExclusionFilters.mockReturnValue(['excluded1'])
 
@@ -237,7 +243,8 @@ describe('CleanupOrchestrator', () => {
           packageRepo: mockPackageRepo,
           targetPackage: 'test-package'
         }),
-        digestMap
+        digestMap,
+        expect.any(Map)
       )
     })
   })

@@ -7,12 +7,18 @@ export class ImageDeleter {
   private manifestAnalyzer: ManifestAnalyzer
   private deleted: Set<string>
   private digestUsedBy: Map<string, Set<string>>
+  private subjectReferrers: Map<string, Set<string>>
 
-  constructor(context: CleanupContext, digestUsedBy: Map<string, Set<string>>) {
+  constructor(
+    context: CleanupContext,
+    digestUsedBy: Map<string, Set<string>>,
+    subjectReferrers: Map<string, Set<string>> = new Map()
+  ) {
     this.context = context
     this.manifestAnalyzer = new ManifestAnalyzer(context)
     this.deleted = new Set<string>()
     this.digestUsedBy = digestUsedBy
+    this.subjectReferrers = subjectReferrers
   }
 
   /**
@@ -149,7 +155,7 @@ export class ImageDeleter {
       }
     }
 
-    // Process referrers/cosign
+    // Process referrers/cosign (sha256-* tagged fallback shape)
     const digestTag = ghPackage.name.replace('sha256:', 'sha256-')
     const tags = this.context.packageRepo.getTags()
     for (const tag of tags) {
@@ -163,6 +169,26 @@ export class ImageDeleter {
             imagesDeleted += result.deleted
             multiImagesDeleted += result.multiDeleted
           }
+        }
+      }
+    }
+
+    // Cascade OCI 1.1 subject-bearing referrers. ghcr.io doesn't tag these
+    // with a sha256-* fallback when the publisher uses --registry-referrers-
+    // mode oci-1-1 (or equivalent), so we follow the reverse index built by
+    // ManifestAnalyzer.
+    const referrers = this.subjectReferrers.get(ghPackage.name)
+    if (referrers) {
+      for (const referrerDigest of referrers) {
+        if (this.deleted.has(referrerDigest)) {
+          continue
+        }
+        const referrerPackage =
+          this.context.packageRepo.getPackageByDigest(referrerDigest)
+        if (referrerPackage) {
+          const result = await this.deleteImage(referrerPackage)
+          imagesDeleted += result.deleted
+          multiImagesDeleted += result.multiDeleted
         }
       }
     }

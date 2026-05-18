@@ -52391,11 +52391,16 @@ class ManifestAnalyzer {
         this.context = context;
     }
     /**
-     * Builds a map of child images back to their parents
-     * The map is used to determine if image can be safely deleted
+     * Builds two relationship maps in a single pass:
+     *  - digestUsedBy: child digest → set of multi-arch parent indexes
+     *  - subjectReferrers: subject digest → set of OCI 1.1 referrer digests
+     *    (manifests with a `subject` descriptor; subject may or may not be in
+     *    the repo — entries where the subject is missing surface as orphans
+     *    in the validator).
      */
     async loadDigestUsedByMap() {
         const digestUsedBy = new Map();
+        const subjectReferrers = new Map();
         let stopWatch = new Date();
         const digests = this.context.packageRepo.getDigests();
         const digestCount = digests.size;
@@ -52447,17 +52452,44 @@ class ManifestAnalyzer {
                     }
                 }
             }
+            // OCI 1.1 subject-bearing referrer (sigstore bundle, etc). ghcr.io
+            // does not implement the /referrers API but does echo the subject
+            // field, so we build the reverse index ourselves. Record the link
+            // even when the subject is not in the repo so the validator can
+            // surface orphans.
+            const subjectDigest = manifest.subject?.digest;
+            if (subjectDigest) {
+                let referrers = subjectReferrers.get(subjectDigest);
+                if (!referrers) {
+                    referrers = new Set();
+                    subjectReferrers.set(subjectDigest, referrers);
+                }
+                referrers.add(digest);
+            }
         }
         info(`loaded ${processed} manifests, ${skipped} skipped`);
         endGroup();
-        return digestUsedBy;
+        return { digestUsedBy, subjectReferrers };
     }
     /**
-     * Remove all multi architecture platform images from the filterSet including its
-     * referrer image if present. Filtering/processing only occurs on top level images.
+     * Remove all multi architecture platform images from the filterSet including
+     * its referrer image if present (whether linked via a sha256-* tag or via an
+     * OCI 1.1 subject descriptor). Filtering/processing only occurs on top
+     * level images.
      */
-    async initFilterSet() {
+    async initFilterSet(subjectReferrers = new Map()) {
         const digests = this.context.packageRepo.getDigests();
+        // Remove all OCI 1.1 subject-bearing referrers from top-level
+        // processing — they are not stand-alone artifacts. If the subject is
+        // still in the repo, the referrer follows it through the cascade. If
+        // the subject is missing, the referrer is an orphan and is reached
+        // via delete-orphaned-images (symmetric with how orphaned sha256-*
+        // fallback tags work).
+        for (const referrers of subjectReferrers.values()) {
+            for (const referrerDigest of referrers) {
+                digests.delete(referrerDigest);
+            }
+        }
         for (const digest of digests) {
             const manifest = await this.context.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
@@ -52572,7 +52604,7 @@ class ImageValidator {
     /**
      * Validate manifests list packages
      */
-    async validate() {
+    async validate(subjectReferrers = new Map()) {
         startGroup(`[${this.context.targetPackage}] Validating multi-architecture/referrers images`);
         let hasErrors = false;
         const processedManifests = new Set();
@@ -52606,6 +52638,17 @@ class ImageValidator {
             if (digest && !this.context.packageRepo.getIdByDigest(digest)) {
                 hasErrors = true;
                 warning(`parent image for referrer tag ${tag} not found in repository`);
+            }
+        }
+        // Check for orphaned OCI 1.1 subject-bearing referrers
+        for (const [subjectDigest, referrers] of subjectReferrers) {
+            if (!this.context.packageRepo.getIdByDigest(subjectDigest)) {
+                for (const referrerDigest of referrers) {
+                    if (this.context.packageRepo.getIdByDigest(referrerDigest)) {
+                        hasErrors = true;
+                        warning(`subject ${subjectDigest} for referrer ${referrerDigest} not found in repository`);
+                    }
+                }
             }
         }
         if (!hasErrors) {
@@ -52692,9 +52735,11 @@ class ImageValidator {
         return partialImages;
     }
     /**
-     * Find orphaned images (parent image doesn't exist)
+     * Find orphaned images (parent image doesn't exist). Covers both the
+     * sha256-* fallback tag shape and OCI 1.1 subject-bearing referrers
+     * whose subject is no longer in the repo.
      */
-    findOrphanedImages() {
+    findOrphanedImages(subjectReferrers = new Map()) {
         startGroup(`[${this.context.targetPackage}] Finding orphaned images (tags) to delete`);
         const orphanedImages = new Set();
         for (const tag of this.context.packageRepo.getTags()) {
@@ -52705,6 +52750,16 @@ class ImageValidator {
                 if (orphanDigest) {
                     orphanedImages.add(orphanDigest);
                     info(tag);
+                }
+            }
+        }
+        for (const [subjectDigest, referrers] of subjectReferrers) {
+            if (this.context.packageRepo.getIdByDigest(subjectDigest) === undefined) {
+                for (const referrerDigest of referrers) {
+                    if (this.context.packageRepo.getIdByDigest(referrerDigest)) {
+                        orphanedImages.add(referrerDigest);
+                        info(`${referrerDigest} (subject ${subjectDigest} missing)`);
+                    }
                 }
             }
         }
@@ -52944,11 +52999,13 @@ class ImageDeleter {
     manifestAnalyzer;
     deleted;
     digestUsedBy;
-    constructor(context, digestUsedBy) {
+    subjectReferrers;
+    constructor(context, digestUsedBy, subjectReferrers = new Map()) {
         this.context = context;
         this.manifestAnalyzer = new ManifestAnalyzer(context);
         this.deleted = new Set();
         this.digestUsedBy = digestUsedBy;
+        this.subjectReferrers = subjectReferrers;
     }
     /**
      * Perform untagging operations
@@ -53037,7 +53094,7 @@ class ImageDeleter {
                 }
             }
         }
-        // Process referrers/cosign
+        // Process referrers/cosign (sha256-* tagged fallback shape)
         const digestTag = ghPackage.name.replace('sha256:', 'sha256-');
         const tags = this.context.packageRepo.getTags();
         for (const tag of tags) {
@@ -53050,6 +53107,24 @@ class ImageDeleter {
                         imagesDeleted += result.deleted;
                         multiImagesDeleted += result.multiDeleted;
                     }
+                }
+            }
+        }
+        // Cascade OCI 1.1 subject-bearing referrers. ghcr.io doesn't tag these
+        // with a sha256-* fallback when the publisher uses --registry-referrers-
+        // mode oci-1-1 (or equivalent), so we follow the reverse index built by
+        // ManifestAnalyzer.
+        const referrers = this.subjectReferrers.get(ghPackage.name);
+        if (referrers) {
+            for (const referrerDigest of referrers) {
+                if (this.deleted.has(referrerDigest)) {
+                    continue;
+                }
+                const referrerPackage = this.context.packageRepo.getPackageByDigest(referrerDigest);
+                if (referrerPackage) {
+                    const result = await this.deleteImage(referrerPackage);
+                    imagesDeleted += result.deleted;
+                    multiImagesDeleted += result.multiDeleted;
                 }
             }
         }
@@ -53121,6 +53196,7 @@ class CleanupOrchestrator {
     deleteSet = new Set();
     excludeTags = [];
     digestUsedBy = new Map();
+    subjectReferrers = new Map();
     statistics;
     constructor(config, targetPackage, octokitClient) {
         this.config = config;
@@ -53149,12 +53225,14 @@ class CleanupOrchestrator {
         this.deleteSet.clear();
         // Prime the list of current packages
         await this.packageRepo.loadPackages(this.targetPackage, true);
-        // Build digestUsedBy map
-        this.digestUsedBy = await this.manifestAnalyzer.loadDigestUsedByMap();
-        // Initialize imageDeleter with the digestUsedBy map
-        this.imageDeleter = new ImageDeleter(this.context, this.digestUsedBy);
+        // Build digestUsedBy + subjectReferrers maps in one pass
+        const analysis = await this.manifestAnalyzer.loadDigestUsedByMap();
+        this.digestUsedBy = analysis.digestUsedBy;
+        this.subjectReferrers = analysis.subjectReferrers;
+        // Initialize imageDeleter with both relationship maps
+        this.imageDeleter = new ImageDeleter(this.context, this.digestUsedBy, this.subjectReferrers);
         // Initialize filterSet - remove manifest image children, referrers etc
-        this.filterSet = await this.manifestAnalyzer.initFilterSet();
+        this.filterSet = await this.manifestAnalyzer.initFilterSet(this.subjectReferrers);
         // Apply exclusion filters
         this.excludeTags = this.imageFilter.applyExclusionFilters(this.filterSet);
         // Apply age filter
@@ -53216,7 +53294,7 @@ class CleanupOrchestrator {
             }
         }
         if (this.config.deleteOrphanedImages) {
-            const orphanedImages = this.imageValidator.findOrphanedImages();
+            const orphanedImages = this.imageValidator.findOrphanedImages(this.subjectReferrers);
             for (const digest of orphanedImages) {
                 this.deleteSet.add(digest);
                 this.filterSet.delete(digest);
@@ -53253,7 +53331,7 @@ class CleanupOrchestrator {
         if (this.config.validate) {
             info(` [${this.targetPackage}] Running Validation Task `);
             await this.reload();
-            await this.imageValidator.validate();
+            await this.imageValidator.validate(this.subjectReferrers);
             info('');
         }
         return this.statistics;
