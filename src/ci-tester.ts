@@ -352,6 +352,7 @@ export async function run(): Promise<void> {
     const tags = new Set<string>()
     for (const digest of packageRepo.getDigests()) {
       const ghPackage = packageRepo.getPackageByDigest(digest)
+      if (!ghPackage) continue
       for (const repoTag of ghPackage.metadata.container.tags) {
         tags.add(repoTag)
       }

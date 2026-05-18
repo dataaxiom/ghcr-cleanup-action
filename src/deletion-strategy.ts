@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { CleanupContext, DeletionPlan } from './cleanup-types.js'
 import { ImageFilter } from './image-filter.js'
+import { GhPackage } from './utils.js'
 
 export class DeletionStrategy {
   private context: CleanupContext
@@ -51,6 +52,7 @@ export class DeletionStrategy {
           if (manifestDigest) {
             const ghPackage =
               this.context.packageRepo.getPackageByDigest(manifestDigest)
+            if (!ghPackage) continue
             if (ghPackage.metadata.container.tags.length > 1) {
               untaggingTags.add(tag)
               if (!plan.untagOperations.has(manifestDigest)) {
@@ -107,9 +109,10 @@ export class DeletionStrategy {
       `[${this.context.targetPackage}] Finding untagged images to delete, keeping ${this.context.config.keepNuntagged} versions`
     )
 
-    const unTaggedPackages = []
+    const unTaggedPackages: GhPackage[] = []
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+      if (!ghPackage) continue
       if (ghPackage.metadata.container.tags.length === 0) {
         unTaggedPackages.push(ghPackage)
       }
@@ -167,7 +170,8 @@ export class DeletionStrategy {
         const ghPackage = this.context.packageRepo.getPackageByDigest(
           deletePackage.name
         )
-        core.info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`)
+        const tags = ghPackage?.metadata.container.tags ?? []
+        core.info(`${deletePackage.name} ${tags}`)
       }
     } else {
       core.info('no tagged images found to delete')
@@ -206,8 +210,8 @@ export class DeletionStrategy {
    * otherwise enter the same image N times when an image has N matched tags —
    * wrongly making each tag count as a separate keep-set slot.
    */
-  private collectKeepNTaggedCandidates(filterSet: Set<string>): any[] {
-    const byDigest = new Map<string, any>()
+  private collectKeepNTaggedCandidates(filterSet: Set<string>): GhPackage[] {
+    const byDigest = new Map<string, GhPackage>()
 
     if (this.context.config.deleteTags != null) {
       // Apply keep-n mode only on the supplied/expanded tags
@@ -226,7 +230,7 @@ export class DeletionStrategy {
       for (const digest of filterSet) {
         if (byDigest.has(digest)) continue
         const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
-        if (ghPackage.metadata.container.tags.length > 0) {
+        if (ghPackage && ghPackage.metadata.container.tags.length > 0) {
           byDigest.set(digest, ghPackage)
         }
       }
@@ -251,6 +255,7 @@ export class DeletionStrategy {
 
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+      if (!ghPackage) continue
       if (ghPackage.metadata.container.tags.length === 0) {
         deleteSet.add(digest)
         filterSet.delete(digest)

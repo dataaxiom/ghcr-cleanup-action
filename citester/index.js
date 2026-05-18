@@ -37387,6 +37387,8 @@ async function run() {
         const tags = new Set();
         for (const digest of packageRepo.getDigests()) {
             const ghPackage = packageRepo.getPackageByDigest(digest);
+            if (!ghPackage)
+                continue;
             for (const repoTag of ghPackage.metadata.container.tags) {
                 tags.add(repoTag);
             }
@@ -42511,7 +42513,7 @@ class PackageRepo {
                         await octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                             package_type: 'container',
                             package_name: targetPackage,
-                            package_version_id: parseInt(id)
+                            package_version_id: id
                         });
                     }
                     else {
@@ -42519,7 +42521,7 @@ class PackageRepo {
                             package_type: 'container',
                             package_name: targetPackage,
                             username: this.config.owner,
-                            package_version_id: parseInt(id)
+                            package_version_id: id
                         });
                     }
                 }
@@ -42528,7 +42530,7 @@ class PackageRepo {
                         package_type: 'container',
                         package_name: targetPackage,
                         org: this.config.owner,
-                        package_version_id: parseInt(id)
+                        package_version_id: id
                     });
                 }
                 this.lastDeleteResult = true;

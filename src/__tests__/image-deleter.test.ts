@@ -109,7 +109,7 @@ describe('ImageDeleter', () => {
       })
 
       mockPackageRepo.getDigestByTag.mockReturnValue('sha256:empty')
-      mockPackageRepo.getIdByDigest.mockReturnValue('empty-id')
+      mockPackageRepo.getIdByDigest.mockReturnValue(42)
 
       await deleter.performUntagging(untagOps)
 
@@ -147,7 +147,7 @@ describe('ImageDeleter', () => {
       })
 
       mockPackageRepo.getDigestByTag.mockReturnValue('sha256:empty')
-      mockPackageRepo.getIdByDigest.mockReturnValue(null)
+      mockPackageRepo.getIdByDigest.mockReturnValue(undefined)
 
       await deleter.performUntagging(untagOps)
 

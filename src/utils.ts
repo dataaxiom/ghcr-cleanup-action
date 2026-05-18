@@ -111,6 +111,21 @@ export class CleanupTaskStatistics {
   }
 }
 
+// Minimal projection over the GitHub Packages "package version" response
+// shape — only the fields this action actually reads. Octokit's full type
+// has many more fields, but committing to those would couple us to a
+// specific Octokit version unnecessarily.
+export interface GhPackage {
+  id: number
+  name: string
+  updated_at: string
+  metadata: {
+    container: {
+      tags: string[]
+    }
+  }
+}
+
 // Container manifest shapes consumed across registry.ts and the cleanup
 // pipeline. Field availability mirrors the OCI image spec but is kept
 // permissive (most fields optional) so callers can `if (manifest.x)`

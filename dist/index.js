@@ -44627,7 +44627,7 @@ class PackageRepo {
                         await octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                             package_type: 'container',
                             package_name: targetPackage,
-                            package_version_id: parseInt(id)
+                            package_version_id: id
                         });
                     }
                     else {
@@ -44635,7 +44635,7 @@ class PackageRepo {
                             package_type: 'container',
                             package_name: targetPackage,
                             username: this.config.owner,
-                            package_version_id: parseInt(id)
+                            package_version_id: id
                         });
                     }
                 }
@@ -44644,7 +44644,7 @@ class PackageRepo {
                         package_type: 'container',
                         package_name: targetPackage,
                         org: this.config.owner,
-                        package_version_id: parseInt(id)
+                        package_version_id: id
                     });
                 }
                 this.lastDeleteResult = true;
@@ -52309,7 +52309,7 @@ class ImageFilter {
         startGroup(`[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`);
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-            if (ghPackage.updated_at) {
+            if (ghPackage?.updated_at) {
                 const cutOff = new Date(Date.now() - this.context.config.olderThan);
                 const packageDate = new Date(ghPackage.updated_at);
                 if (packageDate >= cutOff) {
@@ -52345,6 +52345,8 @@ class ImageFilter {
             // Build match list from filterSet
             for (const digest of filterSet) {
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage)
+                    continue;
                 for (const tag of ghPackage.metadata.container.tags) {
                     if (regex.test(tag)) {
                         matchTags.add(tag);
@@ -52363,6 +52365,8 @@ class ImageFilter {
             // Build match list from filterSet
             for (const digest of filterSet) {
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage)
+                    continue;
                 for (const tag of ghPackage.metadata.container.tags) {
                     if (isTagMatch(tag)) {
                         matchTags.add(tag);
@@ -52610,8 +52614,10 @@ class ImageValidator {
         for (const digest of digests) {
             if (!processedManifests.has(digest)) {
                 const manifest = await this.context.registry.getManifestByDigest(digest);
-                const tags = this.context.packageRepo.getPackageByDigest(digest).metadata.container
-                    .tags;
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage)
+                    continue;
+                const tags = ghPackage.metadata.container.tags;
                 if (manifest.manifests) {
                     for (const childImage of manifest.manifests) {
                         processedManifests.add(childImage.digest);
@@ -52679,7 +52685,7 @@ class ImageValidator {
                 if (missing === manifest.manifests.length) {
                     ghostImages.add(digest);
                     const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (ghPackage.metadata.container.tags.length > 0) {
+                    if (ghPackage && ghPackage.metadata.container.tags.length > 0) {
                         info(`${digest} ${ghPackage.metadata.container.tags}`);
                     }
                     else {
@@ -52717,7 +52723,7 @@ class ImageValidator {
                 if (missing > 0 && missing < manifest.manifests.length) {
                     partialImages.add(digest);
                     const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (ghPackage.metadata.container.tags.length > 0) {
+                    if (ghPackage && ghPackage.metadata.container.tags.length > 0) {
                         info(`${digest} ${ghPackage.metadata.container.tags}`);
                     }
                     else {
@@ -52809,6 +52815,8 @@ class DeletionStrategy {
                     const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
                     if (manifestDigest) {
                         const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+                        if (!ghPackage)
+                            continue;
                         if (ghPackage.metadata.container.tags.length > 1) {
                             untaggingTags.add(tag);
                             if (!plan.untagOperations.has(manifestDigest)) {
@@ -52860,6 +52868,8 @@ class DeletionStrategy {
         const unTaggedPackages = [];
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (!ghPackage)
+                continue;
             if (ghPackage.metadata.container.tags.length === 0) {
                 unTaggedPackages.push(ghPackage);
             }
@@ -52900,7 +52910,8 @@ class DeletionStrategy {
                 deleteSet.add(deletePackage.name);
                 filterSet.delete(deletePackage.name);
                 const ghPackage = this.context.packageRepo.getPackageByDigest(deletePackage.name);
-                info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
+                const tags = ghPackage?.metadata.container.tags ?? [];
+                info(`${deletePackage.name} ${tags}`);
             }
         }
         else {
@@ -52958,7 +52969,7 @@ class DeletionStrategy {
                 if (byDigest.has(digest))
                     continue;
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (ghPackage.metadata.container.tags.length > 0) {
+                if (ghPackage && ghPackage.metadata.container.tags.length > 0) {
                     byDigest.set(digest, ghPackage);
                 }
             }
@@ -52975,6 +52986,8 @@ class DeletionStrategy {
         startGroup(`[${this.context.targetPackage}] Finding all untagged images to delete`);
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (!ghPackage)
+                continue;
             if (ghPackage.metadata.container.tags.length === 0) {
                 deleteSet.add(digest);
                 filterSet.delete(digest);
@@ -53021,6 +53034,8 @@ class ImageDeleter {
             for (const tag of tags) {
                 // Recheck there is more than 1 tag
                 const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+                if (!ghPackage)
+                    continue;
                 if (ghPackage.metadata.container.tags.length > 1) {
                     info(`${tag}`);
                     const manifest = await this.context.registry.getManifestByDigest(manifestDigest);
@@ -53140,6 +53155,8 @@ class ImageDeleter {
         if (deleteSet.size > 0) {
             for (const deleteDigest of deleteSet) {
                 const deleteImage = this.context.packageRepo.getPackageByDigest(deleteDigest);
+                if (!deleteImage)
+                    continue;
                 const result = await this.deleteImage(deleteImage);
                 totalDeleted += result.deleted;
                 totalMultiDeleted += result.multiDeleted;

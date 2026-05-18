@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { CleanupContext, DeletionResult } from './cleanup-types.js'
 import { ManifestAnalyzer } from './manifest-analyzer.js'
+import { GhPackage } from './utils.js'
 
 export class ImageDeleter {
   private context: CleanupContext
@@ -45,6 +46,7 @@ export class ImageDeleter {
         // Recheck there is more than 1 tag
         const ghPackage =
           this.context.packageRepo.getPackageByDigest(manifestDigest)
+        if (!ghPackage) continue
         if (ghPackage.metadata.container.tags.length > 1) {
           core.info(`${tag}`)
 
@@ -98,7 +100,7 @@ export class ImageDeleter {
    * Delete a single image and its children
    */
   async deleteImage(
-    ghPackage: any
+    ghPackage: GhPackage
   ): Promise<{ deleted: number; multiDeleted: number }> {
     let imagesDeleted = 0
     let multiImagesDeleted = 0
@@ -212,6 +214,7 @@ export class ImageDeleter {
       for (const deleteDigest of deleteSet) {
         const deleteImage =
           this.context.packageRepo.getPackageByDigest(deleteDigest)
+        if (!deleteImage) continue
         const result = await this.deleteImage(deleteImage)
         totalDeleted += result.deleted
         totalMultiDeleted += result.multiDeleted

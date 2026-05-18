@@ -2,6 +2,7 @@ import * as core from '@actions/core'
 import { Config, LogLevel } from './config.js'
 import { OctokitClient } from './octokit-client.js'
 import { RequestError } from '@octokit/request-error'
+import { GhPackage } from './utils.js'
 
 /**
  * Provides access to a package via the GitHub Packages REST API.
@@ -14,10 +15,10 @@ export class PackageRepo {
   octokitClient: OctokitClient
 
   // Map of digests to package ids
-  digest2Id = new Map<string, string>()
+  digest2Id = new Map<string, number>()
 
   // Map of ids to package version definitions
-  id2Package = new Map<string, any>()
+  id2Package = new Map<number, GhPackage>()
 
   // Map of tags to digests
   tag2Digest = new Map<string, string>()
@@ -162,7 +163,7 @@ export class PackageRepo {
    * Return the package version id for the given digest
    * @returns The the package id
    */
-  getIdByDigest(digest: string): string | undefined {
+  getIdByDigest(digest: string): number | undefined {
     return this.digest2Id.get(digest)
   }
 
@@ -171,7 +172,7 @@ export class PackageRepo {
    * @param digest The digest to lookup
    * @returns The the package descriptor
    */
-  getPackageByDigest(digest: string): any | undefined {
+  getPackageByDigest(digest: string): GhPackage | undefined {
     let ghPackage
     const id = this.digest2Id.get(digest)
     if (id) {
@@ -189,7 +190,7 @@ export class PackageRepo {
    */
   async deletePackageVersion(
     targetPackage: string,
-    id: string,
+    id: number,
     digest: string,
     tags?: string[],
     label?: string
@@ -210,7 +211,7 @@ export class PackageRepo {
               {
                 package_type: 'container' as const,
                 package_name: targetPackage,
-                package_version_id: parseInt(id)
+                package_version_id: id
               }
             )
           } else {
@@ -218,7 +219,7 @@ export class PackageRepo {
               package_type: 'container' as const,
               package_name: targetPackage,
               username: this.config.owner,
-              package_version_id: parseInt(id)
+              package_version_id: id
             })
           }
         } else {
@@ -226,7 +227,7 @@ export class PackageRepo {
             package_type: 'container' as const,
             package_name: targetPackage,
             org: this.config.owner,
-            package_version_id: parseInt(id)
+            package_version_id: id
           })
         }
         this.lastDeleteResult = true
