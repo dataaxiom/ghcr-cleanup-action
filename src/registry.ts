@@ -54,7 +54,7 @@ export class Registry {
 
     setGlobalConfig({
       data: false,
-      logger: core.info.bind(this)
+      logger: core.info
     })
 
     // set the axios logging on if log level is debug
