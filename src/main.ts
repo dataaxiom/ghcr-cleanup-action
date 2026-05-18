@@ -7,6 +7,11 @@ import { CleanupOrchestrator } from './cleanup-orchestrator.js'
 import { createTokenAuth } from '@octokit/auth-token'
 import { CleanupTaskStatistics } from './utils.js'
 
+// SummaryTableRow lives in @actions/core's summary submodule but the
+// package's exports field hides subpath imports — pull the type out of
+// the addTable signature so it stays in sync with the runtime API.
+type SummaryTableRow = Parameters<typeof core.summary.addTable>[0][number]
+
 /*
  * Main program entrypoint
  */
@@ -40,7 +45,7 @@ class CleanupAction {
   async run(): Promise<void> {
     const startedAt = Date.now()
 
-    let targetPackages = []
+    let targetPackages: string[] = []
     if (this.config.expandPackages) {
       // first make sure sure we have PAT
       const auth = createTokenAuth(this.config.token)
@@ -222,7 +227,7 @@ class CleanupAction {
 
     // Results per package
     summary.addHeading('Results', 2)
-    const resultRows: any[] = [
+    const resultRows: SummaryTableRow[] = [
       [
         { data: 'Package', header: true },
         { data: 'Total Deleted', header: true },
