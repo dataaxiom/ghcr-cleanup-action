@@ -47,7 +47,7 @@ export class Registry {
     })
     axiosRetry(this.axios, { retries: 3 })
     this.axios.defaults.headers.common['Accept'] =
-      'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
+      'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json'
 
     setGlobalConfig({
       data: false,
@@ -56,8 +56,8 @@ export class Registry {
 
     // set the axios logging on if log level is debug
     if (this.config.logLevel === LogLevel.DEBUG) {
-      this.axios.interceptors.request.use(AxiosLogger.requestLogger as any)
-      this.axios.interceptors.response.use(AxiosLogger.responseLogger as any)
+      this.axios.interceptors.request.use(AxiosLogger.requestLogger)
+      this.axios.interceptors.response.use(AxiosLogger.responseLogger)
     }
   }
 
