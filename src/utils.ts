@@ -110,3 +110,50 @@ export class CleanupTaskStatistics {
     core.endGroup()
   }
 }
+
+// Container manifest shapes consumed across registry.ts and the cleanup
+// pipeline. Field availability mirrors the OCI image spec but is kept
+// permissive (most fields optional) so callers can `if (manifest.x)`
+// rather than runtime-validate.
+
+export interface ManifestLayer {
+  mediaType: string
+  digest: string
+  size: number
+}
+
+export interface ManifestPlatform {
+  architecture: string
+  variant?: string
+  os?: string
+}
+
+export interface ManifestEntry {
+  digest: string
+  mediaType?: string
+  size?: number
+  platform?: ManifestPlatform
+  artifactType?: string
+}
+
+// OCI 1.1 subject descriptor — present on referrer manifests that point
+// back at the digest they describe (sigstore bundles, attestations, etc.)
+export interface ManifestSubject {
+  mediaType?: string
+  digest: string
+  size?: number
+}
+
+export interface Manifest {
+  mediaType?: string
+  schemaVersion?: number
+  // Present on referrer manifests (sigstore bundles etc.); image-validator
+  // and manifest-analyzer use it to identify the artifact shape.
+  artifactType?: string
+  manifests?: ManifestEntry[]
+  layers?: ManifestLayer[]
+  config?: ManifestLayer
+  // OCI 1.1 referrer link — read by manifest-analyzer.loadDigestUsedByMap
+  // to build the subjectReferrers reverse index.
+  subject?: ManifestSubject
+}

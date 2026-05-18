@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { LogLevel } from './config.js'
 import { CleanupContext } from './cleanup-types.js'
+import { ManifestEntry } from './utils.js'
 
 export class ManifestAnalyzer {
   private context: CleanupContext
@@ -140,7 +141,7 @@ export class ManifestAnalyzer {
             // Process any children
             const childManifest =
               await this.context.registry.getManifestByTag(tag)
-            if (childManifest.manifests) {
+            if (childManifest?.manifests) {
               for (const manifestEntry of childManifest.manifests) {
                 digests.delete(manifestEntry.digest)
               }
@@ -156,7 +157,7 @@ export class ManifestAnalyzer {
   /**
    * Builds a label for a manifest based on its type
    */
-  async buildLabel(imageManifest: any): Promise<string> {
+  async buildLabel(imageManifest: ManifestEntry): Promise<string> {
     let label = ''
     if (imageManifest.platform) {
       if (imageManifest.platform.architecture) {

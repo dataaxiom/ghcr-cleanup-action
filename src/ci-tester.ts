@@ -365,7 +365,7 @@ export async function run(): Promise<void> {
 
         // is it a multi arch image
         const manifest = await registry.getManifestByTag(tag)
-        if (manifest.manifests) {
+        if (manifest?.manifests) {
           for (const manifestDigest of manifest.manifests) {
             fs.appendFileSync(
               `${args.directory}/expected-digests`,

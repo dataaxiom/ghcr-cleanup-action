@@ -3,7 +3,7 @@ import { Config, LogLevel } from './config.js'
 import axios, { AxiosInstance, isAxiosError } from 'axios'
 import axiosRetry from 'axios-retry'
 import * as AxiosLogger from 'axios-logger'
-import { isValidChallenge, parseChallenge } from './utils.js'
+import { isValidChallenge, parseChallenge, Manifest } from './utils.js'
 import { setGlobalConfig } from 'axios-logger'
 import { PackageRepo } from './package-repo.js'
 
@@ -27,7 +27,7 @@ export class Registry {
   targetPackage = ''
 
   // cache of loaded manifests, by digest
-  manifestCache = new Map<string, any>()
+  manifestCache = new Map<string, Manifest>()
 
   /**
    * Constructor
@@ -131,25 +131,25 @@ export class Registry {
    * @param digest - The digest of the manifest to retrieve
    * @returns A Promise that resolves to the retrieved manifest
    */
-  async getManifestByDigest(digest: string): Promise<any> {
-    if (this.manifestCache.has(digest)) {
-      return this.manifestCache.get(digest)
-    } else {
-      const response = await this.axios.get(
-        `/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`,
-        {
-          transformResponse: [
-            data => {
-              return data
-            }
-          ]
-        }
-      )
-      const obj = JSON.parse(response?.data)
-      // save it for later use
-      this.manifestCache.set(digest, obj)
-      return obj
+  async getManifestByDigest(digest: string): Promise<Manifest> {
+    const cached = this.manifestCache.get(digest)
+    if (cached) {
+      return cached
     }
+    const response = await this.axios.get(
+      `/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`,
+      {
+        transformResponse: [
+          data => {
+            return data
+          }
+        ]
+      }
+    )
+    // ghcr.io's response shape is trusted — no runtime validation.
+    const obj: Manifest = JSON.parse(response?.data)
+    this.manifestCache.set(digest, obj)
+    return obj
   }
 
   /**
@@ -158,11 +158,12 @@ export class Registry {
    * @param tag - The tag of the manifest to retrieve
    * @returns A Promise that resolves to the retrieved manifest
    */
-  async getManifestByTag(tag: string): Promise<any> {
+  async getManifestByTag(tag: string): Promise<Manifest | undefined> {
     const tagDigest = this.githubPackageRepo.getDigestByTag(tag)
     if (tagDigest) {
       return await this.getManifestByDigest(tagDigest)
     }
+    return undefined
   }
 
   /**
@@ -174,7 +175,7 @@ export class Registry {
    */
   async putManifest(
     tag: string,
-    manifest: any,
+    manifest: Manifest,
     multiArch: boolean
   ): Promise<void> {
     if (!this.config.dryRun) {

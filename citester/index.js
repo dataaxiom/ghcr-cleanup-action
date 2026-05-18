@@ -37398,7 +37398,7 @@ async function run() {
                 fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${digest}\n`);
                 // is it a multi arch image
                 const manifest = await registry.getManifestByTag(tag);
-                if (manifest.manifests) {
+                if (manifest?.manifests) {
                     for (const manifestDigest of manifest.manifests) {
                         fs__WEBPACK_IMPORTED_MODULE_1___default().appendFileSync(`${args.directory}/expected-digests`, `${manifestDigest.digest}\n`);
                     }
@@ -49901,22 +49901,21 @@ class Registry {
      * @returns A Promise that resolves to the retrieved manifest
      */
     async getManifestByDigest(digest) {
-        if (this.manifestCache.has(digest)) {
-            return this.manifestCache.get(digest);
+        const cached = this.manifestCache.get(digest);
+        if (cached) {
+            return cached;
         }
-        else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const obj = JSON.parse(response?.data);
-            // save it for later use
-            this.manifestCache.set(digest, obj);
-            return obj;
-        }
+        const response = await this.axios.get(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`, {
+            transformResponse: [
+                data => {
+                    return data;
+                }
+            ]
+        });
+        // ghcr.io's response shape is trusted — no runtime validation.
+        const obj = JSON.parse(response?.data);
+        this.manifestCache.set(digest, obj);
+        return obj;
     }
     /**
      * Retrieves a manifest by its tag
@@ -49929,6 +49928,7 @@ class Registry {
         if (tagDigest) {
             return await this.getManifestByDigest(tagDigest);
         }
+        return undefined;
     }
     /**
      * Puts the manifest for a given tag in the registry.

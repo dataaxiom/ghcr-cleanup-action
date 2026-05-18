@@ -4,6 +4,7 @@ import { ImageDeleter } from '../image-deleter'
 import { CleanupContext } from '../cleanup-types'
 import { ManifestAnalyzer } from '../manifest-analyzer'
 import { Config } from '../config'
+import type { Manifest } from '../utils.js'
 
 vi.mock('@actions/core')
 vi.mock('../manifest-analyzer')
@@ -31,7 +32,7 @@ describe('ImageDeleter', () => {
 
     // Create mock registry
     mockRegistry = {
-      getManifestByDigest: vi.fn(),
+      getManifestByDigest: vi.fn<(digest: string) => Promise<Manifest>>(),
       putManifest: vi.fn().mockResolvedValue(undefined)
     }
 

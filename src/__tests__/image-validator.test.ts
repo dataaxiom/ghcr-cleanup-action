@@ -3,6 +3,7 @@ import * as core from '@actions/core'
 import { ImageValidator } from '../image-validator'
 import { CleanupContext } from '../cleanup-types'
 import { Config } from '../config'
+import type { Manifest } from '../utils.js'
 
 vi.mock('@actions/core')
 
@@ -26,7 +27,7 @@ describe('ImageValidator', () => {
 
     // Create mock registry
     mockRegistry = {
-      getManifestByDigest: vi.fn()
+      getManifestByDigest: vi.fn<(digest: string) => Promise<Manifest>>()
     }
 
     // Create context
