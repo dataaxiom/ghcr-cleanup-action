@@ -53381,7 +53381,7 @@ class CleanupAction {
             const authentication = await auth();
             if (authentication.tokenType !== 'oauth') {
                 setFailed('A Personal Access Token (PAT) is required when the expand-packages option is set to true');
-                throw new Error();
+                return;
             }
             // Fine-grained PATs (github_pat_*) do not currently support GitHub
             // Container Registry access (GitHub roadmap item #558 was removed in
@@ -53390,7 +53390,7 @@ class CleanupAction {
             // letting them fail later with an opaque 403 from the API.
             if (authentication.token.startsWith('github_pat_')) {
                 setFailed('expand-packages requires a classic Personal Access Token. Fine-grained PATs do not currently support GitHub Container Registry access.');
-                throw new Error();
+                return;
             }
             // get the list of available packages in the repo
             const packageRepo = new PackageRepo(this.config, this.octokitClient);
@@ -53416,7 +53416,7 @@ class CleanupAction {
         }
         if (targetPackages.length === 0) {
             setFailed('No packages selected to cleanup');
-            throw new Error();
+            return;
         }
         else if (targetPackages.length > 1) {
             startGroup('Selected Packages');

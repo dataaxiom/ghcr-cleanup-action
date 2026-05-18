@@ -49,7 +49,7 @@ class CleanupAction {
         core.setFailed(
           'A Personal Access Token (PAT) is required when the expand-packages option is set to true'
         )
-        throw new Error()
+        return
       }
       // Fine-grained PATs (github_pat_*) do not currently support GitHub
       // Container Registry access (GitHub roadmap item #558 was removed in
@@ -60,7 +60,7 @@ class CleanupAction {
         core.setFailed(
           'expand-packages requires a classic Personal Access Token. Fine-grained PATs do not currently support GitHub Container Registry access.'
         )
-        throw new Error()
+        return
       }
 
       // get the list of available packages in the repo
@@ -87,7 +87,7 @@ class CleanupAction {
 
     if (targetPackages.length === 0) {
       core.setFailed('No packages selected to cleanup')
-      throw new Error()
+      return
     } else if (targetPackages.length > 1) {
       core.startGroup('Selected Packages')
       for (const name of targetPackages) {
