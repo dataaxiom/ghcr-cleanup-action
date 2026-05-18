@@ -53157,12 +53157,6 @@ class ImageDeleter {
             numberMultiImagesDeleted: totalMultiDeleted
         };
     }
-    /**
-     * Reset the deletion state
-     */
-    reset() {
-        this.deleted.clear();
-    }
 }
 
 ;// CONCATENATED MODULE: ./src/cleanup-orchestrator.ts

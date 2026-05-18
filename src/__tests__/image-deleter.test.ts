@@ -497,28 +497,4 @@ describe('ImageDeleter', () => {
       expect(result.numberMultiImagesDeleted).toBe(2)
     })
   })
-
-  describe('reset', () => {
-    it('should clear the deleted set', async () => {
-      const mockPackage = {
-        id: 'pkg-id',
-        name: 'sha256:abc123',
-        metadata: { container: { tags: [] } }
-      }
-
-      mockRegistry.getManifestByDigest.mockResolvedValue({})
-
-      // Delete an image
-      await deleter.deleteImage(mockPackage)
-
-      // Reset
-      deleter.reset()
-
-      // Should be able to delete the same image again
-      const result = await deleter.deleteImage(mockPackage)
-
-      expect(result.deleted).toBe(1)
-      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
-    })
-  })
 })

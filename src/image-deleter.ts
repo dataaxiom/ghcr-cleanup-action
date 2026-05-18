@@ -228,11 +228,4 @@ export class ImageDeleter {
       numberMultiImagesDeleted: totalMultiDeleted
     }
   }
-
-  /**
-   * Reset the deletion state
-   */
-  reset(): void {
-    this.deleted.clear()
-  }
 }
