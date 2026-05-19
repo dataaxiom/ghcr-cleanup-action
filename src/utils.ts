@@ -164,7 +164,9 @@ export interface GhPackage {
 // permissive (most fields optional) so callers can `if (manifest.x)`
 // rather than runtime-validate.
 
-export interface ManifestLayer {
+// OCI Content Descriptor — used for both `config` and entries in `layers[]`.
+// Naming follows the OCI spec rather than calling it a "Layer" specifically.
+export interface ManifestDescriptor {
   mediaType: string
   digest: string
   size: number
@@ -199,8 +201,8 @@ export interface Manifest {
   // and manifest-analyzer use it to identify the artifact shape.
   artifactType?: string
   manifests?: ManifestEntry[]
-  layers?: ManifestLayer[]
-  config?: ManifestLayer
+  layers?: ManifestDescriptor[]
+  config?: ManifestDescriptor
   // OCI 1.1 referrer link — read by manifest-analyzer.loadDigestUsedByMap
   // to build the subjectReferrers reverse index.
   subject?: ManifestSubject
