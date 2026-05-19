@@ -4,6 +4,7 @@ import { ImageDeleter } from '../image-deleter'
 import { CleanupContext } from '../cleanup-types'
 import { ManifestAnalyzer } from '../manifest-analyzer'
 import { Config } from '../config'
+import type { Manifest } from '../utils.js'
 
 vi.mock('@actions/core')
 vi.mock('../manifest-analyzer')
@@ -31,7 +32,7 @@ describe('ImageDeleter', () => {
 
     // Create mock registry
     mockRegistry = {
-      getManifestByDigest: vi.fn(),
+      getManifestByDigest: vi.fn<(digest: string) => Promise<Manifest>>(),
       putManifest: vi.fn().mockResolvedValue(undefined)
     }
 
@@ -108,7 +109,7 @@ describe('ImageDeleter', () => {
       })
 
       mockPackageRepo.getDigestByTag.mockReturnValue('sha256:empty')
-      mockPackageRepo.getIdByDigest.mockReturnValue('empty-id')
+      mockPackageRepo.getIdByDigest.mockReturnValue(42)
 
       await deleter.performUntagging(untagOps)
 
@@ -146,7 +147,7 @@ describe('ImageDeleter', () => {
       })
 
       mockPackageRepo.getDigestByTag.mockReturnValue('sha256:empty')
-      mockPackageRepo.getIdByDigest.mockReturnValue(null)
+      mockPackageRepo.getIdByDigest.mockReturnValue(undefined)
 
       await deleter.performUntagging(untagOps)
 
@@ -495,30 +496,6 @@ describe('ImageDeleter', () => {
 
       expect(result.numberImagesDeleted).toBe(2)
       expect(result.numberMultiImagesDeleted).toBe(2)
-    })
-  })
-
-  describe('reset', () => {
-    it('should clear the deleted set', async () => {
-      const mockPackage = {
-        id: 'pkg-id',
-        name: 'sha256:abc123',
-        metadata: { container: { tags: [] } }
-      }
-
-      mockRegistry.getManifestByDigest.mockResolvedValue({})
-
-      // Delete an image
-      await deleter.deleteImage(mockPackage)
-
-      // Reset
-      deleter.reset()
-
-      // Should be able to delete the same image again
-      const result = await deleter.deleteImage(mockPackage)
-
-      expect(result.deleted).toBe(1)
-      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
     })
   })
 })

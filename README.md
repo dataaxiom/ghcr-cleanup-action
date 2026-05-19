@@ -324,6 +324,12 @@ REST API to restore one:
 - **Public packages downloaded over 5,000 times** cannot be deleted by GitHub
   policy. There is currently no API to read the download count, so the only
   workaround is to add those tags to `exclude-tags`.
+- **Nested manifest indices** are not currently supported. The child-walk for
+  multi-arch indices assumes each entry is a leaf platform manifest, so an index
+  that nests another index would have its inner children leak in storage when
+  the outer is deleted. Standard ghcr publishers (buildx, cosign,
+  attest-build-provenance, etc.) emit single-level indices, so this is
+  theoretical for typical workflows — open an issue if you hit it in practice.
 
 ## Cleanup algorithm
 

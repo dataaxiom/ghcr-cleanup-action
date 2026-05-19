@@ -441,21 +441,21 @@ describe('PackageRepo', () => {
     })
 
     it('logs intent with tags when tags are provided', async () => {
-      await repo.deletePackageVersion('pkg', '42', 'sha256:a', ['v1', 'latest'])
+      await repo.deletePackageVersion('pkg', 42, 'sha256:a', ['v1', 'latest'])
       expect(core.info).toHaveBeenCalledWith(
         expect.stringMatching(/deleting package id: 42.*tag: v1,latest/)
       )
     })
 
     it('logs intent with label when label provided (and no tags)', async () => {
-      await repo.deletePackageVersion('pkg', '42', 'sha256:a', [], 'my-label')
+      await repo.deletePackageVersion('pkg', 42, 'sha256:a', [], 'my-label')
       expect(core.info).toHaveBeenCalledWith(
         expect.stringMatching(/deleting package id: 42.*my-label/)
       )
     })
 
     it('logs intent plainly when neither tags nor label', async () => {
-      await repo.deletePackageVersion('pkg', '42', 'sha256:a')
+      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
       expect(core.info).toHaveBeenCalledWith(
         expect.stringMatching(/^ deleting package id: 42 digest: sha256:a$/)
       )
@@ -463,7 +463,7 @@ describe('PackageRepo', () => {
 
     it('skips API call when dryRun=true (still logs)', async () => {
       repo = new PackageRepo(buildConfig({ dryRun: true }), octokitClient)
-      await repo.deletePackageVersion('pkg', '42', 'sha256:a')
+      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
       expect(core.info).toHaveBeenCalled()
       expect(
         mockOctokit.rest.packages.deletePackageVersionForOrg
@@ -477,7 +477,7 @@ describe('PackageRepo', () => {
     })
 
     it('uses Org delete endpoint when repoType=Organization', async () => {
-      await repo.deletePackageVersion('pkg', '42', 'sha256:a')
+      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
       expect(
         mockOctokit.rest.packages.deletePackageVersionForOrg
       ).toHaveBeenCalledWith({
@@ -493,7 +493,7 @@ describe('PackageRepo', () => {
         buildConfig({ repoType: 'User', isPrivateRepo: false }),
         octokitClient
       )
-      await repo.deletePackageVersion('pkg', '42', 'sha256:a')
+      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
       expect(
         mockOctokit.rest.packages.deletePackageVersionForUser
       ).toHaveBeenCalledWith({
@@ -509,7 +509,7 @@ describe('PackageRepo', () => {
         buildConfig({ repoType: 'User', isPrivateRepo: true }),
         octokitClient
       )
-      await repo.deletePackageVersion('pkg', '42', 'sha256:a')
+      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
       expect(
         mockOctokit.rest.packages.deletePackageVersionForAuthenticatedUser
       ).toHaveBeenCalledWith({
@@ -536,7 +536,7 @@ describe('PackageRepo', () => {
 
       // First call should be swallowed
       await expect(
-        repo.deletePackageVersion('pkg', '42', 'sha256:a')
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
       ).resolves.toBeUndefined()
       expect(core.warning).toHaveBeenCalledWith(
         expect.stringContaining("wasn't found while trying to delete it")
@@ -559,10 +559,10 @@ describe('PackageRepo', () => {
         .mockRejectedValueOnce(err)
 
       // First swallowed
-      await repo.deletePackageVersion('pkg', '42', 'sha256:a')
+      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
       // Second propagates
       await expect(
-        repo.deletePackageVersion('pkg', '43', 'sha256:b')
+        repo.deletePackageVersion('pkg', 43, 'sha256:b')
       ).rejects.toBe(err)
       expect(core.warning).toHaveBeenLastCalledWith(
         expect.stringContaining('Multiple 404 errors')
@@ -584,7 +584,7 @@ describe('PackageRepo', () => {
         err
       )
       await expect(
-        repo.deletePackageVersion('pkg', '42', 'sha256:a')
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
       ).rejects.toBe(err)
     })
 
@@ -594,7 +594,7 @@ describe('PackageRepo', () => {
         err
       )
       await expect(
-        repo.deletePackageVersion('pkg', '42', 'sha256:a')
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
       ).rejects.toBe(err)
     })
   })

@@ -26,9 +26,13 @@ export class ImageValidator {
     for (const digest of digests) {
       if (!processedManifests.has(digest)) {
         const manifest = await this.context.registry.getManifestByDigest(digest)
-        const tags =
-          this.context.packageRepo.getPackageByDigest(digest).metadata.container
-            .tags
+        const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${digest} not in package cache`
+          )
+        }
+        const tags = ghPackage.metadata.container.tags
 
         if (manifest.manifests) {
           for (const childImage of manifest.manifests) {
@@ -112,6 +116,11 @@ export class ImageValidator {
         if (missing === manifest.manifests.length) {
           ghostImages.add(digest)
           const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+          if (!ghPackage) {
+            throw new Error(
+              `cache invariant: digest ${digest} not in package cache`
+            )
+          }
           if (ghPackage.metadata.container.tags.length > 0) {
             core.info(`${digest} ${ghPackage.metadata.container.tags}`)
           } else {
@@ -155,6 +164,11 @@ export class ImageValidator {
         if (missing > 0 && missing < manifest.manifests.length) {
           partialImages.add(digest)
           const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+          if (!ghPackage) {
+            throw new Error(
+              `cache invariant: digest ${digest} not in package cache`
+            )
+          }
           if (ghPackage.metadata.container.tags.length > 0) {
             core.info(`${digest} ${ghPackage.metadata.container.tags}`)
           } else {

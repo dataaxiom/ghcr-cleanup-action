@@ -88,6 +88,11 @@ export class ImageFilter {
 
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+      if (!ghPackage) {
+        throw new Error(
+          `cache invariant: digest ${digest} not in package cache`
+        )
+      }
       if (ghPackage.updated_at) {
         const cutOff = new Date(Date.now() - this.context.config.olderThan)
         const packageDate = new Date(ghPackage.updated_at)
@@ -126,6 +131,11 @@ export class ImageFilter {
       // Build match list from filterSet
       for (const digest of filterSet) {
         const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${digest} not in package cache`
+          )
+        }
         for (const tag of ghPackage.metadata.container.tags) {
           if (regex.test(tag)) {
             matchTags.add(tag)
@@ -143,6 +153,11 @@ export class ImageFilter {
       // Build match list from filterSet
       for (const digest of filterSet) {
         const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${digest} not in package cache`
+          )
+        }
         for (const tag of ghPackage.metadata.container.tags) {
           if (isTagMatch(tag)) {
             matchTags.add(tag)

@@ -13,7 +13,9 @@ import {
   MapPrinter,
   CleanupTaskStatistics,
   parentDigestFromReferrerTag,
-  SHA256_DIGEST_LENGTH
+  SHA256_DIGEST_LENGTH,
+  validateUserRegex,
+  MAX_USER_REGEX_LENGTH
 } from '../utils'
 
 // Mock @actions/core
@@ -334,6 +336,59 @@ describe('utils', () => {
       // Result should be a new object
       expect(result).not.toBe(stats1)
       expect(result).not.toBe(stats2)
+    })
+  })
+
+  describe('validateUserRegex', () => {
+    it('accepts simple anchored patterns', () => {
+      expect(() =>
+        validateUserRegex('^v1\\.\\d+$', 'delete-tags')
+      ).not.toThrow()
+    })
+
+    it('accepts wildcard-style patterns', () => {
+      expect(() =>
+        validateUserRegex('release-.*-rc', 'delete-tags')
+      ).not.toThrow()
+    })
+
+    it('accepts character classes', () => {
+      expect(() =>
+        validateUserRegex('^[a-z]+-[0-9]+$', 'package')
+      ).not.toThrow()
+    })
+
+    it('rejects nested-quantifier ReDoS patterns', () => {
+      // Classic catastrophic-backtracking shape: (a+)+
+      expect(() => validateUserRegex('(a+)+$', 'delete-tags')).toThrow(
+        /ReDoS-prone/
+      )
+    })
+
+    it('rejects ambiguous-alternation ReDoS patterns', () => {
+      // (a|a)* / (.*)+ — exponential backtracking
+      expect(() => validateUserRegex('(.*)+$', 'exclude-tags')).toThrow(
+        /ReDoS-prone/
+      )
+    })
+
+    it('includes the input source name in the error message', () => {
+      expect(() => validateUserRegex('(a+)+', 'delete-tags')).toThrow(
+        /^delete-tags:/
+      )
+    })
+
+    it('rejects patterns over MAX_USER_REGEX_LENGTH', () => {
+      const tooLong = 'a'.repeat(MAX_USER_REGEX_LENGTH + 1)
+      expect(() => validateUserRegex(tooLong, 'package')).toThrow(
+        /exceeds maximum length/
+      )
+    })
+
+    it('accepts patterns at exactly MAX_USER_REGEX_LENGTH', () => {
+      // Boundary case: the cap is inclusive (1000 chars allowed).
+      const atLimit = 'a'.repeat(MAX_USER_REGEX_LENGTH)
+      expect(() => validateUserRegex(atLimit, 'package')).not.toThrow()
     })
   })
 })

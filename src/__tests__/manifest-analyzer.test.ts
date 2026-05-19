@@ -3,6 +3,7 @@ import * as core from '@actions/core'
 import { ManifestAnalyzer } from '../manifest-analyzer'
 import { CleanupContext } from '../cleanup-types'
 import { Config, LogLevel } from '../config'
+import type { Manifest } from '../utils.js'
 
 vi.mock('@actions/core')
 
@@ -25,8 +26,8 @@ describe('ManifestAnalyzer', () => {
     }
 
     mockRegistry = {
-      getManifestByDigest: vi.fn(),
-      getManifestByTag: vi.fn()
+      getManifestByDigest: vi.fn<(digest: string) => Promise<Manifest>>(),
+      getManifestByTag: vi.fn<(tag: string) => Promise<Manifest | undefined>>()
     }
 
     config = new Config()

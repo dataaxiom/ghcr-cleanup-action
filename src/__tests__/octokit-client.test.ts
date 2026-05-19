@@ -9,6 +9,7 @@ import {
 } from 'vitest'
 import * as core from '@actions/core'
 import { RequestError } from '@octokit/request-error'
+import { Octokit } from '@octokit/rest'
 import { OctokitClient } from '../octokit-client'
 import { LogLevel } from '../config'
 
@@ -248,5 +249,36 @@ describe('OctokitClient', () => {
 
       expect(octokit).toBeDefined()
     })
+
+    // Errors must surface regardless of verbosity — historically the gate
+    // was `>= LogLevel.INFO` which silently suppressed Octokit errors for
+    // anyone running with log-level: error or warn. Lock that down.
+    it.each([
+      ['ERROR', LogLevel.ERROR],
+      ['WARN', LogLevel.WARN],
+      ['INFO', LogLevel.INFO],
+      ['DEBUG', LogLevel.DEBUG]
+    ])(
+      'invokes core.info for Octokit errors at log level %s',
+      (_label, level) => {
+        const infoSpy = core.info as MockedFunction<typeof core.info>
+        infoSpy.mockClear()
+
+        new OctokitClient('test-token', undefined, level)
+
+        const lastCallArgs = (Octokit as unknown as Mock).mock.calls.at(-1)
+        const log = (
+          lastCallArgs?.[0] as {
+            log?: { error?: (m: string) => void }
+          }
+        )?.log
+        if (typeof log?.error !== 'function') {
+          throw new Error('expected Octokit options to carry a log.error fn')
+        }
+        log.error('boom')
+
+        expect(infoSpy).toHaveBeenCalledWith('[Octokit ERROR] boom')
+      }
+    )
   })
 })

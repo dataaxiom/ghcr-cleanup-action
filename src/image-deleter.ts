@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { CleanupContext, DeletionResult } from './cleanup-types.js'
 import { ManifestAnalyzer } from './manifest-analyzer.js'
+import { GhPackage } from './utils.js'
 
 export class ImageDeleter {
   private context: CleanupContext
@@ -45,6 +46,11 @@ export class ImageDeleter {
         // Recheck there is more than 1 tag
         const ghPackage =
           this.context.packageRepo.getPackageByDigest(manifestDigest)
+        if (!ghPackage) {
+          throw new Error(
+            `cache invariant: digest ${manifestDigest} not in package cache`
+          )
+        }
         if (ghPackage.metadata.container.tags.length > 1) {
           core.info(`${tag}`)
 
@@ -63,7 +69,12 @@ export class ImageDeleter {
             await this.context.registry.putManifest(tag, newManifest, false)
           }
 
-          // Reload package ids to find the new package id/digest
+          // Per-tag PUT → reload → delete is load-bearing: empty manifest
+          // content is deterministic, so two PUTs without an intervening
+          // delete would land on the same package version (same digest) and
+          // conflate tags from this batch. Reload so we can resolve the
+          // newly-created version's id, then delete it before the next
+          // iteration's PUT. Don't try to batch.
           await this.context.packageRepo.loadPackages(
             this.context.targetPackage,
             false
@@ -98,7 +109,7 @@ export class ImageDeleter {
    * Delete a single image and its children
    */
   async deleteImage(
-    ghPackage: any
+    ghPackage: GhPackage
   ): Promise<{ deleted: number; multiDeleted: number }> {
     let imagesDeleted = 0
     let multiImagesDeleted = 0
@@ -212,6 +223,11 @@ export class ImageDeleter {
       for (const deleteDigest of deleteSet) {
         const deleteImage =
           this.context.packageRepo.getPackageByDigest(deleteDigest)
+        if (!deleteImage) {
+          throw new Error(
+            `cache invariant: digest ${deleteDigest} not in package cache`
+          )
+        }
         const result = await this.deleteImage(deleteImage)
         totalDeleted += result.deleted
         totalMultiDeleted += result.multiDeleted
@@ -227,12 +243,5 @@ export class ImageDeleter {
       numberImagesDeleted: totalDeleted,
       numberMultiImagesDeleted: totalMultiDeleted
     }
-  }
-
-  /**
-   * Reset the deletion state
-   */
-  reset(): void {
-    this.deleted.clear()
   }
 }

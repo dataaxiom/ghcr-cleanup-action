@@ -352,6 +352,11 @@ export async function run(): Promise<void> {
     const tags = new Set<string>()
     for (const digest of packageRepo.getDigests()) {
       const ghPackage = packageRepo.getPackageByDigest(digest)
+      if (!ghPackage) {
+        throw new Error(
+          `cache invariant: digest ${digest} not in package cache`
+        )
+      }
       for (const repoTag of ghPackage.metadata.container.tags) {
         tags.add(repoTag)
       }
@@ -365,7 +370,7 @@ export async function run(): Promise<void> {
 
         // is it a multi arch image
         const manifest = await registry.getManifestByTag(tag)
-        if (manifest.manifests) {
+        if (manifest?.manifests) {
           for (const manifestDigest of manifest.manifests) {
             fs.appendFileSync(
               `${args.directory}/expected-digests`,

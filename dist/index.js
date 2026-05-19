@@ -5746,7 +5746,7 @@ module.exports = Object;
 
 /***/ }),
 
-/***/ 8700:
+/***/ 6319:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 
@@ -6542,7 +6542,7 @@ var Stream = (__nccwpck_require__(2203).Stream);
 var crypto = __nccwpck_require__(6982);
 var mime = __nccwpck_require__(4096);
 var asynckit = __nccwpck_require__(1324);
-var setToStringTag = __nccwpck_require__(8700);
+var setToStringTag = __nccwpck_require__(6319);
 var hasOwn = __nccwpck_require__(4076);
 var populate = __nccwpck_require__(1835);
 
@@ -8593,6 +8593,857 @@ function plural(ms, msAbs, n, name) {
   return numbered;
 });
 
+
+/***/ }),
+
+/***/ 4028:
+/***/ (function(module, exports, __nccwpck_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.types = void 0;
+/* istanbul ignore file */
+const types_1 = __nccwpck_require__(9282);
+Object.defineProperty(exports, "types", ({ enumerable: true, get: function () { return types_1.types; } }));
+__exportStar(__nccwpck_require__(697), exports);
+__exportStar(__nccwpck_require__(306), exports);
+const tokenizer_1 = __nccwpck_require__(697);
+const reconstruct_1 = __nccwpck_require__(306);
+__exportStar(__nccwpck_require__(9282), exports);
+exports["default"] = tokenizer_1.tokenizer;
+module.exports = tokenizer_1.tokenizer;
+module.exports.types = types_1.types;
+module.exports.reconstruct = reconstruct_1.reconstruct;
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 306:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.reconstruct = void 0;
+const types_1 = __nccwpck_require__(9282);
+const write_set_tokens_1 = __nccwpck_require__(6349);
+const reduceStack = (stack) => stack.map(exports.reconstruct).join('');
+const createAlternate = (token) => {
+    if ('options' in token) {
+        return token.options.map(reduceStack).join('|');
+    }
+    else if ('stack' in token) {
+        return reduceStack(token.stack);
+    }
+    else {
+        throw new Error(`options or stack must be Root or Group token`);
+    }
+};
+exports.reconstruct = (token) => {
+    switch (token.type) {
+        case types_1.types.ROOT:
+            return createAlternate(token);
+        case types_1.types.CHAR: {
+            const c = String.fromCharCode(token.value);
+            // Note that the escaping for characters inside classes is handled
+            // in the write-set-tokens module so '-' and ']' are not escaped here
+            return (/[[\\{}$^.|?*+()]/.test(c) ? '\\' : '') + c;
+        }
+        case types_1.types.POSITION:
+            if (token.value === '^' || token.value === '$') {
+                return token.value;
+            }
+            else {
+                return `\\${token.value}`;
+            }
+        case types_1.types.REFERENCE:
+            return `\\${token.value}`;
+        case types_1.types.SET:
+            return write_set_tokens_1.writeSetTokens(token);
+        case types_1.types.GROUP: {
+            // Check token.remember
+            const prefix = token.name ? `?<${token.name}>` :
+                token.remember ? '' :
+                    token.followedBy ? '?=' :
+                        token.notFollowedBy ? '?!' :
+                            '?:';
+            return `(${prefix}${createAlternate(token)})`;
+        }
+        case types_1.types.REPETITION: {
+            const { min, max } = token;
+            let endWith;
+            if (min === 0 && max === 1) {
+                endWith = '?';
+            }
+            else if (min === 1 && max === Infinity) {
+                endWith = '+';
+            }
+            else if (min === 0 && max === Infinity) {
+                endWith = '*';
+            }
+            else if (max === Infinity) {
+                endWith = `{${min},}`;
+            }
+            else if (min === max) {
+                endWith = `{${min}}`;
+            }
+            else {
+                endWith = `{${min},${max}}`;
+            }
+            return `${exports.reconstruct(token.value)}${endWith}`;
+        }
+        case types_1.types.RANGE:
+            return `${write_set_tokens_1.setChar(token.from)}-${write_set_tokens_1.setChar(token.to)}`;
+        default:
+            throw new Error(`Invalid token type ${token}`);
+    }
+};
+//# sourceMappingURL=reconstruct.js.map
+
+/***/ }),
+
+/***/ 3494:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.NOTANYCHAR = exports.WHITESPACE = exports.WORDS = exports.INTS = void 0;
+const Sets = __importStar(__nccwpck_require__(1227));
+const types_1 = __nccwpck_require__(9282);
+function setToLookup(tokens) {
+    let lookup = {};
+    let len = 0;
+    for (const token of tokens) {
+        if (token.type === types_1.types.CHAR) {
+            lookup[token.value] = true;
+        }
+        // Note this is in an if statement because
+        // the SetTokens type is (Char | Range | Set)[]
+        // so a type error is thrown if it is not.
+        // If the SetTokens type is modified the if statement
+        // can be removed
+        if (token.type === types_1.types.RANGE) {
+            lookup[`${token.from}-${token.to}`] = true;
+        }
+        len += 1;
+    }
+    return {
+        lookup: () => (Object.assign({}, lookup)),
+        len,
+    };
+}
+exports.INTS = setToLookup(Sets.ints().set);
+exports.WORDS = setToLookup(Sets.words().set);
+exports.WHITESPACE = setToLookup(Sets.whitespace().set);
+exports.NOTANYCHAR = setToLookup(Sets.anyChar().set);
+//# sourceMappingURL=sets-lookup.js.map
+
+/***/ }),
+
+/***/ 1227:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.anyChar = exports.notWhitespace = exports.whitespace = exports.notInts = exports.ints = exports.notWords = exports.words = void 0;
+const types_1 = __nccwpck_require__(9282);
+const INTS = () => [{ type: types_1.types.RANGE, from: 48, to: 57 }];
+const WORDS = () => [
+    { type: types_1.types.CHAR, value: 95 },
+    { type: types_1.types.RANGE, from: 97, to: 122 },
+    { type: types_1.types.RANGE, from: 65, to: 90 },
+    { type: types_1.types.RANGE, from: 48, to: 57 },
+];
+const WHITESPACE = () => [
+    { type: types_1.types.CHAR, value: 9 },
+    { type: types_1.types.CHAR, value: 10 },
+    { type: types_1.types.CHAR, value: 11 },
+    { type: types_1.types.CHAR, value: 12 },
+    { type: types_1.types.CHAR, value: 13 },
+    { type: types_1.types.CHAR, value: 32 },
+    { type: types_1.types.CHAR, value: 160 },
+    { type: types_1.types.CHAR, value: 5760 },
+    { type: types_1.types.RANGE, from: 8192, to: 8202 },
+    { type: types_1.types.CHAR, value: 8232 },
+    { type: types_1.types.CHAR, value: 8233 },
+    { type: types_1.types.CHAR, value: 8239 },
+    { type: types_1.types.CHAR, value: 8287 },
+    { type: types_1.types.CHAR, value: 12288 },
+    { type: types_1.types.CHAR, value: 65279 },
+];
+const NOTANYCHAR = () => [
+    { type: types_1.types.CHAR, value: 10 },
+    { type: types_1.types.CHAR, value: 13 },
+    { type: types_1.types.CHAR, value: 8232 },
+    { type: types_1.types.CHAR, value: 8233 },
+];
+// Predefined class objects.
+exports.words = () => ({ type: types_1.types.SET, set: WORDS(), not: false });
+exports.notWords = () => ({ type: types_1.types.SET, set: WORDS(), not: true });
+exports.ints = () => ({ type: types_1.types.SET, set: INTS(), not: false });
+exports.notInts = () => ({ type: types_1.types.SET, set: INTS(), not: true });
+exports.whitespace = () => ({ type: types_1.types.SET, set: WHITESPACE(), not: false });
+exports.notWhitespace = () => ({ type: types_1.types.SET, set: WHITESPACE(), not: true });
+exports.anyChar = () => ({ type: types_1.types.SET, set: NOTANYCHAR(), not: true });
+//# sourceMappingURL=sets.js.map
+
+/***/ }),
+
+/***/ 697:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.tokenizer = void 0;
+const util = __importStar(__nccwpck_require__(3678));
+const types_1 = __nccwpck_require__(9282);
+const sets = __importStar(__nccwpck_require__(1227));
+/**
+ * Valid opening characters for capture group names.
+ */
+const captureGroupFirstChar = /^[a-zA-Z_$]$/i;
+/**
+ * Valid characters for capture group names.
+ */
+const captureGroupChars = /^[a-zA-Z0-9_$]$/i;
+const digit = /\d/;
+/**
+ * Tokenizes a regular expression (that is currently a string)
+ * @param {string} regexpStr String of regular expression to be tokenized
+ *
+ * @returns {Root}
+ */
+exports.tokenizer = (regexpStr) => {
+    let i = 0, c;
+    let start = { type: types_1.types.ROOT, stack: [] };
+    // Keep track of last clause/group and stack.
+    let lastGroup = start;
+    let last = start.stack;
+    let groupStack = [];
+    let referenceQueue = [];
+    let groupCount = 0;
+    const repeatErr = (col) => {
+        throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Nothing to repeat at column ${col - 1}`);
+    };
+    // Decode a few escaped characters.
+    let str = util.strToChars(regexpStr);
+    // Iterate through each character in string.
+    while (i < str.length) {
+        switch (c = str[i++]) {
+            // Handle escaped characters, inclues a few sets.
+            case '\\':
+                if (i === str.length) {
+                    throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: \\ at end of pattern`);
+                }
+                switch (c = str[i++]) {
+                    case 'b':
+                        last.push({ type: types_1.types.POSITION, value: 'b' });
+                        break;
+                    case 'B':
+                        last.push({ type: types_1.types.POSITION, value: 'B' });
+                        break;
+                    case 'w':
+                        last.push(sets.words());
+                        break;
+                    case 'W':
+                        last.push(sets.notWords());
+                        break;
+                    case 'd':
+                        last.push(sets.ints());
+                        break;
+                    case 'D':
+                        last.push(sets.notInts());
+                        break;
+                    case 's':
+                        last.push(sets.whitespace());
+                        break;
+                    case 'S':
+                        last.push(sets.notWhitespace());
+                        break;
+                    default:
+                        // Check if c is integer.
+                        // In which case it's a reference.
+                        if (digit.test(c)) {
+                            let digits = c;
+                            while (i < str.length && digit.test(str[i])) {
+                                digits += str[i++];
+                            }
+                            let value = parseInt(digits, 10);
+                            const reference = { type: types_1.types.REFERENCE, value };
+                            last.push(reference);
+                            referenceQueue.push({ reference, stack: last, index: last.length - 1 });
+                            // Escaped character.
+                        }
+                        else {
+                            last.push({ type: types_1.types.CHAR, value: c.charCodeAt(0) });
+                        }
+                }
+                break;
+            // Positionals.
+            case '^':
+                last.push({ type: types_1.types.POSITION, value: '^' });
+                break;
+            case '$':
+                last.push({ type: types_1.types.POSITION, value: '$' });
+                break;
+            // Handle custom sets.
+            case '[': {
+                // Check if this class is 'anti' i.e. [^abc].
+                let not;
+                if (str[i] === '^') {
+                    not = true;
+                    i++;
+                }
+                else {
+                    not = false;
+                }
+                // Get all the characters in class.
+                let classTokens = util.tokenizeClass(str.slice(i), regexpStr);
+                // Increase index by length of class.
+                i += classTokens[1];
+                last.push({
+                    type: types_1.types.SET,
+                    set: classTokens[0],
+                    not,
+                });
+                break;
+            }
+            // Class of any character except \n.
+            case '.':
+                last.push(sets.anyChar());
+                break;
+            // Push group onto stack.
+            case '(': {
+                // Create group.
+                let group = {
+                    type: types_1.types.GROUP,
+                    stack: [],
+                    remember: true,
+                };
+                // If this is a special kind of group.
+                if (str[i] === '?') {
+                    c = str[i + 1];
+                    i += 2;
+                    // Match if followed by.
+                    if (c === '=') {
+                        group.followedBy = true;
+                        group.remember = false;
+                        // Match if not followed by.
+                    }
+                    else if (c === '!') {
+                        group.notFollowedBy = true;
+                        group.remember = false;
+                    }
+                    else if (c === '<') {
+                        let name = '';
+                        if (captureGroupFirstChar.test(str[i])) {
+                            name += str[i];
+                            i++;
+                        }
+                        else {
+                            throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Invalid capture group name, character '${str[i]}'` +
+                                ` after '<' at column ${i + 1}`);
+                        }
+                        while (i < str.length && captureGroupChars.test(str[i])) {
+                            name += str[i];
+                            i++;
+                        }
+                        if (!name) {
+                            throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Invalid capture group name, character '${str[i]}'` +
+                                ` after '<' at column ${i + 1}`);
+                        }
+                        if (str[i] !== '>') {
+                            throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Unclosed capture group name, expected '>', found` +
+                                ` '${str[i]}' at column ${i + 1}`);
+                        }
+                        group.name = name;
+                        i++;
+                    }
+                    else if (c === ':') {
+                        group.remember = false;
+                    }
+                    else {
+                        throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Invalid group, character '${c}'` +
+                            ` after '?' at column ${i - 1}`);
+                    }
+                }
+                else {
+                    groupCount += 1;
+                }
+                // Insert subgroup into current group stack.
+                last.push(group);
+                // Remember the current group for when the group closes.
+                groupStack.push(lastGroup);
+                // Make this new group the current group.
+                lastGroup = group;
+                last = group.stack;
+                break;
+            }
+            // Pop group out of stack.
+            case ')':
+                if (groupStack.length === 0) {
+                    throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Unmatched ) at column ${i - 1}`);
+                }
+                lastGroup = groupStack.pop();
+                // Check if this group has a PIPE.
+                // To get back the correct last stack.
+                last = lastGroup.options ?
+                    lastGroup.options[lastGroup.options.length - 1] :
+                    lastGroup.stack;
+                break;
+            // Use pipe character to give more choices.
+            case '|': {
+                // Create array where options are if this is the first PIPE
+                // in this clause.
+                if (!lastGroup.options) {
+                    lastGroup.options = [lastGroup.stack];
+                    delete lastGroup.stack;
+                }
+                // Create a new stack and add to options for rest of clause.
+                let stack = [];
+                lastGroup.options.push(stack);
+                last = stack;
+                break;
+            }
+            // Repetition.
+            // For every repetition, remove last element from last stack
+            // then insert back a RANGE object.
+            // This design is chosen because there could be more than
+            // one repetition symbols in a regex i.e. `a?+{2,3}`.
+            case '{': {
+                let rs = /^(\d+)(,(\d+)?)?\}/.exec(str.slice(i)), min, max;
+                if (rs !== null) {
+                    if (last.length === 0) {
+                        repeatErr(i);
+                    }
+                    min = parseInt(rs[1], 10);
+                    max = rs[2] ? rs[3] ? parseInt(rs[3], 10) : Infinity : min;
+                    i += rs[0].length;
+                    last.push({
+                        type: types_1.types.REPETITION,
+                        min,
+                        max,
+                        value: last.pop(),
+                    });
+                }
+                else {
+                    last.push({
+                        type: types_1.types.CHAR,
+                        value: 123,
+                    });
+                }
+                break;
+            }
+            case '?':
+                if (last.length === 0) {
+                    repeatErr(i);
+                }
+                last.push({
+                    type: types_1.types.REPETITION,
+                    min: 0,
+                    max: 1,
+                    value: last.pop(),
+                });
+                break;
+            case '+':
+                if (last.length === 0) {
+                    repeatErr(i);
+                }
+                last.push({
+                    type: types_1.types.REPETITION,
+                    min: 1,
+                    max: Infinity,
+                    value: last.pop(),
+                });
+                break;
+            case '*':
+                if (last.length === 0) {
+                    repeatErr(i);
+                }
+                last.push({
+                    type: types_1.types.REPETITION,
+                    min: 0,
+                    max: Infinity,
+                    value: last.pop(),
+                });
+                break;
+            // Default is a character that is not `\[](){}?+*^$`.
+            default:
+                last.push({
+                    type: types_1.types.CHAR,
+                    value: c.charCodeAt(0),
+                });
+        }
+    }
+    // Check if any groups have not been closed.
+    if (groupStack.length !== 0) {
+        throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Unterminated group`);
+    }
+    updateReferences(referenceQueue, groupCount);
+    return start;
+};
+/**
+ * This is a side effecting function that changes references to chars
+ * if there are not enough capturing groups to reference
+ * See: https://github.com/fent/ret.js/pull/39#issuecomment-1006475703
+ * See: https://github.com/fent/ret.js/issues/38
+ * @param {(Reference | Char)[]} referenceQueue
+ * @param {number} groupCount
+ * @returns {void}
+ */
+function updateReferences(referenceQueue, groupCount) {
+    // Note: We go through the queue in reverse order so
+    // that index we use is correct even if we have to add
+    // multiple tokens to one stack
+    for (const elem of referenceQueue.reverse()) {
+        if (groupCount < elem.reference.value) {
+            // If there is nothing to reference then turn this into a char token
+            elem.reference.type = types_1.types.CHAR;
+            const valueString = elem.reference.value.toString();
+            elem.reference.value = parseInt(valueString, 8);
+            // If the number is not octal then we need to create multiple tokens
+            // https://github.com/fent/ret.js/pull/39#issuecomment-1008229226
+            if (!/^[0-7]+$/.test(valueString)) {
+                let i = 0;
+                while (valueString[i] !== '8' && valueString[i] !== '9') {
+                    i += 1;
+                }
+                if (i === 0) {
+                    // Handling case when escaped number starts with 8 or 9
+                    elem.reference.value = valueString.charCodeAt(0);
+                    i += 1;
+                }
+                else {
+                    // If the escaped number does not start with 8 or 9, then all
+                    // 0-7 digits before the first 8/9 form the first character code
+                    // see: https://github.com/fent/ret.js/pull/39#discussion_r780747085
+                    elem.reference.value = parseInt(valueString.slice(0, i), 8);
+                }
+                if (valueString.length > i) {
+                    const tail = elem.stack.splice(elem.index + 1);
+                    for (const char of valueString.slice(i)) {
+                        elem.stack.push({
+                            type: types_1.types.CHAR,
+                            value: char.charCodeAt(0),
+                        });
+                    }
+                    elem.stack.push(...tail);
+                }
+            }
+        }
+    }
+}
+//# sourceMappingURL=tokenizer.js.map
+
+/***/ }),
+
+/***/ 9282:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+__exportStar(__nccwpck_require__(5426), exports);
+__exportStar(__nccwpck_require__(7759), exports);
+__exportStar(__nccwpck_require__(9797), exports);
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 9797:
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+//# sourceMappingURL=set-lookup.js.map
+
+/***/ }),
+
+/***/ 5426:
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+//# sourceMappingURL=tokens.js.map
+
+/***/ }),
+
+/***/ 7759:
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.types = void 0;
+var types;
+(function (types) {
+    types[types["ROOT"] = 0] = "ROOT";
+    types[types["GROUP"] = 1] = "GROUP";
+    types[types["POSITION"] = 2] = "POSITION";
+    types[types["SET"] = 3] = "SET";
+    types[types["RANGE"] = 4] = "RANGE";
+    types[types["REPETITION"] = 5] = "REPETITION";
+    types[types["REFERENCE"] = 6] = "REFERENCE";
+    types[types["CHAR"] = 7] = "CHAR";
+})(types = exports.types || (exports.types = {}));
+//# sourceMappingURL=types.js.map
+
+/***/ }),
+
+/***/ 3678:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.tokenizeClass = exports.strToChars = void 0;
+const types_1 = __nccwpck_require__(9282);
+const sets = __importStar(__nccwpck_require__(1227));
+const CTRL = '@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^ ?';
+/**
+ * Finds character representations in str and convert all to
+ * their respective characters.
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+exports.strToChars = (str) => {
+    const charsRegex = /(\[\\b\])|(\\)?\\(?:u([A-F0-9]{4})|x([A-F0-9]{2})|c([@A-Z[\\\]^?])|([0tnvfr]))/g;
+    return str.replace(charsRegex, (s, b, lbs, a16, b16, dctrl, eslsh) => {
+        if (lbs) {
+            return s;
+        }
+        let code = b ? 8 :
+            a16 ? parseInt(a16, 16) :
+                b16 ? parseInt(b16, 16) :
+                    dctrl ? CTRL.indexOf(dctrl) : {
+                        0: 0,
+                        t: 9,
+                        n: 10,
+                        v: 11,
+                        f: 12,
+                        r: 13,
+                    }[eslsh];
+        let c = String.fromCharCode(code);
+        // Escape special regex characters.
+        return /[[\]{}^$.|?*+()]/.test(c) ? `\\${c}` : c;
+    });
+};
+/**
+ * Turns class into tokens
+ * reads str until it encounters a ] not preceeded by a \
+ *
+ * @param {string} str
+ * @param {string} regexpStr
+ * @returns {Array.<Array.<Object>, number>}
+ */
+exports.tokenizeClass = (str, regexpStr) => {
+    var _a, _b, _c, _d, _e, _f, _g;
+    let tokens = [], rs, c;
+    const regexp = /\\(?:(w)|(d)|(s)|(W)|(D)|(S))|((?:(?:\\)(.)|([^\]\\]))-(((?:\\)])|(((?:\\)?([^\]])))))|(\])|(?:\\)?([^])/g;
+    while ((rs = regexp.exec(str)) !== null) {
+        const p = (_g = (_f = (_e = (_d = (_c = (_b = (_a = (rs[1] && sets.words())) !== null && _a !== void 0 ? _a : (rs[2] && sets.ints())) !== null && _b !== void 0 ? _b : (rs[3] && sets.whitespace())) !== null && _c !== void 0 ? _c : (rs[4] && sets.notWords())) !== null && _d !== void 0 ? _d : (rs[5] && sets.notInts())) !== null && _e !== void 0 ? _e : (rs[6] && sets.notWhitespace())) !== null && _f !== void 0 ? _f : (rs[7] && {
+            type: types_1.types.RANGE,
+            from: (rs[8] || rs[9]).charCodeAt(0),
+            to: (c = rs[10]).charCodeAt(c.length - 1),
+        })) !== null && _g !== void 0 ? _g : ((c = rs[16]) && { type: types_1.types.CHAR, value: c.charCodeAt(0) });
+        if (p) {
+            tokens.push(p);
+        }
+        else {
+            return [tokens, regexp.lastIndex];
+        }
+    }
+    throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Unterminated character class`);
+};
+//# sourceMappingURL=util.js.map
+
+/***/ }),
+
+/***/ 6349:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.writeSetTokens = exports.setChar = void 0;
+const types_1 = __nccwpck_require__(9282);
+const sets = __importStar(__nccwpck_require__(3494));
+/**
+ * Takes character code and returns character to be displayed in a set
+ * @param {number} charCode Character code of set element
+ * @returns {string} The string for the sets character
+ */
+function setChar(charCode) {
+    return charCode === 94 ? '\\^' :
+        charCode === 92 ? '\\\\' :
+            charCode === 93 ? '\\]' :
+                charCode === 45 ? '\\-' :
+                    String.fromCharCode(charCode);
+}
+exports.setChar = setChar;
+/**
+ * Test if a character set matches a 'set-lookup'
+ * @param {SetTokens} set The set to be tested
+ * @param {SetLookup} param The predefined 'set-lookup' & the number of elements in the lookup
+ * @returns {boolean} True if the character set corresponds to the 'set-lookup'
+ */
+function isSameSet(set, { lookup, len }) {
+    // If the set and the lookup are not of the same length
+    // then we immediately know that the lookup will be false
+    if (len !== set.length) {
+        return false;
+    }
+    const map = lookup();
+    for (const elem of set) {
+        if (elem.type === types_1.types.SET) {
+            return false;
+        }
+        const key = elem.type === types_1.types.CHAR ? elem.value : `${elem.from}-${elem.to}`;
+        if (map[key]) {
+            map[key] = false;
+        }
+        else {
+            return false;
+        }
+    }
+    return true;
+}
+/**
+ * Writes the tokens for a set
+ * @param {Set} set The set to display
+ * @param {boolean} isNested Whether the token is nested inside another set token
+ * @returns {string} The tokens for the set
+ */
+function writeSetTokens(set, isNested = false) {
+    if (isSameSet(set.set, sets.INTS)) {
+        return set.not ? '\\D' : '\\d';
+    }
+    if (isSameSet(set.set, sets.WORDS)) {
+        return set.not ? '\\W' : '\\w';
+    }
+    // Notanychar is only relevant when not nested inside another set token
+    if (set.not && isSameSet(set.set, sets.NOTANYCHAR)) {
+        return '.';
+    }
+    if (isSameSet(set.set, sets.WHITESPACE)) {
+        return set.not ? '\\S' : '\\s';
+    }
+    let tokenString = '';
+    for (let i = 0; i < set.set.length; i++) {
+        const subset = set.set[i];
+        tokenString += writeSetToken(subset);
+    }
+    const contents = `${set.not ? '^' : ''}${tokenString}`;
+    return isNested ? contents : `[${contents}]`;
+}
+exports.writeSetTokens = writeSetTokens;
+/**
+ * Writes a token within a set
+ * @param {Range | Char | Set} set The set token to display
+ * @returns {string} The token as a string
+ */
+function writeSetToken(set) {
+    if (set.type === types_1.types.CHAR) {
+        return setChar(set.value);
+    }
+    else if (set.type === types_1.types.RANGE) {
+        return `${setChar(set.from)}-${setChar(set.to)}`;
+    }
+    return writeSetTokens(set, true);
+}
+//# sourceMappingURL=write-set-tokens.js.map
 
 /***/ }),
 
@@ -39458,10 +40309,40 @@ function getIDToken(aud) {
  */
 
 //# sourceMappingURL=core.js.map
+// EXTERNAL MODULE: ./node_modules/safe-regex2/index.js
+var safe_regex2 = __nccwpck_require__(8700);
+var safe_regex2_default = /*#__PURE__*/__nccwpck_require__.n(safe_regex2);
 ;// CONCATENATED MODULE: ./src/utils.ts
+
 
 // A sha256 digest is 'sha256:' (7) + 64 hex chars = 71 chars total.
 const SHA256_DIGEST_LENGTH = 'sha256:'.length + 64;
+// Cap user-supplied regex patterns at this length. Real-world tag /
+// package name patterns are tiny; anything longer is almost certainly a
+// mistake or an attempt to wedge the action.
+const MAX_USER_REGEX_LENGTH = 1000;
+/**
+ * Validate a user-supplied regex pattern. Reject patterns that are
+ * suspiciously long or that safe-regex2 flags as ReDoS-prone (nested
+ * quantifiers, ambiguous alternation, etc.) before they reach
+ * `new RegExp(...)` and run against tag/digest/package strings.
+ *
+ * Workflow authors are the effective trust boundary, so the primary
+ * goal here is preventing self-foot-shooting (a copy-pasted pattern
+ * that hangs the cleanup job) rather than defending against an
+ * external attacker.
+ *
+ * Throws an Error with a clear message identifying which input
+ * failed; otherwise returns silently.
+ */
+function validateUserRegex(pattern, source) {
+    if (pattern.length > MAX_USER_REGEX_LENGTH) {
+        throw new Error(`${source}: regex pattern exceeds maximum length of ${MAX_USER_REGEX_LENGTH} characters (got ${pattern.length})`);
+    }
+    if (!safe_regex2_default()(pattern)) {
+        throw new Error(`${source}: regex pattern rejected as ReDoS-prone (nested quantifiers or ambiguous alternation). Simplify the pattern or pre-process the input.`);
+    }
+}
 /**
  * Recover the parent image digest from a cosign/sigstore referrer tag.
  *
@@ -44117,7 +44998,7 @@ class OctokitClient {
                     }
                 },
                 error: (message) => {
-                    if (logLevel >= LogLevel.INFO) {
+                    if (logLevel >= LogLevel.ERROR) {
                         info(`[Octokit ERROR] ${message}`);
                     }
                 }
@@ -44352,6 +45233,20 @@ async function buildConfig() {
     }
     if (getInput('use-regex')) {
         config.useRegex = getBooleanInput('use-regex');
+    }
+    // When regex mode is on, validate every user-supplied pattern up front
+    // so a ReDoS-prone or absurdly long pattern fails fast with a clear
+    // message rather than burning workflow minutes inside `.test()`.
+    if (config.useRegex) {
+        if (config.deleteTags) {
+            validateUserRegex(config.deleteTags, 'delete-tags');
+        }
+        if (config.excludeTags) {
+            validateUserRegex(config.excludeTags, 'exclude-tags');
+        }
+        if (config.expandPackages && config.package) {
+            validateUserRegex(config.package, 'package');
+        }
     }
     if (getInput('registry-url')) {
         config.registryUrl = getInput('registry-url');
@@ -44627,7 +45522,7 @@ class PackageRepo {
                         await octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                             package_type: 'container',
                             package_name: targetPackage,
-                            package_version_id: parseInt(id)
+                            package_version_id: id
                         });
                     }
                     else {
@@ -44635,7 +45530,7 @@ class PackageRepo {
                             package_type: 'container',
                             package_name: targetPackage,
                             username: this.config.owner,
-                            package_version_id: parseInt(id)
+                            package_version_id: id
                         });
                     }
                 }
@@ -44644,7 +45539,7 @@ class PackageRepo {
                         package_type: 'container',
                         package_name: targetPackage,
                         org: this.config.owner,
-                        package_version_id: parseInt(id)
+                        package_version_id: id
                     });
                 }
                 this.lastDeleteResult = true;
@@ -52054,8 +52949,6 @@ class Registry {
     targetPackage = '';
     // cache of loaded manifests, by digest
     manifestCache = new Map();
-    // map of referrer manifests
-    //referrersCache = new Map<string, any>()
     /**
      * Constructor
      *
@@ -52075,10 +52968,10 @@ class Registry {
         });
         esm(this.axios, { retries: 3 });
         this.axios.defaults.headers.common['Accept'] =
-            'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json';
+            'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json';
         (0,lib/* setGlobalConfig */.e1)({
             data: false,
-            logger: info.bind(this)
+            logger: info
         });
         // set the axios logging on if log level is debug
         if (this.config.logLevel === LogLevel.DEBUG) {
@@ -52151,22 +53044,21 @@ class Registry {
      * @returns A Promise that resolves to the retrieved manifest
      */
     async getManifestByDigest(digest) {
-        if (this.manifestCache.has(digest)) {
-            return this.manifestCache.get(digest);
+        const cached = this.manifestCache.get(digest);
+        if (cached) {
+            return cached;
         }
-        else {
-            const response = await this.axios.get(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`, {
-                transformResponse: [
-                    data => {
-                        return data;
-                    }
-                ]
-            });
-            const obj = JSON.parse(response?.data);
-            // save it for later use
-            this.manifestCache.set(digest, obj);
-            return obj;
-        }
+        const response = await this.axios.get(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`, {
+            transformResponse: [
+                data => {
+                    return data;
+                }
+            ]
+        });
+        // ghcr.io's response shape is trusted — no runtime validation.
+        const obj = JSON.parse(response?.data);
+        this.manifestCache.set(digest, obj);
+        return obj;
     }
     /**
      * Retrieves a manifest by its tag
@@ -52179,6 +53071,7 @@ class Registry {
         if (tagDigest) {
             return await this.getManifestByDigest(tagDigest);
         }
+        return undefined;
     }
     /**
      * Puts the manifest for a given tag in the registry.
@@ -52311,6 +53204,9 @@ class ImageFilter {
         startGroup(`[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`);
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${digest} not in package cache`);
+            }
             if (ghPackage.updated_at) {
                 const cutOff = new Date(Date.now() - this.context.config.olderThan);
                 const packageDate = new Date(ghPackage.updated_at);
@@ -52347,6 +53243,9 @@ class ImageFilter {
             // Build match list from filterSet
             for (const digest of filterSet) {
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
                 for (const tag of ghPackage.metadata.container.tags) {
                     if (regex.test(tag)) {
                         matchTags.add(tag);
@@ -52365,6 +53264,9 @@ class ImageFilter {
             // Build match list from filterSet
             for (const digest of filterSet) {
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
                 for (const tag of ghPackage.metadata.container.tags) {
                     if (isTagMatch(tag)) {
                         matchTags.add(tag);
@@ -52508,7 +53410,7 @@ class ManifestAnalyzer {
                         digests.delete(tagDigest);
                         // Process any children
                         const childManifest = await this.context.registry.getManifestByTag(tag);
-                        if (childManifest.manifests) {
+                        if (childManifest?.manifests) {
                             for (const manifestEntry of childManifest.manifests) {
                                 digests.delete(manifestEntry.digest);
                             }
@@ -52612,8 +53514,11 @@ class ImageValidator {
         for (const digest of digests) {
             if (!processedManifests.has(digest)) {
                 const manifest = await this.context.registry.getManifestByDigest(digest);
-                const tags = this.context.packageRepo.getPackageByDigest(digest).metadata.container
-                    .tags;
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
+                const tags = ghPackage.metadata.container.tags;
                 if (manifest.manifests) {
                     for (const childImage of manifest.manifests) {
                         processedManifests.add(childImage.digest);
@@ -52681,6 +53586,9 @@ class ImageValidator {
                 if (missing === manifest.manifests.length) {
                     ghostImages.add(digest);
                     const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                    }
                     if (ghPackage.metadata.container.tags.length > 0) {
                         info(`${digest} ${ghPackage.metadata.container.tags}`);
                     }
@@ -52719,6 +53627,9 @@ class ImageValidator {
                 if (missing > 0 && missing < manifest.manifests.length) {
                     partialImages.add(digest);
                     const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                    }
                     if (ghPackage.metadata.container.tags.length > 0) {
                         info(`${digest} ${ghPackage.metadata.container.tags}`);
                     }
@@ -52811,6 +53722,9 @@ class DeletionStrategy {
                     const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
                     if (manifestDigest) {
                         const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+                        if (!ghPackage) {
+                            throw new Error(`cache invariant: digest ${manifestDigest} not in package cache`);
+                        }
                         if (ghPackage.metadata.container.tags.length > 1) {
                             untaggingTags.add(tag);
                             if (!plan.untagOperations.has(manifestDigest)) {
@@ -52862,6 +53776,9 @@ class DeletionStrategy {
         const unTaggedPackages = [];
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${digest} not in package cache`);
+            }
             if (ghPackage.metadata.container.tags.length === 0) {
                 unTaggedPackages.push(ghPackage);
             }
@@ -52902,6 +53819,9 @@ class DeletionStrategy {
                 deleteSet.add(deletePackage.name);
                 filterSet.delete(deletePackage.name);
                 const ghPackage = this.context.packageRepo.getPackageByDigest(deletePackage.name);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${deletePackage.name} not in package cache`);
+                }
                 info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
             }
         }
@@ -52948,9 +53868,10 @@ class DeletionStrategy {
                 const digest = this.context.packageRepo.getDigestByTag(tag);
                 if (digest && !byDigest.has(digest)) {
                     const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (ghPackage) {
-                        byDigest.set(digest, ghPackage);
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
                     }
+                    byDigest.set(digest, ghPackage);
                 }
             }
         }
@@ -52960,6 +53881,9 @@ class DeletionStrategy {
                 if (byDigest.has(digest))
                     continue;
                 const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
                 if (ghPackage.metadata.container.tags.length > 0) {
                     byDigest.set(digest, ghPackage);
                 }
@@ -52977,6 +53901,9 @@ class DeletionStrategy {
         startGroup(`[${this.context.targetPackage}] Finding all untagged images to delete`);
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${digest} not in package cache`);
+            }
             if (ghPackage.metadata.container.tags.length === 0) {
                 deleteSet.add(digest);
                 filterSet.delete(digest);
@@ -53023,6 +53950,9 @@ class ImageDeleter {
             for (const tag of tags) {
                 // Recheck there is more than 1 tag
                 const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${manifestDigest} not in package cache`);
+                }
                 if (ghPackage.metadata.container.tags.length > 1) {
                     info(`${tag}`);
                     const manifest = await this.context.registry.getManifestByDigest(manifestDigest);
@@ -53037,7 +53967,12 @@ class ImageDeleter {
                         newManifest.layers = [];
                         await this.context.registry.putManifest(tag, newManifest, false);
                     }
-                    // Reload package ids to find the new package id/digest
+                    // Per-tag PUT → reload → delete is load-bearing: empty manifest
+                    // content is deterministic, so two PUTs without an intervening
+                    // delete would land on the same package version (same digest) and
+                    // conflate tags from this batch. Reload so we can resolve the
+                    // newly-created version's id, then delete it before the next
+                    // iteration's PUT. Don't try to batch.
                     await this.context.packageRepo.loadPackages(this.context.targetPackage, false);
                     // Delete the untagged version
                     const untaggedDigest = this.context.packageRepo.getDigestByTag(tag);
@@ -53142,6 +54077,9 @@ class ImageDeleter {
         if (deleteSet.size > 0) {
             for (const deleteDigest of deleteSet) {
                 const deleteImage = this.context.packageRepo.getPackageByDigest(deleteDigest);
+                if (!deleteImage) {
+                    throw new Error(`cache invariant: digest ${deleteDigest} not in package cache`);
+                }
                 const result = await this.deleteImage(deleteImage);
                 totalDeleted += result.deleted;
                 totalMultiDeleted += result.multiDeleted;
@@ -53156,12 +54094,6 @@ class ImageDeleter {
             numberImagesDeleted: totalDeleted,
             numberMultiImagesDeleted: totalMultiDeleted
         };
-    }
-    /**
-     * Reset the deletion state
-     */
-    reset() {
-        this.deleted.clear();
     }
 }
 
@@ -53255,7 +54187,10 @@ class CleanupOrchestrator {
             }
             // Perform untagging if needed
             let reloadOccurred = false;
-            if (plan.untagOperations.size > 0 && this.imageDeleter) {
+            if (plan.untagOperations.size > 0) {
+                if (!this.imageDeleter) {
+                    throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
+                }
                 const reloadNeeded = await this.imageDeleter.performUntagging(plan.untagOperations);
                 if (reloadNeeded) {
                     info('Reloading action due to untagging');
@@ -53320,11 +54255,12 @@ class CleanupOrchestrator {
             }
         }
         // Perform the actual deletion
-        if (this.imageDeleter) {
-            const result = await this.imageDeleter.deleteImages(this.deleteSet);
-            this.statistics.numberImagesDeleted = result.numberImagesDeleted;
-            this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
+        if (!this.imageDeleter) {
+            throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
         }
+        const result = await this.imageDeleter.deleteImages(this.deleteSet);
+        this.statistics.numberImagesDeleted = result.numberImagesDeleted;
+        this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
         // Print statistics
         this.statistics.print();
         // Run validation if requested
@@ -53381,7 +54317,7 @@ class CleanupAction {
             const authentication = await auth();
             if (authentication.tokenType !== 'oauth') {
                 setFailed('A Personal Access Token (PAT) is required when the expand-packages option is set to true');
-                throw new Error();
+                return;
             }
             // Fine-grained PATs (github_pat_*) do not currently support GitHub
             // Container Registry access (GitHub roadmap item #558 was removed in
@@ -53390,7 +54326,7 @@ class CleanupAction {
             // letting them fail later with an opaque 403 from the API.
             if (authentication.token.startsWith('github_pat_')) {
                 setFailed('expand-packages requires a classic Personal Access Token. Fine-grained PATs do not currently support GitHub Container Registry access.');
-                throw new Error();
+                return;
             }
             // get the list of available packages in the repo
             const packageRepo = new PackageRepo(this.config, this.octokitClient);
@@ -53416,7 +54352,7 @@ class CleanupAction {
         }
         if (targetPackages.length === 0) {
             setFailed('No packages selected to cleanup');
-            throw new Error();
+            return;
         }
         else if (targetPackages.length > 1) {
             startGroup('Selected Packages');
@@ -53968,6 +54904,89 @@ __webpack_unused_export__ = { parse, safeParse }
 __webpack_unused_export__ = parse
 module.exports.xL = safeParse
 __webpack_unused_export__ = defaultContentType
+
+
+/***/ }),
+
+/***/ 8700:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+
+
+const parse = __nccwpck_require__(4028)
+const { types } = __nccwpck_require__(4028)
+
+/**
+ * @param {*} node
+ * @param {object} opts
+ * @param {number} opts.reps - The number of repetitions encountered
+ * @param {number} opts.limit - The maximum number of repetitions allowed
+ * @param {number} starHeight - The current height of the star in the regex tree
+ * @returns {boolean}
+ */
+function walk (node, opts, starHeight) {
+  let i
+  let ok
+  let len
+
+  if (node.type === types.REPETITION) {
+    starHeight++
+    opts.reps++
+    if (starHeight > 1) return false
+    if (opts.reps > opts.limit) return false
+  }
+
+  const options = node.options || node.value?.options
+  if (options) {
+    for (i = 0, len = options.length; i < len; i++) {
+      ok = walk({ stack: options[i] }, opts, starHeight)
+      if (!ok) return false
+    }
+  }
+  const stack = node.stack || node.value?.stack
+  if (!stack) return true
+
+  for (i = 0, len = stack.length; i < len; i++) {
+    ok = walk(stack[i], opts, starHeight)
+    if (!ok) return false
+  }
+
+  return true
+}
+
+/**
+ * @param {string|RegExp} re - The regular expression to check, can be a string or RegExp object
+ * @param {object} [options]
+ * @param {number} [options.limit=25] - The maximum number of repetitions allowed
+ * @returns {boolean} - Returns true if the regex is safe, false if it is unsafe or invalid
+ */
+function safeRegex (re, options) {
+  const opts = {
+    reps: 0,
+    limit: options?.limit ?? 25
+  }
+
+  if (isRegExp(re)) re = re.source
+  else if (typeof re !== 'string') re = String(re)
+
+  try {
+    return walk(parse(re), opts, 0)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * @param {*} x
+ * @returns {x is RegExp}
+ */
+function isRegExp (x) {
+  return Object.prototype.toString.call(x) === '[object RegExp]'
+}
+
+module.exports = safeRegex
+module.exports["default"] = safeRegex
+module.exports.safeRegex = safeRegex
 
 
 /***/ }),

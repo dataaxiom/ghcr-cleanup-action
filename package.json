@@ -34,7 +34,11 @@
     "ci-tester": "npx ncc build src/ci-tester.ts -o citester --source-map",
     "package:watch": "npm run package -- --watch",
     "test": "vitest run",
-    "all": "npm run format:write && npm run lint && npm run test && npm run package"
+    "all": "npm run format:write && npm run lint && npm run test && npm run package",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md,yml,yaml}": "prettier --write"
   },
   "license": "BSD-3-Clause",
   "dependencies": {
@@ -48,7 +52,7 @@
     "axios": "^1.16.0",
     "axios-retry": "^4.5.0",
     "human-interval": "^2.0.1",
-    "stdio": "^2.1.3",
+    "safe-regex2": "^5.1.1",
     "wildcard-match": "^5.1.4"
   },
   "devDependencies": {
@@ -67,8 +71,11 @@
     "eslint-plugin-github": "^6.0.0",
     "eslint-plugin-jsonc": "^3.1.2",
     "eslint-plugin-prettier": "^5.5.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
     "make-coverage-badge": "^1.2.0",
     "prettier": "^3.8.3",
+    "stdio": "^2.1.3",
     "ts-jest-resolver": "^2.0.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",

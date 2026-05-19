@@ -1,7 +1,40 @@
 import * as core from '@actions/core'
+import safeRegex from 'safe-regex2'
 
 // A sha256 digest is 'sha256:' (7) + 64 hex chars = 71 chars total.
 export const SHA256_DIGEST_LENGTH = 'sha256:'.length + 64
+
+// Cap user-supplied regex patterns at this length. Real-world tag /
+// package name patterns are tiny; anything longer is almost certainly a
+// mistake or an attempt to wedge the action.
+export const MAX_USER_REGEX_LENGTH = 1000
+
+/**
+ * Validate a user-supplied regex pattern. Reject patterns that are
+ * suspiciously long or that safe-regex2 flags as ReDoS-prone (nested
+ * quantifiers, ambiguous alternation, etc.) before they reach
+ * `new RegExp(...)` and run against tag/digest/package strings.
+ *
+ * Workflow authors are the effective trust boundary, so the primary
+ * goal here is preventing self-foot-shooting (a copy-pasted pattern
+ * that hangs the cleanup job) rather than defending against an
+ * external attacker.
+ *
+ * Throws an Error with a clear message identifying which input
+ * failed; otherwise returns silently.
+ */
+export function validateUserRegex(pattern: string, source: string): void {
+  if (pattern.length > MAX_USER_REGEX_LENGTH) {
+    throw new Error(
+      `${source}: regex pattern exceeds maximum length of ${MAX_USER_REGEX_LENGTH} characters (got ${pattern.length})`
+    )
+  }
+  if (!safeRegex(pattern)) {
+    throw new Error(
+      `${source}: regex pattern rejected as ReDoS-prone (nested quantifiers or ambiguous alternation). Simplify the pattern or pre-process the input.`
+    )
+  }
+}
 
 /**
  * Recover the parent image digest from a cosign/sigstore referrer tag.
@@ -109,4 +142,68 @@ export class CleanupTaskStatistics {
     core.info(`total images deleted = ${this.numberImagesDeleted}`)
     core.endGroup()
   }
+}
+
+// Minimal projection over the GitHub Packages "package version" response
+// shape — only the fields this action actually reads. Octokit's full type
+// has many more fields, but committing to those would couple us to a
+// specific Octokit version unnecessarily.
+export interface GhPackage {
+  id: number
+  name: string
+  updated_at: string
+  metadata: {
+    container: {
+      tags: string[]
+    }
+  }
+}
+
+// Container manifest shapes consumed across registry.ts and the cleanup
+// pipeline. Field availability mirrors the OCI image spec but is kept
+// permissive (most fields optional) so callers can `if (manifest.x)`
+// rather than runtime-validate.
+
+// OCI Content Descriptor — used for both `config` and entries in `layers[]`.
+// Naming follows the OCI spec rather than calling it a "Layer" specifically.
+export interface ManifestDescriptor {
+  mediaType: string
+  digest: string
+  size: number
+}
+
+export interface ManifestPlatform {
+  architecture: string
+  variant?: string
+  os?: string
+}
+
+export interface ManifestEntry {
+  digest: string
+  mediaType?: string
+  size?: number
+  platform?: ManifestPlatform
+  artifactType?: string
+}
+
+// OCI 1.1 subject descriptor — present on referrer manifests that point
+// back at the digest they describe (sigstore bundles, attestations, etc.)
+export interface ManifestSubject {
+  mediaType?: string
+  digest: string
+  size?: number
+}
+
+export interface Manifest {
+  mediaType?: string
+  schemaVersion?: number
+  // Present on referrer manifests (sigstore bundles etc.); image-validator
+  // and manifest-analyzer use it to identify the artifact shape.
+  artifactType?: string
+  manifests?: ManifestEntry[]
+  layers?: ManifestDescriptor[]
+  config?: ManifestDescriptor
+  // OCI 1.1 referrer link — read by manifest-analyzer.loadDigestUsedByMap
+  // to build the subjectReferrers reverse index.
+  subject?: ManifestSubject
 }
