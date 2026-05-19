@@ -306,6 +306,58 @@ describe('Config', () => {
       expect(config.useRegex).toBe(true)
     })
 
+    it('rejects ReDoS-prone delete-tags when use-regex is enabled', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'delete-tags': '(a+)+$',
+          'use-regex': 'true'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name === 'use-regex'
+      )
+
+      await expect(buildConfig()).rejects.toThrow(/delete-tags.*ReDoS-prone/)
+    })
+
+    it('rejects ReDoS-prone exclude-tags when use-regex is enabled', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'exclude-tags': '(.*)+$',
+          'use-regex': 'true'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name === 'use-regex'
+      )
+
+      await expect(buildConfig()).rejects.toThrow(/exclude-tags.*ReDoS-prone/)
+    })
+
+    it('does NOT validate delete-tags as regex when use-regex is false', async () => {
+      // Without use-regex, delete-tags is a wildcard pattern, not a regex,
+      // so the (a+)+ string is a literal — must not be rejected.
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'delete-tags': '(a+)+$'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockReturnValue(false)
+
+      const config = await buildConfig()
+      expect(config.deleteTags).toBe('(a+)+$')
+      expect(config.useRegex).toBeFalsy()
+    })
+
     it('should handle log levels correctly', async () => {
       process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
       mockGetInput.mockImplementation((name: string) => {

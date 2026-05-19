@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { MapPrinter } from './utils.js'
+import { MapPrinter, validateUserRegex } from './utils.js'
 import { OctokitClient } from './octokit-client.js'
 import humanInterval from 'human-interval'
 
@@ -212,6 +212,21 @@ export async function buildConfig(): Promise<Config> {
 
   if (core.getInput('use-regex')) {
     config.useRegex = core.getBooleanInput('use-regex')
+  }
+
+  // When regex mode is on, validate every user-supplied pattern up front
+  // so a ReDoS-prone or absurdly long pattern fails fast with a clear
+  // message rather than burning workflow minutes inside `.test()`.
+  if (config.useRegex) {
+    if (config.deleteTags) {
+      validateUserRegex(config.deleteTags, 'delete-tags')
+    }
+    if (config.excludeTags) {
+      validateUserRegex(config.excludeTags, 'exclude-tags')
+    }
+    if (config.expandPackages && config.package) {
+      validateUserRegex(config.package, 'package')
+    }
   }
 
   if (core.getInput('registry-url')) {

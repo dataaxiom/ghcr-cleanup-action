@@ -1,7 +1,40 @@
 import * as core from '@actions/core'
+import safeRegex from 'safe-regex2'
 
 // A sha256 digest is 'sha256:' (7) + 64 hex chars = 71 chars total.
 export const SHA256_DIGEST_LENGTH = 'sha256:'.length + 64
+
+// Cap user-supplied regex patterns at this length. Real-world tag /
+// package name patterns are tiny; anything longer is almost certainly a
+// mistake or an attempt to wedge the action.
+export const MAX_USER_REGEX_LENGTH = 1000
+
+/**
+ * Validate a user-supplied regex pattern. Reject patterns that are
+ * suspiciously long or that safe-regex2 flags as ReDoS-prone (nested
+ * quantifiers, ambiguous alternation, etc.) before they reach
+ * `new RegExp(...)` and run against tag/digest/package strings.
+ *
+ * Workflow authors are the effective trust boundary, so the primary
+ * goal here is preventing self-foot-shooting (a copy-pasted pattern
+ * that hangs the cleanup job) rather than defending against an
+ * external attacker.
+ *
+ * Throws an Error with a clear message identifying which input
+ * failed; otherwise returns silently.
+ */
+export function validateUserRegex(pattern: string, source: string): void {
+  if (pattern.length > MAX_USER_REGEX_LENGTH) {
+    throw new Error(
+      `${source}: regex pattern exceeds maximum length of ${MAX_USER_REGEX_LENGTH} characters (got ${pattern.length})`
+    )
+  }
+  if (!safeRegex(pattern)) {
+    throw new Error(
+      `${source}: regex pattern rejected as ReDoS-prone (nested quantifiers or ambiguous alternation). Simplify the pattern or pre-process the input.`
+    )
+  }
+}
 
 /**
  * Recover the parent image digest from a cosign/sigstore referrer tag.
