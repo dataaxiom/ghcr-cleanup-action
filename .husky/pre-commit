@@ -1,0 +1,22 @@
+# Auto-fix formatting on staged files (prettier --write via lint-staged).
+# Re-stages the formatted files so the commit picks them up.
+npx lint-staged
+
+# If any TypeScript source under src/ is staged, rebuild dist/ + citester/
+# so the check-dist workflow doesn't flag the commit. Skipped for doc-only
+# or YAML-only commits — bundle is the slow step (~10s) and isn't needed
+# for those.
+#
+# Set HUSKY_SKIP_BUNDLE=1 to bypass for emergencies, or use git commit
+# --no-verify to skip the hook entirely.
+if [ "$HUSKY_SKIP_BUNDLE" = "1" ]; then
+  echo "pre-commit: HUSKY_SKIP_BUNDLE=1 — skipping dist/ rebuild"
+  exit 0
+fi
+
+if git diff --cached --name-only --diff-filter=ACMR |
+  grep -qE '^src/.*\.ts$'; then
+  echo "pre-commit: src/*.ts changed — rebuilding dist/ + citester/"
+  npm run bundle || exit 1
+  git add dist/ citester/
+fi

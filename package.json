@@ -34,7 +34,11 @@
     "ci-tester": "npx ncc build src/ci-tester.ts -o citester --source-map",
     "package:watch": "npm run package -- --watch",
     "test": "vitest run",
-    "all": "npm run format:write && npm run lint && npm run test && npm run package"
+    "all": "npm run format:write && npm run lint && npm run test && npm run package",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md,yml,yaml}": "prettier --write"
   },
   "license": "BSD-3-Clause",
   "dependencies": {
@@ -67,6 +71,8 @@
     "eslint-plugin-github": "^6.0.0",
     "eslint-plugin-jsonc": "^3.1.2",
     "eslint-plugin-prettier": "^5.5.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
     "make-coverage-badge": "^1.2.0",
     "prettier": "^3.8.3",
     "stdio": "^2.1.3",
