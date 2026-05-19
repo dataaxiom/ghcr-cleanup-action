@@ -53967,7 +53967,12 @@ class ImageDeleter {
                         newManifest.layers = [];
                         await this.context.registry.putManifest(tag, newManifest, false);
                     }
-                    // Reload package ids to find the new package id/digest
+                    // Per-tag PUT → reload → delete is load-bearing: empty manifest
+                    // content is deterministic, so two PUTs without an intervening
+                    // delete would land on the same package version (same digest) and
+                    // conflate tags from this batch. Reload so we can resolve the
+                    // newly-created version's id, then delete it before the next
+                    // iteration's PUT. Don't try to batch.
                     await this.context.packageRepo.loadPackages(this.context.targetPackage, false);
                     // Delete the untagged version
                     const untaggedDigest = this.context.packageRepo.getDigestByTag(tag);
