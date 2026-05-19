@@ -562,7 +562,7 @@ describe('PackageRepo', () => {
       await repo.deletePackageVersion('pkg', 42, 'sha256:a')
       // Second propagates
       await expect(
-        repo.deletePackageVersion('pkg', '43', 'sha256:b')
+        repo.deletePackageVersion('pkg', 43, 'sha256:b')
       ).rejects.toBe(err)
       expect(core.warning).toHaveBeenLastCalledWith(
         expect.stringContaining('Multiple 404 errors')

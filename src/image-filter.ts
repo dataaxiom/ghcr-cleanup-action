@@ -88,7 +88,12 @@ export class ImageFilter {
 
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
-      if (ghPackage?.updated_at) {
+      if (!ghPackage) {
+        throw new Error(
+          `cache invariant: digest ${digest} not in package cache`
+        )
+      }
+      if (ghPackage.updated_at) {
         const cutOff = new Date(Date.now() - this.context.config.olderThan)
         const packageDate = new Date(ghPackage.updated_at)
         if (packageDate >= cutOff) {
