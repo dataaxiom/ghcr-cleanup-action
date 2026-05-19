@@ -454,4 +454,22 @@ describe('CleanupOrchestrator', () => {
       expect(stats.numberMultiImagesDeleted).toBe(2)
     })
   })
+
+  describe('run() invariants', () => {
+    it('throws when run() is called before reload() — imageDeleter not initialized', async () => {
+      // Construct a fresh orchestrator with no reload() — imageDeleter
+      // stays null. The previous silent `if (this.imageDeleter)` guards
+      // would have produced a green run with zero deletions; the new
+      // explicit throws surface the contract violation loudly.
+      const fresh = new CleanupOrchestrator(
+        config,
+        'test-package',
+        octokitClient
+      )
+
+      await expect(fresh.run()).rejects.toThrow(
+        /imageDeleter is not initialized/
+      )
+    })
+  })
 })

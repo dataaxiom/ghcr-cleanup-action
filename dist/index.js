@@ -54187,7 +54187,10 @@ class CleanupOrchestrator {
             }
             // Perform untagging if needed
             let reloadOccurred = false;
-            if (plan.untagOperations.size > 0 && this.imageDeleter) {
+            if (plan.untagOperations.size > 0) {
+                if (!this.imageDeleter) {
+                    throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
+                }
                 const reloadNeeded = await this.imageDeleter.performUntagging(plan.untagOperations);
                 if (reloadNeeded) {
                     info('Reloading action due to untagging');
@@ -54252,11 +54255,12 @@ class CleanupOrchestrator {
             }
         }
         // Perform the actual deletion
-        if (this.imageDeleter) {
-            const result = await this.imageDeleter.deleteImages(this.deleteSet);
-            this.statistics.numberImagesDeleted = result.numberImagesDeleted;
-            this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
+        if (!this.imageDeleter) {
+            throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
         }
+        const result = await this.imageDeleter.deleteImages(this.deleteSet);
+        this.statistics.numberImagesDeleted = result.numberImagesDeleted;
+        this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
         // Print statistics
         this.statistics.print();
         // Run validation if requested
