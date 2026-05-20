@@ -1,7 +1,12 @@
 import * as core from '@actions/core'
 import { CleanupContext, DeletionResult } from './cleanup-types.js'
 import { ManifestAnalyzer } from './manifest-analyzer.js'
-import { GhPackage } from './utils.js'
+import { GhPackage, Manifest, runWithConcurrency } from './utils.js'
+
+// Concurrency for the parallel PUT + DELETE phases of performUntagging.
+// Modest fan-out — ghcr.io accepts writes happily but writes are
+// account-quota relevant.
+const UNTAG_WRITE_CONCURRENCY = 5
 
 export class ImageDeleter {
   private context: CleanupContext
@@ -23,7 +28,16 @@ export class ImageDeleter {
   }
 
   /**
-   * Perform untagging operations
+   * Perform untagging operations.
+   *
+   * Strategy: each tag we want to strip gets a freshly-annotated empty
+   * manifest PUT under it. The unique annotation (timestamp + tag name)
+   * makes every PUT body byte-distinct, so every PUT lands as its own
+   * package version with its own digest. We can then issue ONE
+   * loadPackages to discover all the new version IDs, and batch the
+   * deletes. This replaces an older per-tag PUT→reload→delete loop that
+   * paid a full loadPackages round-trip per tag — catastrophic on large
+   * repos where each reload is ~600 paginated API calls.
    */
   async performUntagging(
     untagOperations: Map<string, string[]>
@@ -32,74 +46,128 @@ export class ImageDeleter {
       return false
     }
 
-    const allTags: string[] = []
-    for (const tags of untagOperations.values()) {
-      allTags.push(...tags)
+    // Build the list of (digest, tag) pairs we will actually strip.
+    // Honor the original "always leave at least one tag on the image"
+    // invariant: if untagOperations asks for more tags than the image
+    // has (-1), silently keep the remainder.
+    interface UntagJob {
+      manifestDigest: string
+      tag: string
+    }
+    const jobs: UntagJob[] = []
+    for (const [manifestDigest, tags] of untagOperations) {
+      const ghPackage =
+        this.context.packageRepo.getPackageByDigest(manifestDigest)
+      if (!ghPackage) {
+        throw new Error(
+          `cache invariant: digest ${manifestDigest} not in package cache`
+        )
+      }
+      const allowable = Math.max(
+        0,
+        ghPackage.metadata.container.tags.length - 1
+      )
+      for (let i = 0; i < tags.length && i < allowable; i++) {
+        jobs.push({ manifestDigest, tag: tags[i] })
+      }
     }
 
+    if (jobs.length === 0) {
+      return false
+    }
+
+    const allTags = jobs.map(j => j.tag)
     core.startGroup(
       `[${this.context.targetPackage}] Untagging images: ${allTags}`
     )
 
-    for (const [manifestDigest, tags] of untagOperations) {
-      for (const tag of tags) {
-        // Recheck there is more than 1 tag
-        const ghPackage =
-          this.context.packageRepo.getPackageByDigest(manifestDigest)
-        if (!ghPackage) {
-          throw new Error(
-            `cache invariant: digest ${manifestDigest} not in package cache`
-          )
-        }
-        if (ghPackage.metadata.container.tags.length > 1) {
-          core.info(`${tag}`)
+    // Stamp every PUT body uniquely so each lands as a distinct digest.
+    // The timestamp resolves at submit time so the suffix is monotonic
+    // and human-readable in `oci-inspect` output if anyone goes hunting.
+    const stampPrefix = new Date().toISOString()
 
-          const manifest =
-            await this.context.registry.getManifestByDigest(manifestDigest)
-
-          // Clone the manifest
-          const newManifest = JSON.parse(JSON.stringify(manifest))
-
-          // Create a fake manifest to separate the tag
-          if (newManifest.manifests) {
-            newManifest.manifests = []
-            await this.context.registry.putManifest(tag, newManifest, true)
-          } else {
-            newManifest.layers = []
-            await this.context.registry.putManifest(tag, newManifest, false)
-          }
-
-          // Per-tag PUT → reload → delete is load-bearing: empty manifest
-          // content is deterministic, so two PUTs without an intervening
-          // delete would land on the same package version (same digest) and
-          // conflate tags from this batch. Reload so we can resolve the
-          // newly-created version's id, then delete it before the next
-          // iteration's PUT. Don't try to batch.
-          await this.context.packageRepo.loadPackages(
-            this.context.targetPackage,
-            false
-          )
-
-          // Delete the untagged version
-          const untaggedDigest = this.context.packageRepo.getDigestByTag(tag)
-          if (untaggedDigest) {
-            const id = this.context.packageRepo.getIdByDigest(untaggedDigest)
-            if (id) {
-              await this.context.packageRepo.deletePackageVersion(
-                this.context.targetPackage,
-                id,
-                untaggedDigest,
-                [tag]
-              )
-            } else {
-              core.info(
-                `couldn't find newly created package with digest ${untaggedDigest} to delete`
-              )
-            }
-          }
-        }
+    // Pre-fetch each unique source manifest exactly once.
+    // getRawManifestByDigest deliberately bypasses Registry's in-memory
+    // cache (which may hold a reconstituted, field-incomplete entry
+    // from the distilled disk cache) — so without this pre-fetch a
+    // multi-tag untag on the same image would re-GET the full body once
+    // per tag.
+    const uniqueSourceDigests = Array.from(
+      new Set(jobs.map(j => j.manifestDigest))
+    )
+    const rawManifestCache = new Map<string, Manifest>()
+    await runWithConcurrency(
+      uniqueSourceDigests,
+      UNTAG_WRITE_CONCURRENCY,
+      async digest => {
+        rawManifestCache.set(
+          digest,
+          await this.context.registry.getRawManifestByDigest(digest)
+        )
       }
-    }
+    )
+
+    await runWithConcurrency(
+      jobs,
+      UNTAG_WRITE_CONCURRENCY,
+      async ({ manifestDigest, tag }) => {
+        const manifest = rawManifestCache.get(manifestDigest)
+        if (!manifest) {
+          throw new Error(
+            `untag invariant: missing raw manifest for ${manifestDigest}`
+          )
+        }
+
+        // Deep clone, then strip content and stamp the annotation.
+        const newManifest = JSON.parse(JSON.stringify(manifest))
+        newManifest.annotations = {
+          ...(newManifest.annotations || {}),
+          'org.opencontainers.image.created': stampPrefix,
+          'io.github.ghcr-cleanup-action.untag-source-tag': tag
+        }
+
+        const isMultiArch = !!newManifest.manifests
+        if (isMultiArch) {
+          newManifest.manifests = []
+        } else {
+          newManifest.layers = []
+        }
+
+        core.info(`${tag}`)
+        await this.context.registry.putManifest(tag, newManifest, isMultiArch)
+      }
+    )
+
+    // ONE reload to discover all newly-created empty versions in one
+    // paginated sweep, instead of per-tag.
+    await this.context.packageRepo.loadPackages(
+      this.context.targetPackage,
+      false
+    )
+
+    // Delete the newly-created empty versions in parallel.
+    await runWithConcurrency(jobs, UNTAG_WRITE_CONCURRENCY, async ({ tag }) => {
+      const untaggedDigest = this.context.packageRepo.getDigestByTag(tag)
+      if (!untaggedDigest) {
+        core.info(
+          `couldn't find newly created package for tag ${tag} to delete`
+        )
+        return
+      }
+      const id = this.context.packageRepo.getIdByDigest(untaggedDigest)
+      if (!id) {
+        core.info(
+          `couldn't find newly created package with digest ${untaggedDigest} to delete`
+        )
+        return
+      }
+      await this.context.packageRepo.deletePackageVersion(
+        this.context.targetPackage,
+        id,
+        untaggedDigest,
+        [tag]
+      )
+    })
 
     core.endGroup()
     return true
@@ -166,20 +234,21 @@ export class ImageDeleter {
       }
     }
 
-    // Process referrers/cosign (sha256-* tagged fallback shape)
-    const digestTag = ghPackage.name.replace('sha256:', 'sha256-')
-    const tags = this.context.packageRepo.getTags()
-    for (const tag of tags) {
-      if (tag.startsWith(digestTag)) {
-        const manifestDigest = this.context.packageRepo.getDigestByTag(tag)
-        if (manifestDigest) {
-          const attestationPackage =
-            this.context.packageRepo.getPackageByDigest(manifestDigest)
-          if (attestationPackage) {
-            const result = await this.deleteImage(attestationPackage)
-            imagesDeleted += result.deleted
-            multiImagesDeleted += result.multiDeleted
-          }
+    // Process referrers/cosign (sha256-* tagged fallback shape) via the
+    // pre-built reverse index — O(1) lookup instead of scanning every
+    // tag in the repo for every digest we delete.
+    const referrerTags = this.context.packageRepo.getReferrerTagsForDigest(
+      ghPackage.name
+    )
+    for (const tag of referrerTags) {
+      const manifestDigest = this.context.packageRepo.getDigestByTag(tag)
+      if (manifestDigest) {
+        const attestationPackage =
+          this.context.packageRepo.getPackageByDigest(manifestDigest)
+        if (attestationPackage) {
+          const result = await this.deleteImage(attestationPackage)
+          imagesDeleted += result.deleted
+          multiImagesDeleted += result.multiDeleted
         }
       }
     }
@@ -209,8 +278,16 @@ export class ImageDeleter {
 
   /**
    * Delete all images in the delete set
+   * @param deleteSet digests to delete
+   * @param afterDelete optional hook that runs INSIDE the "Deleting
+   *   packages" log group after the deletes finish but before the group
+   *   closes — lets callers (the orchestrator) emit related log lines
+   *   under the same group instead of having them dangle afterward.
    */
-  async deleteImages(deleteSet: Set<string>): Promise<DeletionResult> {
+  async deleteImages(
+    deleteSet: Set<string>,
+    afterDelete?: (deleted: Set<string>) => void
+  ): Promise<DeletionResult> {
     // Prime manifests
     await this.manifestAnalyzer.primeManifests(deleteSet)
 
@@ -234,6 +311,10 @@ export class ImageDeleter {
       }
     } else {
       core.info(`Nothing to delete`)
+    }
+
+    if (afterDelete) {
+      afterDelete(this.deleted)
     }
 
     core.endGroup()

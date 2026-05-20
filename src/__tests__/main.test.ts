@@ -162,10 +162,10 @@ describe('main.run()', () => {
       ])
     })
 
-    // Regression: issue #103 - YAML folding (`>-`) preserves whitespace
-    // between comma-separated package names. Make sure we trim it off and
-    // drop any empty entries from stray commas.
-    it('trims whitespace and skips empty entries when splitting (issue #103)', async () => {
+    // Regression: YAML folding (`>-`) preserves whitespace between
+    // comma-separated package names. Make sure we trim it off and drop
+    // any empty entries from stray commas.
+    it('trims whitespace and skips empty entries when splitting', async () => {
       mockBuildConfig.mockResolvedValue(
         defaultConfig({
           expandPackages: false,

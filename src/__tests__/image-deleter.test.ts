@@ -26,6 +26,7 @@ describe('ImageDeleter', () => {
       getDigestByTag: vi.fn(),
       getIdByDigest: vi.fn(),
       getTags: vi.fn().mockReturnValue([]),
+      getReferrerTagsForDigest: vi.fn().mockReturnValue([]),
       loadPackages: vi.fn().mockResolvedValue(undefined),
       deletePackageVersion: vi.fn().mockResolvedValue(undefined)
     }
@@ -33,6 +34,7 @@ describe('ImageDeleter', () => {
     // Create mock registry
     mockRegistry = {
       getManifestByDigest: vi.fn<(digest: string) => Promise<Manifest>>(),
+      getRawManifestByDigest: vi.fn<(digest: string) => Promise<Manifest>>(),
       putManifest: vi.fn().mockResolvedValue(undefined)
     }
 
@@ -73,7 +75,7 @@ describe('ImageDeleter', () => {
         metadata: { container: { tags: ['v1.0', 'old', 'latest'] } }
       })
 
-      mockRegistry.getManifestByDigest.mockResolvedValue({
+      mockRegistry.getRawManifestByDigest.mockResolvedValue({
         manifests: [{ digest: 'sha256:child1' }]
       })
 
@@ -104,7 +106,7 @@ describe('ImageDeleter', () => {
         metadata: { container: { tags: ['v1.0', 'latest'] } }
       })
 
-      mockRegistry.getManifestByDigest.mockResolvedValue({
+      mockRegistry.getRawManifestByDigest.mockResolvedValue({
         layers: [{ digest: 'sha256:layer1' }]
       })
 
@@ -142,7 +144,7 @@ describe('ImageDeleter', () => {
         metadata: { container: { tags: ['v1.0', 'latest'] } }
       })
 
-      mockRegistry.getManifestByDigest.mockResolvedValue({
+      mockRegistry.getRawManifestByDigest.mockResolvedValue({
         manifests: []
       })
 
@@ -154,6 +156,111 @@ describe('ImageDeleter', () => {
       expect(core.info).toHaveBeenCalledWith(
         expect.stringContaining("couldn't find newly created package")
       )
+    })
+
+    it('reloads only once for a multi-tag batch', async () => {
+      // Three untags on one image (4 tags total → 3 strippable).
+      // Previous implementation did 3 reloads (one per tag); the
+      // batched implementation does 1.
+      const untagOps = new Map([['digest1', ['v1.0', 'old', 'beta']]])
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        name: 'digest1',
+        metadata: {
+          container: { tags: ['v1.0', 'old', 'beta', 'latest'] }
+        }
+      })
+      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      mockPackageRepo.getDigestByTag.mockImplementation(
+        (tag: string) => `sha256:empty-${tag}`
+      )
+      mockPackageRepo.getIdByDigest.mockImplementation(
+        (digest: string) => `id-${digest}`
+      )
+
+      await deleter.performUntagging(untagOps)
+
+      expect(mockRegistry.putManifest).toHaveBeenCalledTimes(3)
+      expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(1)
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(3)
+    })
+
+    it('annotates each PUT uniquely so digests differ', async () => {
+      // The whole reason we can batch: byte-distinct manifests produce
+      // distinct digests, so the new versions don't conflate.
+      const untagOps = new Map([['digest1', ['a', 'b']]])
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        name: 'digest1',
+        metadata: { container: { tags: ['a', 'b', 'keep'] } }
+      })
+      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      mockPackageRepo.getDigestByTag.mockImplementation(
+        (tag: string) => `sha256:empty-${tag}`
+      )
+      mockPackageRepo.getIdByDigest.mockReturnValue(1)
+
+      await deleter.performUntagging(untagOps)
+
+      const putCalls = mockRegistry.putManifest.mock.calls
+      const annoA = putCalls.find(c => c[0] === 'a')?.[1]?.annotations
+      const annoB = putCalls.find(c => c[0] === 'b')?.[1]?.annotations
+      expect(annoA).toBeDefined()
+      expect(annoB).toBeDefined()
+      // The annotation must differ between tags so the PUT bodies are
+      // byte-distinct (i.e. yield distinct digests on the registry).
+      expect(JSON.stringify(annoA)).not.toEqual(JSON.stringify(annoB))
+    })
+
+    it('fetches each unique source manifest only once per batch', async () => {
+      // Three tags on the same image — pre-fetch pass should issue
+      // exactly ONE getRawManifestByDigest call for the source digest,
+      // not one per tag.
+      const untagOps = new Map([['digest1', ['v1.0', 'old', 'beta']]])
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        name: 'digest1',
+        metadata: { container: { tags: ['v1.0', 'old', 'beta', 'latest'] } }
+      })
+      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      mockPackageRepo.getDigestByTag.mockImplementation(
+        (tag: string) => `sha256:empty-${tag}`
+      )
+      mockPackageRepo.getIdByDigest.mockImplementation(
+        (digest: string) => `id-${digest}`
+      )
+
+      await deleter.performUntagging(untagOps)
+
+      // One source manifest fetch despite three target tags.
+      expect(mockRegistry.getRawManifestByDigest).toHaveBeenCalledTimes(1)
+      expect(mockRegistry.getRawManifestByDigest).toHaveBeenCalledWith(
+        'digest1'
+      )
+    })
+
+    it('honors "at least one tag survives" when batch exceeds available tags', async () => {
+      // Original image has 3 tags total; batch asks to untag all 3.
+      // Only 2 should actually be stripped — leave one behind.
+      const untagOps = new Map([['digest1', ['a', 'b', 'c']]])
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        name: 'digest1',
+        metadata: { container: { tags: ['a', 'b', 'c'] } }
+      })
+      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      mockPackageRepo.getDigestByTag.mockImplementation(
+        (tag: string) => `sha256:empty-${tag}`
+      )
+      mockPackageRepo.getIdByDigest.mockReturnValue(1)
+
+      await deleter.performUntagging(untagOps)
+
+      expect(mockRegistry.putManifest).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -278,7 +385,10 @@ describe('ImageDeleter', () => {
       }
 
       mockRegistry.getManifestByDigest.mockResolvedValue({})
-      mockPackageRepo.getTags.mockReturnValue(['sha256-abc123.sig'])
+      mockPackageRepo.getReferrerTagsForDigest.mockImplementation(
+        (digest: string) =>
+          digest === 'sha256:abc123' ? ['sha256-abc123.sig'] : []
+      )
       mockPackageRepo.getDigestByTag.mockReturnValue('sha256:att123')
       mockPackageRepo.getPackageByDigest.mockImplementation(
         (digest: string) => {
@@ -294,11 +404,10 @@ describe('ImageDeleter', () => {
     })
 
     it('cascades subject-bearing OCI 1.1 referrers when their subject is deleted', async () => {
-      // Regression for FINDINGS.md #20 / upstream issue #104: a bare
-      // OCI 1.1 referrer (no tag, no sha256-* fallback) was previously
-      // dropped by delete-untagged because nothing linked it back to
-      // its subject. The subjectReferrers reverse index now lets the
-      // deleter take it down alongside its subject.
+      // Regression: a bare OCI 1.1 referrer (no tag, no sha256-* fallback)
+      // was previously dropped by delete-untagged because nothing linked
+      // it back to its subject. The subjectReferrers reverse index now
+      // lets the deleter take it down alongside its subject.
       const subjectPackage = {
         id: 'subject-id',
         name: 'sha256:subject',
@@ -404,11 +513,16 @@ describe('ImageDeleter', () => {
 
       mockRegistry.getManifestByDigest.mockResolvedValue({})
 
-      // Return all attestation tags - the deleter will filter them
-      mockPackageRepo.getTags.mockReturnValue([
-        'sha256-abcd1234.sig',
-        'sha256-efgh5678.att'
-      ])
+      // The reverse index now maps each parent digest to its specific
+      // sha256-<digest>.* referrers, so the deleter doesn't scan all
+      // tags for every digest it processes.
+      mockPackageRepo.getReferrerTagsForDigest.mockImplementation(
+        (digest: string) => {
+          if (digest === 'sha256:abcd1234') return ['sha256-abcd1234.sig']
+          if (digest === 'sha256:efgh5678') return ['sha256-efgh5678.att']
+          return []
+        }
+      )
 
       mockPackageRepo.getDigestByTag.mockImplementation((tag: string) => {
         if (tag === 'sha256-abcd1234.sig') return 'sha256:efgh5678'

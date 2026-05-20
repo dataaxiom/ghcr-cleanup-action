@@ -48,12 +48,25 @@ export class OctokitClient {
         onSecondaryRateLimit: (
           retryAfter: number,
           options: EndpointDefaults,
-          octokit: MyOctokitInstance
+          octokit: MyOctokitInstance,
+          retryCount: number
         ) => {
-          // does not retry, only logs a warning
           core.info(
             `Octokit - secondaryRateLimit detected for request ${options.method} ${options.url}`
           )
+          // Secondary rate limits are GitHub's abuse-detection throttle.
+          // The previous implementation logged and gave up; that meant a
+          // single secondary hit during a burst (parallel pagination,
+          // parallel manifest fetches, parallel untag writes) killed the
+          // whole request and surfaced as an action failure. Retry up to
+          // 3 times, mirroring onRateLimit.
+          if (retryCount < 3) {
+            core.info(
+              `Octokit - retrying after ${retryAfter} seconds (secondary rate limit)`
+            )
+            return true
+          }
+          return false
         }
       },
       log: {

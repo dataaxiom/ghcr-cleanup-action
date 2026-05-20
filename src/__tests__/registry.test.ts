@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import axiosRetry from 'axios-retry'
 import { Registry } from '../registry'
 import { Config, LogLevel } from '../config'
 
@@ -23,7 +24,17 @@ vi.mock('axios', () => {
   }
 })
 
-vi.mock('axios-retry', () => ({ default: vi.fn() }))
+vi.mock('axios-retry', () => {
+  // axios-retry's default export is a function that also carries
+  // utility helpers as properties. registry.ts reads both.
+  const axiosRetryMock = vi.fn() as ReturnType<typeof vi.fn> & {
+    isNetworkOrIdempotentRequestError: ReturnType<typeof vi.fn>
+    exponentialDelay: ReturnType<typeof vi.fn>
+  }
+  axiosRetryMock.isNetworkOrIdempotentRequestError = vi.fn(() => false)
+  axiosRetryMock.exponentialDelay = vi.fn(() => 0)
+  return { default: axiosRetryMock }
+})
 
 vi.mock('axios-logger', () => ({
   setGlobalConfig: vi.fn(),
@@ -79,6 +90,26 @@ describe('Registry', () => {
     registry = new Registry(config, packageRepo)
   })
 
+  describe('retry configuration', () => {
+    it('retries on 429 responses (rate limit) in addition to network/5xx', () => {
+      // The Registry constructor in beforeEach already configured
+      // axios-retry. Pull the most recent call's config and exercise
+      // the retryCondition directly.
+      const lastCall = vi.mocked(axiosRetry).mock.calls.at(-1)
+      const cfg = lastCall?.[1]
+      const retryCondition = cfg?.retryCondition
+      expect(retryCondition).toBeDefined()
+      if (!retryCondition) return
+
+      // 429 must retry — that's the new behavior we added on top of
+      // axios-retry's default network/idempotent check.
+      expect(retryCondition({ response: { status: 429 } } as never)).toBe(true)
+      // Non-rate-limit errors fall through to
+      // isNetworkOrIdempotentRequestError (mocked to false here).
+      expect(retryCondition({ response: { status: 400 } } as never)).toBe(false)
+    })
+  })
+
   describe('login', () => {
     it('handles a 401 challenge, fetches a token, and sets the Authorization header', async () => {
       // 1st call: tags/list returns 401 with challenge.
@@ -124,9 +155,9 @@ describe('Registry', () => {
       await expect(registry.login('pkg')).rejects.toBeDefined()
     })
 
-    it('rethrows non-axios errors (regression for FINDINGS #2)', async () => {
-      // Previously the catch only handled isAxiosError && error.response, so
-      // anything outside that shape silently resolved.
+    it('rethrows non-axios errors', async () => {
+      // Regression: an earlier catch only handled isAxiosError &&
+      // error.response, so anything outside that shape silently resolved.
       const dnsError = new Error('ENOTFOUND ghcr.io')
       mockAxiosInstance.get.mockRejectedValueOnce(dnsError)
 
@@ -191,6 +222,97 @@ describe('Registry', () => {
 
       expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
     })
+
+    it('serves from the cross-run distilled cache on hit', async () => {
+      const distilledCache = {
+        get: vi.fn().mockReturnValue({
+          mediaType: 'application/vnd.oci.image.index.v1+json',
+          manifestEntries: [{ digest: 'sha256:child', size: 0 }],
+          subjectDigest: 'sha256:subject'
+        }),
+        set: vi.fn()
+      }
+      const cachedRegistry = new Registry(
+        config,
+        packageRepo,
+        distilledCache as any
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
+      await cachedRegistry.login('pkg')
+      mockAxiosInstance.get.mockClear()
+
+      const result = await cachedRegistry.getManifestByDigest('sha256:abc')
+
+      expect(distilledCache.get).toHaveBeenCalledWith('sha256:abc')
+      expect(mockAxiosInstance.get).not.toHaveBeenCalled()
+      expect(result.manifests?.[0].digest).toBe('sha256:child')
+      expect(result.subject?.digest).toBe('sha256:subject')
+    })
+
+    it('populates the distilled cache after a registry fetch', async () => {
+      const distilledCache = {
+        get: vi.fn().mockReturnValue(undefined),
+        set: vi.fn()
+      }
+      const cachedRegistry = new Registry(
+        config,
+        packageRepo,
+        distilledCache as any
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
+      await cachedRegistry.login('pkg')
+      mockAxiosInstance.get.mockClear()
+
+      const manifest = {
+        mediaType: 'application/vnd.oci.image.manifest.v1+json',
+        subject: { digest: 'sha256:subj' }
+      }
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: JSON.stringify(manifest)
+      })
+
+      await cachedRegistry.getManifestByDigest('sha256:abc')
+
+      expect(distilledCache.set).toHaveBeenCalledWith(
+        'sha256:abc',
+        expect.objectContaining({ subjectDigest: 'sha256:subj' })
+      )
+    })
+
+    it('getRawManifestByDigest bypasses both in-memory and distilled caches', async () => {
+      const distilledCache = {
+        get: vi.fn().mockReturnValue({
+          manifestEntries: [{ digest: 'sha256:cached', size: 0 }]
+        }),
+        set: vi.fn()
+      }
+      const cachedRegistry = new Registry(
+        config,
+        packageRepo,
+        distilledCache as any
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
+      await cachedRegistry.login('pkg')
+      mockAxiosInstance.get.mockClear()
+
+      const fullManifest = {
+        config: { mediaType: 'cfg', digest: 'sha256:cfg', size: 1 },
+        layers: [{ mediaType: 'l', digest: 'sha256:l', size: 2 }]
+      }
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: JSON.stringify(fullManifest)
+      })
+
+      const result = await cachedRegistry.getRawManifestByDigest('sha256:abc')
+
+      // Distilled cache was not consulted for the read.
+      expect(distilledCache.get).not.toHaveBeenCalled()
+      // Registry was hit.
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
+      // Full body fields are preserved.
+      expect(result.config?.digest).toBe('sha256:cfg')
+      expect(result.layers?.[0].digest).toBe('sha256:l')
+    })
   })
 
   describe('getManifestByTag', () => {
@@ -240,9 +362,9 @@ describe('Registry', () => {
       expect(mockAxiosInstance.get).not.toHaveBeenCalled()
     })
 
-    it('returns early when the first PUT succeeds without a challenge (regression for FINDINGS #3)', async () => {
-      // Previously this path threw "no token set to upload manifest" even
-      // though the upload succeeded.
+    it('returns early when the first PUT succeeds without a challenge', async () => {
+      // Regression: an earlier flow threw "no token set to upload manifest"
+      // on this path even though the upload succeeded.
       mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
 
       await expect(

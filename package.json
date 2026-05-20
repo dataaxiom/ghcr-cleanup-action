@@ -42,6 +42,7 @@
   },
   "license": "BSD-3-Clause",
   "dependencies": {
+    "@actions/cache": "^6.0.0",
     "@actions/core": "^3.0.1",
     "@octokit/auth-token": "^6.0.0",
     "@octokit/plugin-request-log": "^6.0.0",

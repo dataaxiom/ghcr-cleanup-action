@@ -278,11 +278,11 @@ describe('ImageValidator', () => {
       expect(core.info).toHaveBeenCalledWith('partial2')
     })
 
-    // Regression: issue #110 - partial-images was flagging fully ghost
-    // images too (any missing child triggered the flag). The fix requires
-    // at least one missing AND at least one present, so fully-missing
-    // ghost images are excluded and delete-ghost-images handles them.
-    it('should not include fully ghost images (issue #110)', async () => {
+    // Regression: partial-images previously flagged fully ghost images
+    // too (any missing child triggered the flag). The fix requires at
+    // least one missing AND at least one present, so fully-missing ghost
+    // images are excluded and delete-ghost-images handles them.
+    it('should not include fully ghost images', async () => {
       const filterSet = new Set(['ghost'])
 
       mockRegistry.getManifestByDigest.mockResolvedValue({
@@ -412,9 +412,8 @@ describe('ImageValidator', () => {
     })
 
     it('finds OCI 1.1 referrers whose subject is missing from the repo', () => {
-      // FINDINGS.md #20 / upstream issue #104. The referrer carries a
-      // subject descriptor pointing at a digest that's no longer in
-      // the repo; flag it for orphan deletion.
+      // The referrer carries a subject descriptor pointing at a digest
+      // that's no longer in the repo; flag it for orphan deletion.
       const missingSubject = 'sha256:missing-subject'
       const referrerDigest = 'sha256:referrer'
       mockPackageRepo.getTags.mockReturnValue([])
