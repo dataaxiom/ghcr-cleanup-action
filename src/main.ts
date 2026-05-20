@@ -6,6 +6,7 @@ import wcmatch from 'wildcard-match'
 import { CleanupOrchestrator } from './cleanup-orchestrator.js'
 import { createTokenAuth } from '@octokit/auth-token'
 import { CleanupTaskStatistics } from './utils.js'
+import { ManifestCache } from './manifest-cache.js'
 
 // SummaryTableRow lives in @actions/core's summary submodule but the
 // package's exports field hides subpath imports — pull the type out of
@@ -104,16 +105,28 @@ class CleanupAction {
     let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0)
     const perPackageStats: CleanupTaskStatistics[] = []
     for (const targetPackage of targetPackages) {
+      // Manifest cache is keyed per (owner, package, GITHUB_RUN_ID).
+      // Restore before reload() so analyzer manifest fetches see the
+      // warm cache from prior workflow runs; save once after run() so
+      // newly-fetched manifests are persisted for next time.
+      const manifestCache = new ManifestCache(this.config.owner, targetPackage)
+      await manifestCache.restore()
+
       const orchestrator = new CleanupOrchestrator(
         this.config,
         targetPackage,
-        this.octokitClient
+        this.octokitClient,
+        manifestCache
       )
-      await orchestrator.init()
-      await orchestrator.reload()
-      const stats = await orchestrator.run()
-      perPackageStats.push(stats)
-      globalStatistics = globalStatistics.add(stats)
+      try {
+        await orchestrator.init()
+        await orchestrator.reload()
+        const stats = await orchestrator.run()
+        perPackageStats.push(stats)
+        globalStatistics = globalStatistics.add(stats)
+      } finally {
+        await manifestCache.save()
+      }
     }
 
     if (targetPackages.length > 1) {

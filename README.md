@@ -304,12 +304,38 @@ with:
   token: ${{ secrets.MY_PAT }}
 ```
 
+### Manifest cache
+
+The action caches distilled manifest data between runs via `@actions/cache`,
+keyed by digest. Manifests are content-addressed, so cache hits are correct by
+construction — staleness is impossible. Warm runs only fetch manifests for
+digests that aren't already in the cache; on a stable repository that's a
+handful of new manifests per run instead of the entire package.
+
+The cache hit rate is logged at the end of every run, e.g.
+`manifest cache: 5234/5294 digests served from cache (99%)`.
+
+**GitHub evicts cache entries that haven't been read in 7 days.** On a very
+large repository the first run is expensive — it fetches every manifest to warm
+the cache. If the action then sits idle for more than 7 days, that warmed entry
+is evicted and the next run pays the cold-start cost again.
+
+To stay fast on large repos, schedule the action to run **at least every 7
+days**. A weekly schedule (or a daily run that may end up no-op) is enough to
+refresh the cache's last-access timestamp and avoid eviction.
+
+Cache failures degrade gracefully — if `@actions/cache` is unavailable or a
+restore/save fails, the action falls back to fetching manifests live without
+failing the workflow.
+
 ### Effect on download counts
 
-The action downloads every manifest in the package to safely cross-reference
-multi-arch relationships. GitHub records each manifest fetch as a download, so
-the package's download count rises by one per run. The underlying image layers
-are not downloaded.
+GitHub records each manifest fetch as a download against the package. On a cold
+run (no warm [manifest cache](#manifest-cache)) the action fetches every
+manifest, so the package's download count rises by one per package version. On a
+warm run only the uncached manifests are fetched — for a stable repository
+that's a small fraction of the total per run, often single digits. The
+underlying image layers are never downloaded.
 
 ### Restoring deleted packages
 

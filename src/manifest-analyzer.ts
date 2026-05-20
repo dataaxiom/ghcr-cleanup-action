@@ -1,7 +1,13 @@
 import * as core from '@actions/core'
 import { LogLevel } from './config.js'
 import { CleanupContext } from './cleanup-types.js'
-import { ManifestEntry } from './utils.js'
+import { ManifestEntry, runWithConcurrency } from './utils.js'
+
+// Concurrency cap for parallel registry manifest fetches. Registry traffic
+// goes to ghcr.io (separate rate budget from api.github.com) and the axios
+// client retries 429s, so a modest fan-out is safe. Conservative default —
+// can be lifted if real workloads ask for more.
+const MANIFEST_FETCH_CONCURRENCY = 10
 
 export class ManifestAnalyzer {
   private context: CleanupContext
@@ -24,75 +30,70 @@ export class ManifestAnalyzer {
   }> {
     const digestUsedBy = new Map<string, Set<string>>()
     const subjectReferrers = new Map<string, Set<string>>()
-    let stopWatch = new Date()
     const digests = this.context.packageRepo.getDigests()
     const digestCount = digests.size
+    const digestList = Array.from(digests)
     let processed = 0
-    let skipped = 0
-    // Track digests we've already seen as children of some parent index.
-    // Used to skip the redundant manifest fetch when the outer loop reaches
-    // them — they have no children of their own to map. NOTE: we must NOT
-    // remove these from `digests`, otherwise subsequent parents that also
-    // reference the same child can't register themselves as a parent, and
-    // the cascade-delete safety check in image-deleter would treat
-    // multi-parent shared children as single-parent and wrongly delete them.
-    const knownChildren = new Set<string>()
+    let lastReportMs = Date.now()
 
+    // Fan out the per-digest manifest fetches. The previous implementation
+    // skipped re-fetching digests already seen as children of a parent
+    // index; we drop that optimization here because (1) the cross-run
+    // distilled cache makes those fetches free on warm runs, and (2) the
+    // sequential dependency the skip required prevents parallelism, which
+    // is the bigger win. Children of multi-arch indexes still register
+    // their parent links correctly — the outer iteration visits every
+    // digest exactly once.
     core.startGroup(`[${this.context.targetPackage}] Loading manifests`)
-    for (const digest of digests) {
-      if (knownChildren.has(digest)) {
-        // Already mapped as a child of a previously-seen parent index;
-        // no need to fetch its manifest again.
-        skipped++
-        processed++
-        continue
-      }
-      const manifest = await this.context.registry.getManifestByDigest(digest)
-      processed++
-      if (this.context.config.logLevel === LogLevel.DEBUG) {
-        const encoded = JSON.stringify(manifest, null, 4)
-        core.info(`${digest}:${encoded}`)
-      } else {
-        // Output a status message if 3 seconds has passed
-        const now = new Date()
-        if (now.getTime() - stopWatch.getTime() >= 3000) {
-          core.info(`loaded ${processed} of ${digestCount} manifests`)
-          stopWatch = now // Reset the clock
-        }
-      }
-
-      // We only map multi-arch images
-      if (manifest.manifests) {
-        for (const imageManifest of manifest.manifests) {
-          // Only add existing packages
-          if (digests.has(imageManifest.digest)) {
-            let parents = digestUsedBy.get(imageManifest.digest)
-            if (!parents) {
-              parents = new Set<string>()
-              digestUsedBy.set(imageManifest.digest, parents)
+    await runWithConcurrency(
+      digestList,
+      MANIFEST_FETCH_CONCURRENCY,
+      async digest => {
+        const manifest = await this.context.registry.getManifestByDigest(digest)
+        // JS Maps are single-thread-safe — mutating shared maps from
+        // multiple awaited workers is fine.
+        if (manifest.manifests) {
+          for (const imageManifest of manifest.manifests) {
+            if (digests.has(imageManifest.digest)) {
+              let parents = digestUsedBy.get(imageManifest.digest)
+              if (!parents) {
+                parents = new Set<string>()
+                digestUsedBy.set(imageManifest.digest, parents)
+              }
+              parents.add(digest)
             }
-            parents.add(digest)
-            knownChildren.add(imageManifest.digest)
+          }
+        }
+
+        // OCI 1.1 subject-bearing referrer (sigstore bundle, etc). ghcr.io
+        // does not implement the /referrers API but echoes the subject
+        // field, so we build the reverse index ourselves. Record the link
+        // even when the subject is not in the repo so the validator can
+        // surface orphans.
+        const subjectDigest = manifest.subject?.digest
+        if (subjectDigest) {
+          let referrers = subjectReferrers.get(subjectDigest)
+          if (!referrers) {
+            referrers = new Set<string>()
+            subjectReferrers.set(subjectDigest, referrers)
+          }
+          referrers.add(digest)
+        }
+
+        processed++
+        if (this.context.config.logLevel === LogLevel.DEBUG) {
+          const encoded = JSON.stringify(manifest, null, 4)
+          core.info(`${digest}:${encoded}`)
+        } else {
+          const now = Date.now()
+          if (now - lastReportMs >= 3000) {
+            lastReportMs = now
+            core.info(`loaded ${processed} of ${digestCount} manifests`)
           }
         }
       }
-
-      // OCI 1.1 subject-bearing referrer (sigstore bundle, etc). ghcr.io
-      // does not implement the /referrers API but does echo the subject
-      // field, so we build the reverse index ourselves. Record the link
-      // even when the subject is not in the repo so the validator can
-      // surface orphans.
-      const subjectDigest = manifest.subject?.digest
-      if (subjectDigest) {
-        let referrers = subjectReferrers.get(subjectDigest)
-        if (!referrers) {
-          referrers = new Set<string>()
-          subjectReferrers.set(subjectDigest, referrers)
-        }
-        referrers.add(digest)
-      }
-    }
-    core.info(`loaded ${processed} manifests, ${skipped} skipped`)
+    )
+    core.info(`loaded ${processed} manifests`)
     core.endGroup()
 
     return { digestUsedBy, subjectReferrers }
@@ -129,22 +130,21 @@ export class ManifestAnalyzer {
         }
       }
 
-      // Process any associated images which have been tagged using the digest
-      const digestTag = digest.replace('sha256:', 'sha256-')
-      const tags = this.context.packageRepo.getTags()
-      for (const tag of tags) {
-        if (tag.startsWith(digestTag)) {
-          // Remove it
-          const tagDigest = this.context.packageRepo.getDigestByTag(tag)
-          if (tagDigest) {
-            digests.delete(tagDigest)
-            // Process any children
-            const childManifest =
-              await this.context.registry.getManifestByTag(tag)
-            if (childManifest?.manifests) {
-              for (const manifestEntry of childManifest.manifests) {
-                digests.delete(manifestEntry.digest)
-              }
+      // Process any associated images tagged with `sha256-<digest>.*`
+      // via the pre-built reverse index — O(1) lookup instead of an
+      // O(T) scan over every tag in the repo.
+      const referrerTags =
+        this.context.packageRepo.getReferrerTagsForDigest(digest)
+      for (const tag of referrerTags) {
+        const tagDigest = this.context.packageRepo.getDigestByTag(tag)
+        if (tagDigest) {
+          digests.delete(tagDigest)
+          // Process any children
+          const childManifest =
+            await this.context.registry.getManifestByTag(tag)
+          if (childManifest?.manifests) {
+            for (const manifestEntry of childManifest.manifests) {
+              digests.delete(manifestEntry.digest)
             }
           }
         }
@@ -211,20 +211,18 @@ export class ManifestAnalyzer {
           }
         }
       }
-      // Process tagged digests (referrers)
-      const digestTag = digest.replace('sha256:', 'sha256-')
-      const tags = this.context.packageRepo.getTags()
-      for (const tag of tags) {
-        if (tag.startsWith(digestTag)) {
-          const tagDigest = this.context.packageRepo.getDigestByTag(tag)
-          if (tagDigest) {
-            const tagManifest =
-              await this.context.registry.getManifestByDigest(tagDigest)
-            if (tagManifest.manifests) {
-              for (const manifestEntry of tagManifest.manifests) {
-                if (digests.has(manifestEntry.digest)) {
-                  await this.buildLabel(manifestEntry)
-                }
+      // Process tagged digests (referrers) via the pre-built index.
+      const referrerTags =
+        this.context.packageRepo.getReferrerTagsForDigest(digest)
+      for (const tag of referrerTags) {
+        const tagDigest = this.context.packageRepo.getDigestByTag(tag)
+        if (tagDigest) {
+          const tagManifest =
+            await this.context.registry.getManifestByDigest(tagDigest)
+          if (tagManifest.manifests) {
+            for (const manifestEntry of tagManifest.manifests) {
+              if (digests.has(manifestEntry.digest)) {
+                await this.buildLabel(manifestEntry)
               }
             }
           }

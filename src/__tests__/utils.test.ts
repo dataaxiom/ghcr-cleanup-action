@@ -15,7 +15,8 @@ import {
   parentDigestFromReferrerTag,
   SHA256_DIGEST_LENGTH,
   validateUserRegex,
-  MAX_USER_REGEX_LENGTH
+  MAX_USER_REGEX_LENGTH,
+  runWithConcurrency
 } from '../utils'
 
 // Mock @actions/core
@@ -389,6 +390,56 @@ describe('utils', () => {
       // Boundary case: the cap is inclusive (1000 chars allowed).
       const atLimit = 'a'.repeat(MAX_USER_REGEX_LENGTH)
       expect(() => validateUserRegex(atLimit, 'package')).not.toThrow()
+    })
+  })
+
+  describe('runWithConcurrency', () => {
+    it('processes every item exactly once', async () => {
+      const items = Array.from({ length: 25 }, (_, i) => i)
+      const seen: number[] = []
+      await runWithConcurrency(items, 5, async item => {
+        seen.push(item)
+      })
+      expect(seen.sort((a, b) => a - b)).toEqual(items)
+    })
+
+    it('honors the concurrency cap', async () => {
+      let inflight = 0
+      let peak = 0
+      const items = Array.from({ length: 30 }, (_, i) => i)
+      await runWithConcurrency(items, 4, async () => {
+        inflight++
+        if (inflight > peak) peak = inflight
+        await new Promise(resolve => setTimeout(resolve, 5))
+        inflight--
+      })
+      expect(peak).toBeLessThanOrEqual(4)
+      expect(peak).toBeGreaterThan(1)
+    })
+
+    it('propagates worker errors', async () => {
+      await expect(
+        runWithConcurrency([1, 2, 3], 2, async n => {
+          if (n === 2) throw new Error('boom')
+        })
+      ).rejects.toThrow('boom')
+    })
+
+    it('handles empty input', async () => {
+      const seen: number[] = []
+      await runWithConcurrency([], 5, async n => {
+        seen.push(n)
+      })
+      expect(seen).toEqual([])
+    })
+
+    it('clamps concurrency below items.length without losing items', async () => {
+      // concurrency > items.length must not deadlock or drop work.
+      const seen: number[] = []
+      await runWithConcurrency([1, 2], 10, async n => {
+        seen.push(n)
+      })
+      expect(seen.sort((a, b) => a - b)).toEqual([1, 2])
     })
   })
 })

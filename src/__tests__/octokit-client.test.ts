@@ -78,21 +78,51 @@ describe('OctokitClient', () => {
   })
 
   describe('throttling configuration', () => {
-    it('should handle rate limit and retry up to 3 times', () => {
-      // This test verifies the throttling configuration
-      // The actual behavior is tested through integration tests
-      const client = new OctokitClient('test-token')
+    // Pull the throttle config out of the most recent Octokit
+    // constructor call so we can invoke the callbacks directly.
+    const getThrottleConfig = (): {
+      onRateLimit: (
+        retryAfter: number,
+        options: any,
+        octokit: any,
+        retryCount: number
+      ) => boolean | undefined
+      onSecondaryRateLimit: (
+        retryAfter: number,
+        options: any,
+        octokit: any,
+        retryCount: number
+      ) => boolean | undefined
+    } => {
+      const mockOctokit = Octokit as unknown as Mock
+      const lastCall = mockOctokit.mock.calls.at(-1)
+      return lastCall?.[0]?.throttle
+    }
 
-      // Get the client to ensure it's properly configured
-      const octokit = client.getClient()
-      expect(octokit).toBeDefined()
+    it('onRateLimit retries the first 3 attempts and then gives up', () => {
+      new OctokitClient('test-token')
+      const { onRateLimit } = getThrottleConfig()
+      const opts = { method: 'GET', url: '/x' }
+
+      expect(onRateLimit(1, opts, null, 0)).toBe(true)
+      expect(onRateLimit(1, opts, null, 1)).toBe(true)
+      expect(onRateLimit(1, opts, null, 2)).toBe(true)
+      expect(onRateLimit(1, opts, null, 3)).toBe(false)
     })
 
-    it('should log rate limit warnings', () => {
-      // This would be tested in integration tests
-      // Here we just verify the client is created successfully
-      const client = new OctokitClient('test-token')
-      expect(client).toBeDefined()
+    it('onSecondaryRateLimit retries instead of giving up on first hit', () => {
+      // Regression: the previous handler logged and returned nothing,
+      // which Octokit treats as "do not retry" — so a single secondary
+      // rate-limit hit during a burst killed the request and surfaced
+      // as a workflow failure.
+      new OctokitClient('test-token')
+      const { onSecondaryRateLimit } = getThrottleConfig()
+      const opts = { method: 'POST', url: '/y' }
+
+      expect(onSecondaryRateLimit(1, opts, null, 0)).toBe(true)
+      expect(onSecondaryRateLimit(1, opts, null, 1)).toBe(true)
+      expect(onSecondaryRateLimit(1, opts, null, 2)).toBe(true)
+      expect(onSecondaryRateLimit(1, opts, null, 3)).toBe(false)
     })
   })
 

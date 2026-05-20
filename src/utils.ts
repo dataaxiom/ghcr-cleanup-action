@@ -194,6 +194,32 @@ export interface ManifestSubject {
   size?: number
 }
 
+/**
+ * Run `worker` over `items` with bounded concurrency. Workers pull from a
+ * shared index; ordering of completion is unspecified. Errors propagate.
+ *
+ * Used to parallelize registry manifest fetches — the registry is on
+ * ghcr.io, separate rate budget from api.github.com, and axios-retry
+ * already covers transient 429s, so a small fan-out (default ~10) is a big
+ * win on cold caches without risking secondary rate-limit hits.
+ */
+export async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>
+): Promise<void> {
+  const limit = Math.max(1, Math.min(concurrency, items.length))
+  let next = 0
+  const launchOne = async (): Promise<void> => {
+    while (true) {
+      const idx = next++
+      if (idx >= items.length) return
+      await worker(items[idx], idx)
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, launchOne))
+}
+
 export interface Manifest {
   mediaType?: string
   schemaVersion?: number
@@ -206,4 +232,9 @@ export interface Manifest {
   // OCI 1.1 referrer link — read by manifest-analyzer.loadDigestUsedByMap
   // to build the subjectReferrers reverse index.
   subject?: ManifestSubject
+  // OCI 1.0+ free-form annotations. The cleanup pipeline doesn't read
+  // these for any logic, but performUntagging adds a unique annotation
+  // to each empty-manifest PUT so the resulting digests differ — without
+  // that, byte-identical empty manifests collide on the same digest.
+  annotations?: Record<string, string>
 }

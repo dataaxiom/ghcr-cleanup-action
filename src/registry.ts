@@ -6,6 +6,11 @@ import * as AxiosLogger from 'axios-logger'
 import { isValidChallenge, parseChallenge, Manifest } from './utils.js'
 import { setGlobalConfig } from 'axios-logger'
 import { PackageRepo } from './package-repo.js'
+import {
+  ManifestCache,
+  distillManifest,
+  reconstituteManifest
+} from './manifest-cache.js'
 
 /**
  * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
@@ -29,14 +34,25 @@ export class Registry {
   // cache of loaded manifests, by digest
   manifestCache = new Map<string, Manifest>()
 
+  // Cross-run distilled cache. Optional — null disables persistent caching
+  // (e.g. when running outside a GitHub Actions runner).
+  private distilledCache: ManifestCache | null
+
   /**
    * Constructor
    *
    * @param config The action configuration
+   * @param githubPackageRepo The package repo cache
+   * @param distilledCache Optional cross-run manifest cache
    */
-  constructor(config: Config, githubPackageRepo: PackageRepo) {
+  constructor(
+    config: Config,
+    githubPackageRepo: PackageRepo,
+    distilledCache: ManifestCache | null = null
+  ) {
     this.config = config
     this.githubPackageRepo = githubPackageRepo
+    this.distilledCache = distilledCache
     if (this.config.registryUrl) {
       this.baseUrl = this.config.registryUrl
     } else {
@@ -45,7 +61,19 @@ export class Registry {
     this.axios = axios.create({
       baseURL: this.baseUrl
     })
-    axiosRetry(this.axios, { retries: 3 })
+    // Retry network errors, 5xx, AND 429 rate limits. The default
+    // axios-retry condition skips 429s, which surface from ghcr.io
+    // under bursty parallel reads (manifest fan-out, untag PUTs).
+    // exponentialDelay honors the Retry-After header automatically when
+    // present, so we honor the server's hint without an extra hook.
+    axiosRetry(this.axios, {
+      retries: 3,
+      retryCondition: error =>
+        axiosRetry.isNetworkOrIdempotentRequestError(error) ||
+        error.response?.status === 429,
+      retryDelay: (retryNumber, error) =>
+        axiosRetry.exponentialDelay(retryNumber, error)
+    })
     this.axios.defaults.headers.common['Accept'] =
       'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json'
 
@@ -126,16 +154,42 @@ export class Registry {
   }
 
   /**
-   * Retrieves a manifest by its digest
+   * Retrieves a manifest by its digest. May return a reconstituted manifest
+   * sourced from the cross-run distilled cache — sufficient for the cleanup
+   * pipeline's read paths (analyzer, deleter cascade, validator) but NOT
+   * safe for round-tripping back to the registry. The untag-PUT path must
+   * use {@link getRawManifestByDigest} instead.
    *
    * @param digest - The digest of the manifest to retrieve
-   * @returns A Promise that resolves to the retrieved manifest
    */
   async getManifestByDigest(digest: string): Promise<Manifest> {
     const cached = this.manifestCache.get(digest)
     if (cached) {
       return cached
     }
+    const distilled = this.distilledCache?.get(digest)
+    if (distilled) {
+      const reconstituted = reconstituteManifest(distilled)
+      this.manifestCache.set(digest, reconstituted)
+      return reconstituted
+    }
+    return await this.fetchAndCacheManifest(digest)
+  }
+
+  /**
+   * Always hits the registry and returns the full, unmodified manifest body.
+   * Required for the untag flow, which clones the manifest and PUTs it back.
+   */
+  async getRawManifestByDigest(digest: string): Promise<Manifest> {
+    // If the in-memory cache holds an entry that originated from the
+    // distilled cache, the cloned PUT would be missing fields. Force a
+    // refetch by skipping in-memory cache too — partial entries can't be
+    // distinguished without extra bookkeeping, and a single PUT-path fetch
+    // per untag operation is cheap.
+    return await this.fetchAndCacheManifest(digest)
+  }
+
+  private async fetchAndCacheManifest(digest: string): Promise<Manifest> {
     const response = await this.axios.get(
       `/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`,
       {
@@ -149,6 +203,9 @@ export class Registry {
     // ghcr.io's response shape is trusted — no runtime validation.
     const obj: Manifest = JSON.parse(response?.data)
     this.manifestCache.set(digest, obj)
+    if (this.distilledCache) {
+      this.distilledCache.set(digest, distillManifest(obj))
+    }
     return obj
   }
 

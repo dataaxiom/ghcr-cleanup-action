@@ -2,7 +2,36 @@ import * as core from '@actions/core'
 import { Config, LogLevel } from './config.js'
 import { OctokitClient } from './octokit-client.js'
 import { RequestError } from '@octokit/request-error'
-import { GhPackage } from './utils.js'
+import {
+  GhPackage,
+  parentDigestFromReferrerTag,
+  runWithConcurrency
+} from './utils.js'
+
+// Concurrency for parallel page fetches in loadPackages. Modest fan-out
+// — api.github.com applies per-token rate limits that throttling handles
+// up to a point, and we'd rather not push other workflows' calls into a
+// budget squeeze.
+const PACKAGE_LIST_PAGE_CONCURRENCY = 10
+
+/**
+ * Parse the last-page number from a paginated GitHub API response's Link
+ * header. Returns 1 when there is no `rel="last"` link, which is the
+ * single-page case (nothing more to fetch).
+ *
+ * Example header:
+ *   <https://api.github.com/...?page=2>; rel="next",
+ *   <https://api.github.com/...?page=42>; rel="last"
+ */
+export function parseLastPageFromLinkHeader(
+  linkHeader: string | undefined
+): number {
+  if (!linkHeader) return 1
+  const match = linkHeader.match(/<[^>]*[?&]page=(\d+)[^>]*>\s*;\s*rel="last"/)
+  if (!match) return 1
+  const n = parseInt(match[1], 10)
+  return Number.isFinite(n) && n > 0 ? n : 1
+}
 
 /**
  * Provides access to a package via the GitHub Packages REST API.
@@ -22,6 +51,12 @@ export class PackageRepo {
 
   // Map of tags to digests
   tag2Digest = new Map<string, string>()
+
+  // Reverse index: parent image digest → sha256-<digest>.<suffix> tags
+  // that fall back to it (cosign signatures, attestations, etc).
+  // Populated by loadPackages so the analyzer/deleter don't have to do
+  // an O(N×T) scan over every tag for every digest they process.
+  referrerTagsByParent = new Map<string, string[]>()
 
   // the result state of the last delete package
   lastDeleteResult = true
@@ -46,6 +81,7 @@ export class PackageRepo {
       this.digest2Id.clear()
       this.id2Package.clear()
       this.tag2Digest.clear()
+      this.referrerTagsByParent.clear()
       // reset the 404-tolerance flag so each fresh load starts with a clean
       // "last delete succeeded" baseline (the flag tolerates a single 404 that
       // follows a real delete - we don't want a stale `false` from a prior
@@ -82,16 +118,56 @@ export class PackageRepo {
           per_page: 100
         }
       }
-      for await (const response of octokit.paginate.iterator(
-        getFunc,
-        getParams
-      )) {
-        for (const packageVersion of response.data) {
+      // Custom paginator: fetch page 1 to discover the total page count
+      // from the Link header, then fan out remaining pages in parallel.
+      // octokit.paginate.iterator follows the rel="next" cursor
+      // sequentially, which on a 60k-package repo means ~600 strictly-
+      // serial round trips to api.github.com — minutes of wall clock.
+      const ingestPage = (data: GhPackage[]): void => {
+        for (const packageVersion of data) {
           this.digest2Id.set(packageVersion.name, packageVersion.id)
           this.id2Package.set(packageVersion.id, packageVersion)
           for (const tag of packageVersion.metadata.container.tags) {
             this.tag2Digest.set(tag, packageVersion.name)
           }
+        }
+      }
+
+      const firstResponse = await getFunc({ ...getParams, page: 1 })
+      ingestPage(firstResponse.data)
+
+      const lastPage = parseLastPageFromLinkHeader(firstResponse.headers?.link)
+      if (lastPage > 1) {
+        const remainingPages = Array.from(
+          { length: lastPage - 1 },
+          (_, i) => i + 2
+        )
+        await runWithConcurrency(
+          remainingPages,
+          PACKAGE_LIST_PAGE_CONCURRENCY,
+          async page => {
+            const response = await getFunc({ ...getParams, page })
+            // JS is single-threaded — concurrent ingestPage calls
+            // mutate the same Maps safely.
+            ingestPage(response.data)
+          }
+        )
+      }
+
+      // Build the fallback-tag-by-parent reverse index in one pass after
+      // the maps are populated. The three call sites that need this
+      // (image-deleter cascade, manifest-analyzer initFilterSet /
+      // primeManifests) used to do O(N×T) scans over every tag per
+      // digest — quadratic on repos with tens of thousands of tags.
+      for (const tag of this.tag2Digest.keys()) {
+        const parent = parentDigestFromReferrerTag(tag)
+        if (parent) {
+          let list = this.referrerTagsByParent.get(parent)
+          if (!list) {
+            list = []
+            this.referrerTagsByParent.set(parent, list)
+          }
+          list.push(tag)
         }
       }
 
@@ -165,6 +241,14 @@ export class PackageRepo {
    */
   getIdByDigest(digest: string): number | undefined {
     return this.digest2Id.get(digest)
+  }
+
+  /**
+   * Return the `sha256-<digest>.<suffix>` referrer tags that fall back
+   * to the given parent digest. Empty array if no such tags exist.
+   */
+  getReferrerTagsForDigest(parentDigest: string): string[] {
+    return this.referrerTagsByParent.get(parentDigest) ?? []
   }
 
   /**

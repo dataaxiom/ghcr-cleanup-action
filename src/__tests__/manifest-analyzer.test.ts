@@ -22,7 +22,8 @@ describe('ManifestAnalyzer', () => {
       getTags: vi.fn().mockReturnValue(new Set()),
       getDigestByTag: vi.fn(),
       getPackageByDigest: vi.fn(),
-      getIdByDigest: vi.fn()
+      getIdByDigest: vi.fn(),
+      getReferrerTagsForDigest: vi.fn().mockReturnValue([])
     }
 
     mockRegistry = {
@@ -323,7 +324,9 @@ describe('ManifestAnalyzer', () => {
       mockPackageRepo.getDigests.mockReturnValue(
         new Set([parent, referrerDigest, referrerChild])
       )
-      mockPackageRepo.getTags.mockReturnValue(new Set([referrerTag]))
+      mockPackageRepo.getReferrerTagsForDigest.mockImplementation(
+        (digest: string) => (digest === parent ? [referrerTag] : [])
+      )
       mockPackageRepo.getDigestByTag.mockImplementation((tag: string) =>
         tag === referrerTag ? referrerDigest : undefined
       )

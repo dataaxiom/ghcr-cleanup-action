@@ -10,6 +10,7 @@ import { ImageValidator } from './image-validator.js'
 import { DeletionStrategy } from './deletion-strategy.js'
 import { ImageDeleter } from './image-deleter.js'
 import { CleanupContext } from './cleanup-types.js'
+import { ManifestCache } from './manifest-cache.js'
 
 /**
  * Orchestrates the cleanup process using modular components
@@ -21,6 +22,7 @@ export class CleanupOrchestrator {
   private packageRepo: PackageRepo
   private registry: Registry
   private context: CleanupContext
+  private manifestCache: ManifestCache | null
 
   // Modules
   private imageFilter: ImageFilter
@@ -40,13 +42,15 @@ export class CleanupOrchestrator {
   constructor(
     config: Config,
     targetPackage: string,
-    octokitClient: OctokitClient
+    octokitClient: OctokitClient,
+    manifestCache: ManifestCache | null = null
   ) {
     this.config = config
     this.targetPackage = targetPackage
     this.octokitClient = octokitClient
+    this.manifestCache = manifestCache
     this.packageRepo = new PackageRepo(config, octokitClient)
-    this.registry = new Registry(config, this.packageRepo)
+    this.registry = new Registry(config, this.packageRepo, manifestCache)
     this.statistics = new CleanupTaskStatistics(targetPackage, 0, 0)
 
     // Create context for modules
@@ -73,6 +77,12 @@ export class CleanupOrchestrator {
 
     // Prime the list of current packages
     await this.packageRepo.loadPackages(this.targetPackage, true)
+
+    // Drop cached manifest entries whose digests no longer exist in the
+    // package list. Without this, the cross-run cache accumulates entries
+    // for deleted packages forever — they'll never come back (digests are
+    // content-addressed) so they're pure bloat.
+    this.manifestCache?.prune(this.packageRepo.getDigests())
 
     // Build digestUsedBy + subjectReferrers maps in one pass
     const analysis = await this.manifestAnalyzer.loadDigestUsedByMap()
@@ -211,7 +221,24 @@ export class CleanupOrchestrator {
         'CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()'
       )
     }
-    const result = await this.imageDeleter.deleteImages(this.deleteSet)
+    // The afterDelete hook fires inside the "Deleting packages" log
+    // group so the "pruned N stale entries" line lands under the same
+    // collapsible section as the deletes that caused it. Reload-time
+    // prune only saw pre-deletion state; without this, a run that
+    // deleted 5000 packages would persist 5000 dead entries until the
+    // next run's reload prune caught them.
+    const result = await this.imageDeleter.deleteImages(
+      this.deleteSet,
+      deleted => {
+        if (this.manifestCache && deleted.size > 0) {
+          const stillAlive = new Set(this.packageRepo.getDigests())
+          for (const digest of deleted) {
+            stillAlive.delete(digest)
+          }
+          this.manifestCache.prune(stillAlive)
+        }
+      }
+    )
     this.statistics.numberImagesDeleted = result.numberImagesDeleted
     this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted
 

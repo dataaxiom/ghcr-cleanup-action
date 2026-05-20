@@ -167,7 +167,8 @@ describe('CleanupOrchestrator', () => {
         config,
         expect.objectContaining({
           loadPackages: expect.any(Function)
-        })
+        }),
+        null
       )
       expect(PackageRepo).toHaveBeenCalledWith(config, octokitClient)
       expect(ImageFilter).toHaveBeenCalledWith(
@@ -265,7 +266,10 @@ describe('CleanupOrchestrator', () => {
       const stats = await orchestrator.run()
 
       expect(mockDeletionStrategy.processTagDeletions).toHaveBeenCalled()
-      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(deleteSet)
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        deleteSet,
+        expect.any(Function)
+      )
       expect(stats).toBeDefined()
     })
 
@@ -346,7 +350,10 @@ describe('CleanupOrchestrator', () => {
       await orchestrator.run()
 
       expect(mockImageValidator.findPartialImages).toHaveBeenCalled()
-      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(partialImages)
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        partialImages,
+        expect.any(Function)
+      )
     })
 
     it('should process ghost images when deleteGhostImages is true', async () => {
@@ -357,7 +364,10 @@ describe('CleanupOrchestrator', () => {
       await orchestrator.run()
 
       expect(mockImageValidator.findGhostImages).toHaveBeenCalled()
-      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(ghostImages)
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        ghostImages,
+        expect.any(Function)
+      )
     })
 
     it('should process orphaned images when deleteOrphanedImages is true', async () => {
@@ -368,7 +378,10 @@ describe('CleanupOrchestrator', () => {
       await orchestrator.run()
 
       expect(mockImageValidator.findOrphanedImages).toHaveBeenCalled()
-      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(orphanedImages)
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        orphanedImages,
+        expect.any(Function)
+      )
     })
 
     it('should apply keepNtagged policy', async () => {
@@ -379,7 +392,10 @@ describe('CleanupOrchestrator', () => {
       await orchestrator.run()
 
       expect(mockDeletionStrategy.keepNTagged).toHaveBeenCalled()
-      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(toDelete)
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        toDelete,
+        expect.any(Function)
+      )
     })
 
     it('should apply keepNuntagged policy', async () => {
@@ -390,7 +406,10 @@ describe('CleanupOrchestrator', () => {
       await orchestrator.run()
 
       expect(mockDeletionStrategy.keepNUntagged).toHaveBeenCalled()
-      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(toDelete)
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        toDelete,
+        expect.any(Function)
+      )
     })
 
     it('should delete all untagged when deleteUntagged is true', async () => {
@@ -401,7 +420,10 @@ describe('CleanupOrchestrator', () => {
       await orchestrator.run()
 
       expect(mockDeletionStrategy.deleteAllUntagged).toHaveBeenCalled()
-      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(toDelete)
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        toDelete,
+        expect.any(Function)
+      )
     })
 
     it('should run validation when validate is true', async () => {
@@ -436,7 +458,8 @@ describe('CleanupOrchestrator', () => {
 
       const expectedDeleteSet = new Set(['tag-delete1', 'untagged1', 'ghost1'])
       expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
-        expectedDeleteSet
+        expectedDeleteSet,
+        expect.any(Function)
       )
     })
 

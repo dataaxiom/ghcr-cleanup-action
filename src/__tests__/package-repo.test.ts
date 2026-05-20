@@ -8,7 +8,7 @@ import {
 } from 'vitest'
 import * as core from '@actions/core'
 import { RequestError } from '@octokit/request-error'
-import { PackageRepo } from '../package-repo'
+import { PackageRepo, parseLastPageFromLinkHeader } from '../package-repo'
 import { Config, LogLevel } from '../config'
 import { OctokitClient } from '../octokit-client'
 
@@ -66,6 +66,27 @@ const asAsyncIterable = <T>(
   }
 })
 
+/**
+ * Wire up a mocked getFunc to behave like the GitHub paginated API. Page
+ * 1's response includes a Link header advertising the last page; the
+ * production code reads that to fan out the remaining pages in parallel.
+ */
+const mockPaginatedPages = <T>(
+  getFunc: ReturnType<typeof vi.fn>,
+  pages: Array<{ data: T[] }>
+): void => {
+  const lastPage = pages.length
+  getFunc.mockImplementation(async ({ page }: { page?: number } = {}) => {
+    const idx = (page ?? 1) - 1
+    const data = pages[idx]?.data ?? []
+    const headers: Record<string, string> = {}
+    if (lastPage > 1 && (page ?? 1) === 1) {
+      headers.link = `<https://api.github.com/test?page=${lastPage}>; rel="last"`
+    }
+    return { data, headers }
+  })
+}
+
 const buildConfig = (overrides: Partial<Config> = {}): Config =>
   ({
     owner: 'test-owner',
@@ -107,8 +128,9 @@ describe('PackageRepo', () => {
       const repo = new PackageRepo(buildConfig(), octokitClient)
       const v1 = buildPackageVersion(101, 'sha256:aaa', ['v1', 'latest'])
       const v2 = buildPackageVersion(102, 'sha256:bbb', ['v2'])
-      mockOctokit.paginate.iterator.mockReturnValue(
-        asAsyncIterable([{ data: [v1, v2] }])
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: [v1, v2] }]
       )
 
       await repo.loadPackages('pkg', false)
@@ -129,10 +151,9 @@ describe('PackageRepo', () => {
       repo.id2Package.set(999, { stale: true })
       repo.tag2Digest.set('stale-tag', 'stale')
 
-      mockOctokit.paginate.iterator.mockReturnValue(
-        asAsyncIterable([
-          { data: [buildPackageVersion(1, 'sha256:new', ['v1'])] }
-        ])
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: [buildPackageVersion(1, 'sha256:new', ['v1'])] }]
       )
 
       await repo.loadPackages('pkg', false)
@@ -145,18 +166,23 @@ describe('PackageRepo', () => {
 
     it('uses Org endpoint with org params when repoType=Organization', async () => {
       const repo = new PackageRepo(buildConfig(), octokitClient)
-      mockOctokit.paginate.iterator.mockReturnValue(asAsyncIterable([]))
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        []
+      )
 
       await repo.loadPackages('pkg', false)
 
-      expect(mockOctokit.paginate.iterator).toHaveBeenCalledWith(
-        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+      expect(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           package_type: 'container',
           package_name: 'pkg',
           org: 'test-owner',
           state: 'active',
-          per_page: 100
+          per_page: 100,
+          page: 1
         })
       )
     })
@@ -166,15 +192,20 @@ describe('PackageRepo', () => {
         buildConfig({ repoType: 'User', isPrivateRepo: false }),
         octokitClient
       )
-      mockOctokit.paginate.iterator.mockReturnValue(asAsyncIterable([]))
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
+        []
+      )
 
       await repo.loadPackages('pkg', false)
 
-      expect(mockOctokit.paginate.iterator).toHaveBeenCalledWith(
-        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
+      expect(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           username: 'test-owner',
-          package_name: 'pkg'
+          package_name: 'pkg',
+          page: 1
         })
       )
     })
@@ -184,16 +215,22 @@ describe('PackageRepo', () => {
         buildConfig({ repoType: 'User', isPrivateRepo: true }),
         octokitClient
       )
-      mockOctokit.paginate.iterator.mockReturnValue(asAsyncIterable([]))
+      mockPaginatedPages(
+        mockOctokit.rest.packages
+          .getAllPackageVersionsForPackageOwnedByAuthenticatedUser,
+        []
+      )
 
       await repo.loadPackages('pkg', false)
 
-      expect(mockOctokit.paginate.iterator).toHaveBeenCalledWith(
+      expect(
         mockOctokit.rest.packages
-          .getAllPackageVersionsForPackageOwnedByAuthenticatedUser,
+          .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           username: 'test-owner',
-          package_name: 'pkg'
+          package_name: 'pkg',
+          page: 1
         })
       )
     })
@@ -203,12 +240,9 @@ describe('PackageRepo', () => {
         buildConfig({ logLevel: LogLevel.INFO }),
         octokitClient
       )
-      mockOctokit.paginate.iterator.mockReturnValue(
-        asAsyncIterable([
-          {
-            data: [buildPackageVersion(1, 'sha256:a', ['v1', 'latest'])]
-          }
-        ])
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: [buildPackageVersion(1, 'sha256:a', ['v1', 'latest'])] }]
       )
 
       await repo.loadPackages('pkg', true)
@@ -228,8 +262,9 @@ describe('PackageRepo', () => {
         octokitClient
       )
       const pkg = buildPackageVersion(1, 'sha256:a', ['v1'])
-      mockOctokit.paginate.iterator.mockReturnValue(
-        asAsyncIterable([{ data: [pkg] }])
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: [pkg] }]
       )
 
       await repo.loadPackages('pkg', true)
@@ -248,10 +283,9 @@ describe('PackageRepo', () => {
 
     it('stays silent when output=false even at INFO level', async () => {
       const repo = new PackageRepo(buildConfig(), octokitClient)
-      mockOctokit.paginate.iterator.mockReturnValue(
-        asAsyncIterable([
-          { data: [buildPackageVersion(1, 'sha256:a', ['v1'])] }
-        ])
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: [buildPackageVersion(1, 'sha256:a', ['v1'])] }]
       )
 
       await repo.loadPackages('pkg', false)
@@ -276,12 +310,9 @@ describe('PackageRepo', () => {
         }
       })
       // Iterator throws when iterated
-      mockOctokit.paginate.iterator.mockReturnValue({
-        async *[Symbol.asyncIterator]() {
-          throw err
-          yield // unreachable but required to make this an async generator
-        }
-      })
+      mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg.mockRejectedValueOnce(
+        err
+      )
 
       await expect(repo.loadPackages('missing', false)).rejects.toBe(err)
       expect(core.warning).toHaveBeenCalledWith(
@@ -304,12 +335,9 @@ describe('PackageRepo', () => {
           retryCount: 0
         }
       })
-      mockOctokit.paginate.iterator.mockReturnValue({
-        async *[Symbol.asyncIterator]() {
-          throw err
-          yield
-        }
-      })
+      mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg.mockRejectedValueOnce(
+        err
+      )
 
       await expect(repo.loadPackages('missing', false)).rejects.toBe(err)
       expect(core.warning).toHaveBeenCalledWith(
@@ -329,12 +357,9 @@ describe('PackageRepo', () => {
           retryCount: 0
         }
       })
-      mockOctokit.paginate.iterator.mockReturnValue({
-        async *[Symbol.asyncIterator]() {
-          throw err
-          yield
-        }
-      })
+      mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg.mockRejectedValueOnce(
+        err
+      )
 
       await expect(repo.loadPackages('pkg', false)).rejects.toBe(err)
       expect(core.warning).not.toHaveBeenCalled()
@@ -343,15 +368,35 @@ describe('PackageRepo', () => {
     it('rethrows non-RequestError errors', async () => {
       const repo = new PackageRepo(buildConfig(), octokitClient)
       const err = new Error('network blip')
-      mockOctokit.paginate.iterator.mockReturnValue({
-        async *[Symbol.asyncIterator]() {
-          throw err
-          yield
-        }
-      })
+      mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg.mockRejectedValueOnce(
+        err
+      )
 
       await expect(repo.loadPackages('pkg', false)).rejects.toBe(err)
       expect(core.warning).not.toHaveBeenCalled()
+    })
+
+    it('fans out remaining pages in parallel and merges all results', async () => {
+      const repo = new PackageRepo(buildConfig(), octokitClient)
+      const v1 = buildPackageVersion(1, 'sha256:a', ['v1'])
+      const v2 = buildPackageVersion(2, 'sha256:b', ['v2'])
+      const v3 = buildPackageVersion(3, 'sha256:c', ['v3'])
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: [v1] }, { data: [v2] }, { data: [v3] }]
+      )
+
+      await repo.loadPackages('pkg', false)
+
+      // All three pages' contents must be present.
+      expect(repo.digest2Id.size).toBe(3)
+      expect(repo.tag2Digest.get('v1')).toBe('sha256:a')
+      expect(repo.tag2Digest.get('v2')).toBe('sha256:b')
+      expect(repo.tag2Digest.get('v3')).toBe('sha256:c')
+      // Three direct calls to getFunc, not one + iterator.
+      expect(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg
+      ).toHaveBeenCalledTimes(3)
     })
 
     // The lastDeleteResult flag tolerates a single 404 after a real delete.
@@ -361,7 +406,10 @@ describe('PackageRepo', () => {
     // and should reset the flag.
     it('resets lastDeleteResult on each fresh load', async () => {
       const repo = new PackageRepo(buildConfig(), octokitClient)
-      mockOctokit.paginate.iterator.mockReturnValue(asAsyncIterable([]))
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        []
+      )
 
       // Simulate a tolerated 404 from a previous delete operation
       repo.lastDeleteResult = false
@@ -377,15 +425,16 @@ describe('PackageRepo', () => {
 
     beforeEach(async () => {
       repo = new PackageRepo(buildConfig(), octokitClient)
-      mockOctokit.paginate.iterator.mockReturnValue(
-        asAsyncIterable([
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [
           {
             data: [
               buildPackageVersion(1, 'sha256:a', ['v1', 'latest']),
               buildPackageVersion(2, 'sha256:b', ['v2'])
             ]
           }
-        ])
+        ]
       )
       await repo.loadPackages('pkg', false)
     })
@@ -430,6 +479,36 @@ describe('PackageRepo', () => {
 
     it('getPackageByDigest returns undefined for unknown digest', () => {
       expect(repo.getPackageByDigest('sha256:nope')).toBeUndefined()
+    })
+
+    it('getReferrerTagsForDigest indexes sha256-* fallback tags by parent', async () => {
+      // Rebuild the repo with a fixture that includes referrer tags.
+      const parentDigest = `sha256:${'a'.repeat(64)}`
+      const referrerTagSig = `sha256-${'a'.repeat(64)}.sig`
+      const referrerTagAtt = `sha256-${'a'.repeat(64)}.att`
+      const otherParent = `sha256:${'b'.repeat(64)}`
+
+      repo = new PackageRepo(buildConfig(), octokitClient)
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [
+          {
+            data: [
+              buildPackageVersion(10, parentDigest, ['v1']),
+              buildPackageVersion(11, 'sha256:ref1', [referrerTagSig]),
+              buildPackageVersion(12, 'sha256:ref2', [referrerTagAtt]),
+              buildPackageVersion(13, otherParent, ['v2', 'plain-tag'])
+            ]
+          }
+        ]
+      )
+      await repo.loadPackages('pkg', false)
+
+      expect(repo.getReferrerTagsForDigest(parentDigest).sort()).toEqual(
+        [referrerTagSig, referrerTagAtt].sort()
+      )
+      expect(repo.getReferrerTagsForDigest(otherParent)).toEqual([])
+      expect(repo.getReferrerTagsForDigest('sha256:nope')).toEqual([])
     })
   })
 
@@ -695,5 +774,44 @@ describe('PackageRepo', () => {
 
       expect(result).toEqual(['p1', 'p2', 'p3'])
     })
+  })
+})
+
+describe('parseLastPageFromLinkHeader', () => {
+  it('returns 1 when no header is present', () => {
+    expect(parseLastPageFromLinkHeader(undefined)).toBe(1)
+    expect(parseLastPageFromLinkHeader('')).toBe(1)
+  })
+
+  it('returns 1 when no rel="last" link is in the header', () => {
+    // Single-page responses include only rel="next" / rel="prev" or
+    // (more commonly) no Link header at all.
+    expect(
+      parseLastPageFromLinkHeader(
+        '<https://api.github.com/r?page=2>; rel="next"'
+      )
+    ).toBe(1)
+  })
+
+  it('extracts the last page number from a real-shaped header', () => {
+    const header =
+      '<https://api.github.com/r?page=2&per_page=100>; rel="next", ' +
+      '<https://api.github.com/r?page=42&per_page=100>; rel="last"'
+    expect(parseLastPageFromLinkHeader(header)).toBe(42)
+  })
+
+  it('handles page= as the only query param', () => {
+    expect(
+      parseLastPageFromLinkHeader(
+        '<https://api.github.com/r?page=7>; rel="last"'
+      )
+    ).toBe(7)
+  })
+
+  it('falls back to 1 on malformed link headers', () => {
+    expect(parseLastPageFromLinkHeader('garbage')).toBe(1)
+    expect(
+      parseLastPageFromLinkHeader('<https://x?page=abc>; rel="last"')
+    ).toBe(1)
   })
 })
