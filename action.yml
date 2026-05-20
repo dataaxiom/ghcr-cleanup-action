@@ -25,8 +25,12 @@ inputs:
 
   repository:
     description: >
-      The GitHub repository where the package is stored. Defaults to repository
-      name
+      Optional. Used only for diagnostic log strings; defaults to the calling
+      workflow's repository name. The cleanup logic determines the package's
+      owner type and your token's identity directly, so this input no longer
+      affects which packages are touched. Safe to omit (especially for
+      cross-account cleanup where the target package isn't linked to any
+      repository).
     required: false
 
   package:

@@ -11,8 +11,14 @@ export enum LogLevel {
 }
 
 export class Config {
-  isPrivateRepo = false
-  repoType = 'Organization'
+  // True when the authenticated token's login matches `owner` —
+  // tells package-repo which Packages-API endpoint flavour to call:
+  // - tokenOwnsPackage  → packages.forAuthenticatedUser.*
+  // - !tokenOwnsPackage → packages.forUser.* (or forOrg if owner is Org)
+  // Named for what it actually means; replaced the older `isPrivateRepo`
+  // proxy, which was derived from an unrelated repository's privacy flag.
+  tokenOwnsPackage = false
+  repoType: 'User' | 'Organization' = 'Organization'
   owner = ''
   repository = ''
   package = ''
@@ -248,27 +254,29 @@ export async function buildConfig(): Promise<Config> {
   if (!config.package) {
     throw new Error('package is not set')
   }
-  if (!config.repository) {
-    throw new Error('repository is not set')
-  }
+  // `repository` is no longer required. It now only appears in
+  // diagnostic log lines; the cleanup decision path uses `owner` + token
+  // identity directly. Falls back to empty string if unset.
 
-  // Fetch repository information
+  // Identify the owner (User vs Organization) and the authenticated
+  // token's login. Endpoint selection in package-repo.ts uses these
+  // directly — no repository lookup needed. See issue #117.
   const octokitClient = new OctokitClient(
     config.token,
     config.githubApiUrl,
     config.logLevel
   )
-  const repoInfo = await octokitClient.getRepository(
-    config.owner,
-    config.repository
-  )
-  config.isPrivateRepo = repoInfo.isPrivate
-  config.repoType = repoInfo.ownerType
+  config.repoType = await octokitClient.getOwnerType(config.owner)
+  const tokenLogin = await octokitClient.getAuthenticatedUserLogin()
+  config.tokenOwnsPackage =
+    tokenLogin !== null &&
+    tokenLogin.toLowerCase() === config.owner.toLowerCase()
 
   const optionsMap = new MapPrinter()
-  optionsMap.add('private repository', `${config.isPrivateRepo}`)
+  optionsMap.add('token owns package', `${config.tokenOwnsPackage}`)
   optionsMap.add('project owner', `${config.owner}`)
-  optionsMap.add('repository', `${config.repository}`)
+  // `repository` was previously printed here. Removed in the #117 fix —
+  // the field is no longer load-bearing and showing it implied otherwise.
   optionsMap.add('package', `${config.package}`)
   if (config.expandPackages !== undefined) {
     optionsMap.add('expand-packages', `${config.expandPackages}`)

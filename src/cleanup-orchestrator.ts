@@ -75,14 +75,19 @@ export class CleanupOrchestrator {
   async reload(): Promise<void> {
     this.deleteSet.clear()
 
-    // Prime the list of current packages
-    await this.packageRepo.loadPackages(this.targetPackage, true)
-
-    // Drop cached manifest entries whose digests no longer exist in the
-    // package list. Without this, the cross-run cache accumulates entries
-    // for deleted packages forever — they'll never come back (digests are
-    // content-addressed) so they're pure bloat.
-    this.manifestCache?.prune(this.packageRepo.getDigests())
+    // Prime the list of current packages. The afterLoad callback runs
+    // inside the "[Loaded package data]" log group, so the manifest-
+    // cache prune's diagnostic line lands inside that group rather than
+    // floating alone above subsequent groups.
+    //
+    // The prune itself: drop cached manifest entries whose digests no
+    // longer exist in the package list. Without this, the cross-run
+    // cache accumulates entries for deleted packages forever — they'll
+    // never come back (digests are content-addressed) so they're pure
+    // bloat.
+    await this.packageRepo.loadPackages(this.targetPackage, true, () => {
+      this.manifestCache?.prune(this.packageRepo.getDigests())
+    })
 
     // Build digestUsedBy + subjectReferrers maps in one pass
     const analysis = await this.manifestAnalyzer.loadDigestUsedByMap()

@@ -58,7 +58,7 @@ describe('CleanupOrchestrator', () => {
       dryRun: false,
       verboseMode: false,
       skipChildManifests: false,
-      isPrivateRepo: false,
+      tokenOwnsPackage: false,
       repoType: 'Container',
       owner: 'test-owner',
       repository: 'test-repo',
@@ -229,7 +229,8 @@ describe('CleanupOrchestrator', () => {
 
       expect(mockPackageRepo.loadPackages).toHaveBeenCalledWith(
         'test-package',
-        true
+        true,
+        expect.any(Function)
       )
       expect(mockManifestAnalyzer.loadDigestUsedByMap).toHaveBeenCalled()
       expect(mockManifestAnalyzer.initFilterSet).toHaveBeenCalled()

@@ -75,7 +75,21 @@ export class PackageRepo {
   /**
    * Loads all versions of the package from the GitHub Packages API and populates the internal maps
    */
-  async loadPackages(targetPackage: string, output: boolean): Promise<void> {
+  /**
+   * Load the package list into the in-memory maps.
+   *
+   * @param afterLoad - optional callback fired inside the
+   *   `[Loaded package data]` log group (when `output` is true), before
+   *   the group closes. Lets the caller emit related diagnostic lines
+   *   (e.g. manifest-cache prune output) into the same collapsible
+   *   section instead of leaking out as a standalone line. The caller
+   *   sees the fully-populated cache state.
+   */
+  async loadPackages(
+    targetPackage: string,
+    output: boolean,
+    afterLoad?: () => void
+  ): Promise<void> {
     try {
       // clear the maps for reloading
       this.digest2Id.clear()
@@ -97,7 +111,7 @@ export class PackageRepo {
       let getParams: any
 
       if (this.config.repoType === 'User') {
-        getFunc = this.config.isPrivateRepo
+        getFunc = this.config.tokenOwnsPackage
           ? octokit.rest.packages
               .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
           : octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser
@@ -180,7 +194,14 @@ export class PackageRepo {
           }
           core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`)
         }
+        // Run inside the group so related diagnostic lines (e.g. manifest-
+        // cache prune) appear alongside the package listing.
+        afterLoad?.()
         core.endGroup()
+      } else {
+        // Even when the group isn't being printed, give the caller its
+        // post-load callback so cache-pruning still happens.
+        afterLoad?.()
       }
       if (output && this.config.logLevel === LogLevel.DEBUG) {
         core.startGroup(`[${targetPackage}] Loaded package payloads`)
@@ -194,13 +215,18 @@ export class PackageRepo {
       if (error instanceof RequestError) {
         if (error.status) {
           if (error.status === 404) {
+            // The cleanup decision path no longer depends on a parent
+            // repository (issue #117) — surface the package's actual
+            // owner/name path in the error rather than synthesising a
+            // (potentially nonexistent) owner/repository pair.
+            const ownerPath = `${this.config.owner}/${targetPackage}`
             if (this.config.defaultPackageUsed) {
               core.warning(
-                `The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`
+                `The package "${targetPackage}" is not found under ${ownerPath} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`
               )
             } else {
               core.warning(
-                `The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`
+                `The package "${targetPackage}" is not found under ${ownerPath}, check the package value is correctly set.`
               )
             }
           }
@@ -290,7 +316,7 @@ export class PackageRepo {
       if (!this.config.dryRun) {
         const octokit = this.octokitClient.getClient()
         if (this.config.repoType === 'User') {
-          if (this.config.isPrivateRepo) {
+          if (this.config.tokenOwnsPackage) {
             await octokit.rest.packages.deletePackageVersionForAuthenticatedUser(
               {
                 package_type: 'container' as const,
@@ -358,7 +384,7 @@ export class PackageRepo {
     let listParams: any
 
     if (this.config.repoType === 'User') {
-      listFunc = this.config.isPrivateRepo
+      listFunc = this.config.tokenOwnsPackage
         ? octokit.rest.packages.listPackagesForAuthenticatedUser
         : octokit.rest.packages.listPackagesForUser
 
@@ -385,9 +411,7 @@ export class PackageRepo {
       }
     }
 
-    core.startGroup(
-      `Available packages in repository: ${this.config.repository}`
-    )
+    core.startGroup(`Available packages for owner: ${this.config.owner}`)
     for (const name of packages) {
       core.info(name)
     }

@@ -44,6 +44,24 @@ vi.mock('../package-repo')
 vi.mock('../cleanup-orchestrator')
 vi.mock('@octokit/auth-token')
 vi.mock('../utils')
+// Mock-controlled cache stats. vi.hoisted lets the vi.mock factory
+// (which is itself hoisted) safely reference this state — individual
+// tests assign to `mockCacheStats.value` to control what `getStats()`
+// returns for that test.
+const { mockCacheStats } = vi.hoisted(() => ({
+  mockCacheStats: { value: { hits: 0, misses: 0 } }
+}))
+vi.mock('../manifest-cache.js', () => {
+  return {
+    ManifestCache: class {
+      async restore(): Promise<void> {}
+      async save(): Promise<void> {}
+      getStats(): { hits: number; misses: number } {
+        return mockCacheStats.value
+      }
+    }
+  }
+})
 
 const defaultConfig = (overrides: Partial<Config> = {}): Config =>
   ({
@@ -56,7 +74,7 @@ const defaultConfig = (overrides: Partial<Config> = {}): Config =>
     token: 'gh-token',
     dryRun: false,
     repoType: 'Organization',
-    isPrivateRepo: false,
+    tokenOwnsPackage: false,
     defaultPackageUsed: false,
     logLevel: 1,
     ...overrides
@@ -447,9 +465,11 @@ describe('main.run()', () => {
       expect(html).not.toContain('delete-tags')
       expect(html).not.toContain('older-than')
       expect(html).not.toContain('keep-n-tagged')
+      // `repository` is no longer surfaced — it isn't load-bearing
+      // since #117 and the summary block should not imply otherwise.
+      expect(html).not.toContain('repository')
       // Always-set options should still be there
       expect(html).toContain('owner')
-      expect(html).toContain('repository')
       expect(html).toContain('log-level')
     })
 
@@ -475,6 +495,35 @@ describe('main.run()', () => {
       expect(flat).toContain('"2"')
       expect(flat).toContain('"11"')
       expect(flat).toContain('"4"')
+    })
+
+    it('adds a Manifest cache hit rate row when the cache saw lookups', async () => {
+      // Set per-package stats; main aggregates across packages.
+      // Default fixture has one package, so 30 hits + 10 misses
+      // become the aggregate.
+      mockCacheStats.value = { hits: 30, misses: 10 }
+
+      await run()
+
+      const tableCalls = vi.mocked(core.summary.addTable).mock.calls
+      const overview = tableCalls[0][0] as unknown[][]
+      const flat = JSON.stringify(overview)
+      expect(flat).toContain('Manifest cache hit rate')
+      // 30/(30+10) = 75%
+      expect(flat).toContain('75%')
+      expect(flat).toContain('30 hits / 40 lookups')
+    })
+
+    it('omits the Manifest cache row when the cache saw no lookups', async () => {
+      // 0/0 would render misleadingly — skip the row entirely.
+      mockCacheStats.value = { hits: 0, misses: 0 }
+
+      await run()
+
+      const tableCalls = vi.mocked(core.summary.addTable).mock.calls
+      const overview = tableCalls[0][0] as unknown[][]
+      const flat = JSON.stringify(overview)
+      expect(flat).not.toContain('Manifest cache hit rate')
     })
 
     it('emits one Results row per package plus a Totals row', async () => {
