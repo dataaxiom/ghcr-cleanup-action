@@ -47762,9 +47762,13 @@ async function run() {
     config.owner = config.owner?.toLowerCase();
     // Create Octokit client and fetch repository info
     const octokitClient = new _octokit_client_js__WEBPACK_IMPORTED_MODULE_5__/* .OctokitClient */ .h(config.token, config.githubApiUrl, config.logLevel);
-    const repoInfo = await octokitClient.getRepository(config.owner, config.repository);
-    config.isPrivateRepo = repoInfo.isPrivate;
-    config.repoType = repoInfo.ownerType;
+    // Mirror production: identify the owner type and whether our token's
+    // login matches the package owner. No repository lookup involved.
+    config.repoType = await octokitClient.getOwnerType(config.owner);
+    const tokenLogin = await octokitClient.getAuthenticatedUserLogin();
+    config.tokenOwnsPackage =
+        tokenLogin !== null &&
+            tokenLogin.toLowerCase() === config.owner.toLowerCase();
     const packageRepo = new _package_repo_js__WEBPACK_IMPORTED_MODULE_4__/* .PackageRepo */ .l(config, octokitClient);
     const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_6__/* .Registry */ .O(config, packageRepo);
     await registry.login(config.package);
@@ -47955,7 +47959,13 @@ var LogLevel;
     LogLevel[LogLevel["DEBUG"] = 4] = "DEBUG";
 })(LogLevel || (LogLevel = {}));
 class Config {
-    isPrivateRepo = false;
+    // True when the authenticated token's login matches `owner` —
+    // tells package-repo which Packages-API endpoint flavour to call:
+    // - tokenOwnsPackage  → packages.forAuthenticatedUser.*
+    // - !tokenOwnsPackage → packages.forUser.* (or forOrg if owner is Org)
+    // Named for what it actually means; replaced the older `isPrivateRepo`
+    // proxy, which was derived from an unrelated repository's privacy flag.
+    tokenOwnsPackage = false;
     repoType = 'Organization';
     owner = '';
     repository = '';
@@ -48171,18 +48181,23 @@ async function buildConfig() {
     if (!config.package) {
         throw new Error('package is not set');
     }
-    if (!config.repository) {
-        throw new Error('repository is not set');
-    }
-    // Fetch repository information
+    // `repository` is no longer required. It now only appears in
+    // diagnostic log lines; the cleanup decision path uses `owner` + token
+    // identity directly. Falls back to empty string if unset.
+    // Identify the owner (User vs Organization) and the authenticated
+    // token's login. Endpoint selection in package-repo.ts uses these
+    // directly — no repository lookup needed. See issue #117.
     const octokitClient = new OctokitClient(config.token, config.githubApiUrl, config.logLevel);
-    const repoInfo = await octokitClient.getRepository(config.owner, config.repository);
-    config.isPrivateRepo = repoInfo.isPrivate;
-    config.repoType = repoInfo.ownerType;
+    config.repoType = await octokitClient.getOwnerType(config.owner);
+    const tokenLogin = await octokitClient.getAuthenticatedUserLogin();
+    config.tokenOwnsPackage =
+        tokenLogin !== null &&
+            tokenLogin.toLowerCase() === config.owner.toLowerCase();
     const optionsMap = new MapPrinter();
-    optionsMap.add('private repository', `${config.isPrivateRepo}`);
+    optionsMap.add('token owns package', `${config.tokenOwnsPackage}`);
     optionsMap.add('project owner', `${config.owner}`);
-    optionsMap.add('repository', `${config.repository}`);
+    // `repository` was previously printed here. Removed in the #117 fix —
+    // the field is no longer load-bearing and showing it implied otherwise.
     optionsMap.add('package', `${config.package}`);
     if (config.expandPackages !== undefined) {
         optionsMap.add('expand-packages', `${config.expandPackages}`);
@@ -52749,7 +52764,13 @@ const MyOctokit = dist_src_Octokit.plugin(requestLog, throttling, retry);
  */
 class OctokitClient {
     octokit;
+    // GitHub App installation tokens use the `ghs_` prefix (workflow
+    // GITHUB_TOKEN is one). These can't successfully call `GET /user` —
+    // the endpoint 403s and Octokit's request logger emits a noisy
+    // [Octokit ERROR] line. Skip the call entirely for these tokens.
+    tokenIsAppInstallation;
     constructor(token, githubApiUrl, logLevel = config/* LogLevel */.$b.INFO) {
+        this.tokenIsAppInstallation = token.startsWith('ghs_');
         const baseUrl = githubApiUrl || 'https://api.github.com';
         this.octokit = new MyOctokit({
             auth: token,
@@ -52810,23 +52831,63 @@ class OctokitClient {
         return this.octokit;
     }
     /**
-     * Get repository information
+     * Look up an owner (user or organization) and return its account type.
+     * Uses `GET /users/{login}`, which returns both Users and Organizations
+     * — the response carries a `.type` field distinguishing them. This is
+     * the canonical way to ask "is this login a user or an org" without
+     * touching any repository.
      */
-    async getRepository(owner, repository) {
+    async getOwnerType(owner) {
         try {
-            const result = await this.octokit.request(`GET /repos/${owner}/${repository}`);
-            return {
-                isPrivate: result.data.private,
-                ownerType: result.data.owner.type
-            };
+            const result = await this.octokit.request(`GET /users/${owner}`);
+            const type = result.data.type;
+            if (type !== 'User' && type !== 'Organization') {
+                throw new Error(`unexpected owner type "${type}" for "${owner}" (expected User or Organization)`);
+            }
+            return type;
+        }
+        catch (error) {
+            if (error instanceof dist_src/* RequestError */.G && error.status === 404) {
+                core/* warning */.$e(`Owner "${owner}" not found — check the owner input is correct.`);
+            }
+            throw error;
+        }
+    }
+    /**
+     * Return the authenticated user's login via `GET /user`. Used to compare
+     * against the package owner for endpoint selection (token owns package
+     * → use the authenticated-user endpoint; otherwise → use the user
+     * endpoint).
+     *
+     * Returns `null` when the token doesn't represent a user we can compare
+     * (e.g. a GitHub App installation token whose login is a bot, or a
+     * scope-restricted PAT). Callers should treat `null` as "not the
+     * package owner" and pick the non-authenticated endpoint.
+     */
+    async getAuthenticatedUserLogin() {
+        // Short-circuit for GitHub App installation tokens (workflow
+        // GITHUB_TOKEN is one). They can't usefully identify a user via
+        // `GET /user` — the call would 403 and Octokit would log a noisy
+        // error. The app's "user" is a bot, which can never own a
+        // user-scoped package anyway, so treating it as null is correct.
+        if (this.tokenIsAppInstallation) {
+            return null;
+        }
+        try {
+            const result = await this.octokit.request('GET /user');
+            const login = result.data?.login;
+            return typeof login === 'string' && login.length > 0 ? login : null;
         }
         catch (error) {
             if (error instanceof dist_src/* RequestError */.G) {
-                if (error.status === 404) {
-                    core/* warning */.$e(`The repository is not found, check the owner value "${owner}" or the repository value "${repository}" are correct`);
+                // 401/403/404 all mean "we can't identify this token as a user" —
+                // safe to treat as not-the-owner.
+                if (error.status === 401 ||
+                    error.status === 403 ||
+                    error.status === 404) {
+                    return null;
                 }
             }
-            // rethrow the error
             throw error;
         }
     }
@@ -52907,7 +52968,17 @@ class PackageRepo {
     /**
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
      */
-    async loadPackages(targetPackage, output) {
+    /**
+     * Load the package list into the in-memory maps.
+     *
+     * @param afterLoad - optional callback fired inside the
+     *   `[Loaded package data]` log group (when `output` is true), before
+     *   the group closes. Lets the caller emit related diagnostic lines
+     *   (e.g. manifest-cache prune output) into the same collapsible
+     *   section instead of leaking out as a standalone line. The caller
+     *   sees the fully-populated cache state.
+     */
+    async loadPackages(targetPackage, output, afterLoad) {
         try {
             // clear the maps for reloading
             this.digest2Id.clear();
@@ -52926,7 +52997,7 @@ class PackageRepo {
             let getFunc = octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg;
             let getParams;
             if (this.config.repoType === 'User') {
-                getFunc = this.config.isPrivateRepo
+                getFunc = this.config.tokenOwnsPackage
                     ? octokit.rest.packages
                         .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
                     : octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser;
@@ -52998,7 +53069,15 @@ class PackageRepo {
                     }
                     _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(`${ghPackage.id} ${ghPackage.name} ${tags}`);
                 }
+                // Run inside the group so related diagnostic lines (e.g. manifest-
+                // cache prune) appear alongside the package listing.
+                afterLoad?.();
                 _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .endGroup */ .N4();
+            }
+            else {
+                // Even when the group isn't being printed, give the caller its
+                // post-load callback so cache-pruning still happens.
+                afterLoad?.();
             }
             if (output && this.config.logLevel === _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel */ .$b.DEBUG) {
                 _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .startGroup */ .Oh(`[${targetPackage}] Loaded package payloads`);
@@ -53013,11 +53092,16 @@ class PackageRepo {
             if (error instanceof _octokit_request_error__WEBPACK_IMPORTED_MODULE_3__/* .RequestError */ .G) {
                 if (error.status) {
                     if (error.status === 404) {
+                        // The cleanup decision path no longer depends on a parent
+                        // repository (issue #117) — surface the package's actual
+                        // owner/name path in the error rather than synthesising a
+                        // (potentially nonexistent) owner/repository pair.
+                        const ownerPath = `${this.config.owner}/${targetPackage}`;
                         if (this.config.defaultPackageUsed) {
-                            _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
+                            _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e(`The package "${targetPackage}" is not found under ${ownerPath} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
                         }
                         else {
-                            _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
+                            _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e(`The package "${targetPackage}" is not found under ${ownerPath}, check the package value is correctly set.`);
                         }
                     }
                 }
@@ -53095,7 +53179,7 @@ class PackageRepo {
             if (!this.config.dryRun) {
                 const octokit = this.octokitClient.getClient();
                 if (this.config.repoType === 'User') {
-                    if (this.config.isPrivateRepo) {
+                    if (this.config.tokenOwnsPackage) {
                         await octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                             package_type: 'container',
                             package_name: targetPackage,
@@ -53158,7 +53242,7 @@ class PackageRepo {
         let listFunc;
         let listParams;
         if (this.config.repoType === 'User') {
-            listFunc = this.config.isPrivateRepo
+            listFunc = this.config.tokenOwnsPackage
                 ? octokit.rest.packages.listPackagesForAuthenticatedUser
                 : octokit.rest.packages.listPackagesForUser;
             listParams = {
@@ -53180,7 +53264,7 @@ class PackageRepo {
                 packages.push(data.name);
             }
         }
-        _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .startGroup */ .Oh(`Available packages in repository: ${this.config.repository}`);
+        _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .startGroup */ .Oh(`Available packages for owner: ${this.config.owner}`);
         for (const name of packages) {
             _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(name);
         }

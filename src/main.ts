@@ -104,6 +104,7 @@ class CleanupAction {
 
     let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0)
     const perPackageStats: CleanupTaskStatistics[] = []
+    const cacheStats = { hits: 0, misses: 0 }
     for (const targetPackage of targetPackages) {
       // Manifest cache is keyed per (owner, package, GITHUB_RUN_ID).
       // Restore before reload() so analyzer manifest fetches see the
@@ -126,6 +127,9 @@ class CleanupAction {
         globalStatistics = globalStatistics.add(stats)
       } finally {
         await manifestCache.save()
+        const s = manifestCache.getStats()
+        cacheStats.hits += s.hits
+        cacheStats.misses += s.misses
       }
     }
 
@@ -138,7 +142,8 @@ class CleanupAction {
       targetPackages,
       perPackageStats,
       globalStatistics,
-      durationMs
+      durationMs,
+      cacheStats
     )
   }
 
@@ -146,7 +151,8 @@ class CleanupAction {
     targetPackages: string[],
     perPackageStats: CleanupTaskStatistics[],
     globalStats: CleanupTaskStatistics,
-    durationMs: number
+    durationMs: number,
+    cacheStats: { hits: number; misses: number }
   ): Promise<void> {
     const summary = core.summary
 
@@ -163,7 +169,7 @@ class CleanupAction {
 
     // Quick stats
     summary.addHeading('Overview', 2)
-    summary.addTable([
+    const overviewRows: SummaryTableRow[] = [
       [
         { data: 'Metric', header: true },
         { data: 'Value', header: true }
@@ -173,12 +179,23 @@ class CleanupAction {
       ['Multi-arch images deleted', `${globalStats.numberMultiImagesDeleted}`],
       ['Mode', this.config.dryRun ? 'Dry run' : 'Live'],
       ['Duration', `${Math.round(durationMs / 1000)}s`]
-    ])
+    ]
+    // Only surface manifest-cache stats when the cache actually saw
+    // traffic this run. A 0/0 row would be misleading noise — implies
+    // a cache miss-rate of 0% when really nothing was looked up.
+    const cacheTotal = cacheStats.hits + cacheStats.misses
+    if (cacheTotal > 0) {
+      const rate = Math.round((cacheStats.hits / cacheTotal) * 100)
+      overviewRows.push([
+        'Manifest cache hit rate',
+        `${rate}% (${cacheStats.hits} hits / ${cacheTotal} lookups)`
+      ])
+    }
+    summary.addTable(overviewRows)
 
     // Configuration overview
     const configPairs: Array<[string, string]> = []
     configPairs.push(['owner', `${this.config.owner}`])
-    configPairs.push(['repository', `${this.config.repository}`])
     configPairs.push(['packages', `${targetPackages.join(', ')}`])
     if (this.config.deleteTags !== undefined) {
       configPairs.push(['delete-tags', `${this.config.deleteTags}`])

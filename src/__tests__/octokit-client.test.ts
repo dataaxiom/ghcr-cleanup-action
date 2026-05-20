@@ -137,116 +137,161 @@ describe('OctokitClient', () => {
     })
   })
 
-  describe('getRepository', () => {
+  describe('getOwnerType', () => {
     let client: OctokitClient
     let mockRequest: Mock
 
     beforeEach(() => {
       client = new OctokitClient('test-token')
       mockRequest = vi.fn()
-      ;(client as any).octokit = {
-        request: mockRequest
-      }
+      ;(client as any).octokit = { request: mockRequest }
     })
 
-    it('should fetch repository information successfully', async () => {
-      mockRequest.mockResolvedValue({
-        data: {
-          private: true,
-          owner: {
-            type: 'User'
-          }
-        }
-      })
+    it('returns "User" for a user account', async () => {
+      mockRequest.mockResolvedValue({ data: { type: 'User' } })
 
-      const result = await client.getRepository('test-owner', 'test-repo')
+      await expect(client.getOwnerType('alice')).resolves.toBe('User')
+      expect(mockRequest).toHaveBeenCalledWith('GET /users/alice')
+    })
 
-      expect(result).toEqual({
-        isPrivate: true,
-        ownerType: 'User'
-      })
-      expect(mockRequest).toHaveBeenCalledWith(
-        'GET /repos/test-owner/test-repo'
+    it('returns "Organization" for an org account', async () => {
+      mockRequest.mockResolvedValue({ data: { type: 'Organization' } })
+
+      await expect(client.getOwnerType('acme')).resolves.toBe('Organization')
+    })
+
+    it('throws on unexpected type values', async () => {
+      mockRequest.mockResolvedValue({ data: { type: 'Bot' } })
+
+      await expect(client.getOwnerType('weirdbot')).rejects.toThrow(
+        /unexpected owner type "Bot"/
       )
     })
 
-    it('should handle public organization repository', async () => {
-      mockRequest.mockResolvedValue({
-        data: {
-          private: false,
-          owner: {
-            type: 'Organization'
-          }
-        }
-      })
-
-      const result = await client.getRepository('org-name', 'org-repo')
-
-      expect(result).toEqual({
-        isPrivate: false,
-        ownerType: 'Organization'
-      })
-    })
-
-    it('should handle 404 error with warning', async () => {
+    it('warns on 404 and rethrows', async () => {
       const error = new RequestError('Not Found', 404, {
         request: {
           method: 'GET',
-          url: 'https://api.github.com/repos/test-owner/test-repo',
+          url: 'https://api.github.com/users/missing',
           headers: {}
         },
         response: {
           status: 404,
-          url: '',
+          url: 'https://api.github.com/users/missing',
           headers: {},
-          data: {},
-          retryCount: 0
+          data: {}
         }
       })
       mockRequest.mockRejectedValue(error)
 
-      await expect(
-        client.getRepository('test-owner', 'test-repo')
-      ).rejects.toThrow(error)
-
+      await expect(client.getOwnerType('missing')).rejects.toThrow(error)
       expect(mockWarning).toHaveBeenCalledWith(
-        'The repository is not found, check the owner value "test-owner" or the repository value "test-repo" are correct'
+        expect.stringContaining('Owner "missing" not found')
       )
     })
+  })
 
-    it('should rethrow non-404 errors', async () => {
-      const error = new RequestError('Internal Server Error', 500, {
+  describe('getAuthenticatedUserLogin', () => {
+    let client: OctokitClient
+    let mockRequest: Mock
+
+    beforeEach(() => {
+      client = new OctokitClient('test-token')
+      mockRequest = vi.fn()
+      ;(client as any).octokit = { request: mockRequest }
+    })
+
+    it('returns the login when /user succeeds', async () => {
+      mockRequest.mockResolvedValue({ data: { login: 'alice' } })
+
+      await expect(client.getAuthenticatedUserLogin()).resolves.toBe('alice')
+      expect(mockRequest).toHaveBeenCalledWith('GET /user')
+    })
+
+    it('short-circuits without calling /user for ghs_ (App installation) tokens', async () => {
+      // Workflow GITHUB_TOKEN uses the ghs_ prefix. Calling /user with
+      // it 403s and produces a noisy log line for zero benefit, since
+      // app installations can never "own" a user-scoped package.
+      const appClient = new OctokitClient('ghs_fakeAppInstallationToken')
+      const appMockRequest = vi.fn()
+      ;(appClient as any).octokit = { request: appMockRequest }
+
+      await expect(appClient.getAuthenticatedUserLogin()).resolves.toBeNull()
+      expect(appMockRequest).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['classic PAT (ghp_)', 'ghp_xxx'],
+      ['OAuth (gho_)', 'gho_xxx'],
+      ['fine-grained PAT (github_pat_)', 'github_pat_xxx'],
+      ['unknown prefix', 'some-token']
+    ])(
+      'does NOT short-circuit for %s (calls /user normally)',
+      async (_label, token) => {
+        const c = new OctokitClient(token)
+        const m = vi.fn().mockResolvedValue({ data: { login: 'alice' } })
+        ;(c as any).octokit = { request: m }
+
+        await expect(c.getAuthenticatedUserLogin()).resolves.toBe('alice')
+        expect(m).toHaveBeenCalledWith('GET /user')
+      }
+    )
+
+    it('returns null when login is missing from the response', async () => {
+      mockRequest.mockResolvedValue({ data: {} })
+
+      await expect(client.getAuthenticatedUserLogin()).resolves.toBeNull()
+    })
+
+    it('returns null when login is empty string', async () => {
+      mockRequest.mockResolvedValue({ data: { login: '' } })
+
+      await expect(client.getAuthenticatedUserLogin()).resolves.toBeNull()
+    })
+
+    it.each([
+      ['401 Unauthorized', 401],
+      ['403 Forbidden', 403],
+      ['404 Not Found', 404]
+    ])(
+      "returns null on %s (token can't identify a user)",
+      async (_label, status) => {
+        const error = new RequestError('err', status, {
+          request: {
+            method: 'GET',
+            url: 'https://api.github.com/user',
+            headers: {}
+          },
+          response: {
+            status,
+            url: 'https://api.github.com/user',
+            headers: {},
+            data: {}
+          }
+        })
+        mockRequest.mockRejectedValue(error)
+
+        await expect(client.getAuthenticatedUserLogin()).resolves.toBeNull()
+      }
+    )
+
+    it('rethrows on unexpected errors (500, network, etc.)', async () => {
+      const error = new RequestError('boom', 500, {
         request: {
           method: 'GET',
-          url: 'https://api.github.com/repos/test-owner/test-repo',
+          url: 'https://api.github.com/user',
           headers: {}
         },
         response: {
           status: 500,
-          url: '',
+          url: 'https://api.github.com/user',
           headers: {},
-          data: {},
-          retryCount: 0
+          data: {}
         }
       })
       mockRequest.mockRejectedValue(error)
 
-      await expect(
-        client.getRepository('test-owner', 'test-repo')
-      ).rejects.toThrow(error)
-
-      expect(mockWarning).not.toHaveBeenCalled()
-    })
-
-    it('should rethrow non-RequestError errors', async () => {
-      const error = new Error('Network error')
-      mockRequest.mockRejectedValue(error)
-
-      await expect(
-        client.getRepository('test-owner', 'test-repo')
-      ).rejects.toThrow(error)
-
-      expect(mockWarning).not.toHaveBeenCalled()
+      await expect(client.getAuthenticatedUserLogin()).rejects.toThrow(error)
     })
   })
 

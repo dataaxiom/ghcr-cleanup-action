@@ -17,11 +17,18 @@ type MyOctokitInstance = InstanceType<typeof MyOctokit>
 export class OctokitClient {
   private octokit: MyOctokitInstance
 
+  // GitHub App installation tokens use the `ghs_` prefix (workflow
+  // GITHUB_TOKEN is one). These can't successfully call `GET /user` —
+  // the endpoint 403s and Octokit's request logger emits a noisy
+  // [Octokit ERROR] line. Skip the call entirely for these tokens.
+  private tokenIsAppInstallation: boolean
+
   constructor(
     token: string,
     githubApiUrl?: string,
     logLevel: LogLevel = LogLevel.INFO
   ) {
+    this.tokenIsAppInstallation = token.startsWith('ghs_')
     const baseUrl = githubApiUrl || 'https://api.github.com'
 
     this.octokit = new MyOctokit({
@@ -102,32 +109,68 @@ export class OctokitClient {
   }
 
   /**
-   * Get repository information
+   * Look up an owner (user or organization) and return its account type.
+   * Uses `GET /users/{login}`, which returns both Users and Organizations
+   * — the response carries a `.type` field distinguishing them. This is
+   * the canonical way to ask "is this login a user or an org" without
+   * touching any repository.
    */
-  async getRepository(
-    owner: string,
-    repository: string
-  ): Promise<{
-    isPrivate: boolean
-    ownerType: string
-  }> {
+  async getOwnerType(owner: string): Promise<'User' | 'Organization'> {
     try {
-      const result = await this.octokit.request(
-        `GET /repos/${owner}/${repository}`
-      )
-      return {
-        isPrivate: result.data.private,
-        ownerType: result.data.owner.type
+      const result = await this.octokit.request(`GET /users/${owner}`)
+      const type = result.data.type
+      if (type !== 'User' && type !== 'Organization') {
+        throw new Error(
+          `unexpected owner type "${type}" for "${owner}" (expected User or Organization)`
+        )
       }
+      return type
+    } catch (error) {
+      if (error instanceof RequestError && error.status === 404) {
+        core.warning(
+          `Owner "${owner}" not found — check the owner input is correct.`
+        )
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Return the authenticated user's login via `GET /user`. Used to compare
+   * against the package owner for endpoint selection (token owns package
+   * → use the authenticated-user endpoint; otherwise → use the user
+   * endpoint).
+   *
+   * Returns `null` when the token doesn't represent a user we can compare
+   * (e.g. a GitHub App installation token whose login is a bot, or a
+   * scope-restricted PAT). Callers should treat `null` as "not the
+   * package owner" and pick the non-authenticated endpoint.
+   */
+  async getAuthenticatedUserLogin(): Promise<string | null> {
+    // Short-circuit for GitHub App installation tokens (workflow
+    // GITHUB_TOKEN is one). They can't usefully identify a user via
+    // `GET /user` — the call would 403 and Octokit would log a noisy
+    // error. The app's "user" is a bot, which can never own a
+    // user-scoped package anyway, so treating it as null is correct.
+    if (this.tokenIsAppInstallation) {
+      return null
+    }
+    try {
+      const result = await this.octokit.request('GET /user')
+      const login = result.data?.login
+      return typeof login === 'string' && login.length > 0 ? login : null
     } catch (error) {
       if (error instanceof RequestError) {
-        if (error.status === 404) {
-          core.warning(
-            `The repository is not found, check the owner value "${owner}" or the repository value "${repository}" are correct`
-          )
+        // 401/403/404 all mean "we can't identify this token as a user" —
+        // safe to treat as not-the-owner.
+        if (
+          error.status === 401 ||
+          error.status === 403 ||
+          error.status === 404
+        ) {
+          return null
         }
       }
-      // rethrow the error
       throw error
     }
   }

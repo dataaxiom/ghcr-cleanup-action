@@ -35,7 +35,7 @@ describe('Config', () => {
     it('should initialize with default values', () => {
       const config = new Config()
 
-      expect(config.isPrivateRepo).toBe(false)
+      expect(config.tokenOwnsPackage).toBe(false)
       expect(config.repoType).toBe('Organization')
       expect(config.owner).toBe('')
       expect(config.repository).toBe('')
@@ -93,10 +93,14 @@ describe('Config', () => {
 
       mockGetBooleanInput.mockReturnValue(false)
 
-      // Mock OctokitClient
-      mockOctokitClient.prototype.getRepository = vi
+      // Mock OctokitClient — buildConfig now uses these two methods
+      // instead of getRepository (issue #117).
+      mockOctokitClient.prototype.getOwnerType = vi
         .fn()
-        .mockResolvedValue({ isPrivate: false, ownerType: 'Organization' })
+        .mockResolvedValue('Organization')
+      mockOctokitClient.prototype.getAuthenticatedUserLogin = vi
+        .fn()
+        .mockResolvedValue(null)
     })
 
     it('should build config with basic inputs', async () => {
@@ -108,7 +112,7 @@ describe('Config', () => {
       expect(config.owner).toBe('test-owner')
       expect(config.repository).toBe('test-repo')
       expect(config.package).toBe('test-package')
-      expect(config.isPrivateRepo).toBe(false)
+      expect(config.tokenOwnsPackage).toBe(false)
       expect(config.repoType).toBe('Organization')
     })
 
@@ -403,20 +407,89 @@ describe('Config', () => {
       expect(config.githubApiUrl).toBe('https://custom.github.com')
     })
 
-    it('should fetch repository info from OctokitClient', async () => {
+    it('should fetch owner type and token identity from OctokitClient', async () => {
       process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
-      mockOctokitClient.prototype.getRepository = vi
+      mockOctokitClient.prototype.getOwnerType = vi
         .fn()
-        .mockResolvedValue({ isPrivate: true, ownerType: 'User' })
+        .mockResolvedValue('User')
+      mockOctokitClient.prototype.getAuthenticatedUserLogin = vi
+        .fn()
+        .mockResolvedValue('test-owner')
 
       const config = await buildConfig()
 
-      expect(config.isPrivateRepo).toBe(true)
       expect(config.repoType).toBe('User')
-      expect(mockOctokitClient.prototype.getRepository).toHaveBeenCalledWith(
-        'test-owner',
-        'test-repo'
+      expect(config.tokenOwnsPackage).toBe(true)
+      expect(mockOctokitClient.prototype.getOwnerType).toHaveBeenCalledWith(
+        'test-owner'
       )
+      expect(
+        mockOctokitClient.prototype.getAuthenticatedUserLogin
+      ).toHaveBeenCalled()
+    })
+
+    it('compares token login to owner case-insensitively', async () => {
+      // GitHub canonicalises login casing; users frequently write owners
+      // in lowercase. The compare must not be case-sensitive.
+      process.env.GITHUB_REPOSITORY = 'Test-Owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          owner: 'TEST-OWNER',
+          package: 'pkg'
+        }
+        return inputs[name] || ''
+      })
+      mockOctokitClient.prototype.getOwnerType = vi
+        .fn()
+        .mockResolvedValue('User')
+      mockOctokitClient.prototype.getAuthenticatedUserLogin = vi
+        .fn()
+        .mockResolvedValue('test-owner')
+
+      const config = await buildConfig()
+
+      expect(config.tokenOwnsPackage).toBe(true)
+    })
+
+    it('sets tokenOwnsPackage=false when token login is null', async () => {
+      // Happens for GitHub App tokens or scope-restricted PATs where
+      // GET /user returns nothing usable. Should fall through to the
+      // forUser endpoint rather than authenticated-user.
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockOctokitClient.prototype.getOwnerType = vi
+        .fn()
+        .mockResolvedValue('User')
+      mockOctokitClient.prototype.getAuthenticatedUserLogin = vi
+        .fn()
+        .mockResolvedValue(null)
+
+      const config = await buildConfig()
+
+      expect(config.tokenOwnsPackage).toBe(false)
+    })
+
+    it('no longer requires repository to be set (#117)', async () => {
+      // Cross-account workflows where the target package isn't linked to
+      // any repo should not trip the old "repository is not set" throw.
+      process.env.GITHUB_REPOSITORY = 'ownerC/repoC'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          owner: 'ownerT',
+          package: 'pkgT'
+          // no repository input, no GITHUB_REPOSITORY fallback that matches
+        }
+        return inputs[name] || ''
+      })
+      mockOctokitClient.prototype.getOwnerType = vi
+        .fn()
+        .mockResolvedValue('Organization')
+      mockOctokitClient.prototype.getAuthenticatedUserLogin = vi
+        .fn()
+        .mockResolvedValue(null)
+
+      await expect(buildConfig()).resolves.toBeDefined()
     })
 
     it('should print runtime configuration', async () => {

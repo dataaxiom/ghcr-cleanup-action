@@ -92,7 +92,7 @@ const buildConfig = (overrides: Partial<Config> = {}): Config =>
     owner: 'test-owner',
     repository: 'test-repo',
     repoType: 'Organization',
-    isPrivateRepo: false,
+    tokenOwnsPackage: false,
     dryRun: false,
     defaultPackageUsed: false,
     logLevel: LogLevel.INFO,
@@ -189,7 +189,7 @@ describe('PackageRepo', () => {
 
     it('uses public-User endpoint when repoType=User, !isPrivate', async () => {
       const repo = new PackageRepo(
-        buildConfig({ repoType: 'User', isPrivateRepo: false }),
+        buildConfig({ repoType: 'User', tokenOwnsPackage: false }),
         octokitClient
       )
       mockPaginatedPages(
@@ -212,7 +212,7 @@ describe('PackageRepo', () => {
 
     it('uses authenticated-User endpoint when repoType=User, isPrivate', async () => {
       const repo = new PackageRepo(
-        buildConfig({ repoType: 'User', isPrivateRepo: true }),
+        buildConfig({ repoType: 'User', tokenOwnsPackage: true }),
         octokitClient
       )
       mockPaginatedPages(
@@ -254,6 +254,67 @@ describe('PackageRepo', () => {
         expect.stringContaining('sha256:a')
       )
       expect(core.endGroup).toHaveBeenCalled()
+    })
+
+    it('invokes afterLoad callback inside the Loaded-package-data group', async () => {
+      // The callback exists so callers (cleanup-orchestrator's
+      // manifest-cache prune) can emit related diagnostic lines that
+      // belong visually under the same collapsible section as the
+      // package listing. Lock down: afterLoad fires between startGroup
+      // and endGroup, not before or after.
+      const repo = new PackageRepo(
+        buildConfig({ logLevel: LogLevel.INFO }),
+        octokitClient
+      )
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: [buildPackageVersion(1, 'sha256:a', ['v1'])] }]
+      )
+
+      const callOrder: string[] = []
+      vi.mocked(core.startGroup).mockImplementation((name: string) => {
+        callOrder.push(`startGroup:${name}`)
+      })
+      vi.mocked(core.endGroup).mockImplementation(() => {
+        callOrder.push('endGroup')
+      })
+      const afterLoad = vi.fn(() => {
+        callOrder.push('afterLoad')
+      })
+
+      await repo.loadPackages('pkg', true, afterLoad)
+
+      expect(afterLoad).toHaveBeenCalledTimes(1)
+      const startIdx = callOrder.findIndex(s =>
+        s.startsWith('startGroup:[pkg] Loaded package data')
+      )
+      const afterIdx = callOrder.indexOf('afterLoad')
+      const endIdx = callOrder.lastIndexOf('endGroup')
+      expect(startIdx).toBeGreaterThanOrEqual(0)
+      expect(afterIdx).toBeGreaterThan(startIdx)
+      expect(endIdx).toBeGreaterThan(afterIdx)
+    })
+
+    it('still invokes afterLoad when output=false (no group)', async () => {
+      // If the caller doesn't want the group printed, the callback
+      // still needs to fire — otherwise we'd skip cache-prune work in
+      // production runs configured to silence INFO output.
+      const repo = new PackageRepo(
+        buildConfig({ logLevel: LogLevel.INFO }),
+        octokitClient
+      )
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: [buildPackageVersion(1, 'sha256:a', ['v1'])] }]
+      )
+      const afterLoad = vi.fn()
+
+      await repo.loadPackages('pkg', false, afterLoad)
+
+      expect(afterLoad).toHaveBeenCalledTimes(1)
+      expect(core.startGroup).not.toHaveBeenCalledWith(
+        expect.stringContaining('Loaded package data')
+      )
     })
 
     it('logs full payloads when output=true and DEBUG level', async () => {
@@ -567,9 +628,12 @@ describe('PackageRepo', () => {
       })
     })
 
-    it('uses public-User delete endpoint when repoType=User, !isPrivate', async () => {
+    it('uses public-User delete endpoint when User-owned and token is NOT the owner (cross-account)', async () => {
+      // Regression for issue #117: the cross-account case (caller's token
+      // doesn't match the package owner) must use forUser, not the
+      // authenticated-user endpoint.
       repo = new PackageRepo(
-        buildConfig({ repoType: 'User', isPrivateRepo: false }),
+        buildConfig({ repoType: 'User', tokenOwnsPackage: false }),
         octokitClient
       )
       await repo.deletePackageVersion('pkg', 42, 'sha256:a')
@@ -583,9 +647,9 @@ describe('PackageRepo', () => {
       })
     })
 
-    it('uses authenticated-User delete endpoint when repoType=User, isPrivate', async () => {
+    it('uses authenticated-User delete endpoint when User-owned and token IS the owner', async () => {
       repo = new PackageRepo(
-        buildConfig({ repoType: 'User', isPrivateRepo: true }),
+        buildConfig({ repoType: 'User', tokenOwnsPackage: true }),
         octokitClient
       )
       await repo.deletePackageVersion('pkg', 42, 'sha256:a')
@@ -700,7 +764,7 @@ describe('PackageRepo', () => {
 
     it('lists from public-User endpoint when repoType=User, !isPrivate', async () => {
       const repo = new PackageRepo(
-        buildConfig({ repoType: 'User', isPrivateRepo: false }),
+        buildConfig({ repoType: 'User', tokenOwnsPackage: false }),
         octokitClient
       )
       mockOctokit.paginate.iterator.mockReturnValue(
@@ -719,7 +783,7 @@ describe('PackageRepo', () => {
 
     it('lists from authenticated-User endpoint when repoType=User, isPrivate', async () => {
       const repo = new PackageRepo(
-        buildConfig({ repoType: 'User', isPrivateRepo: true }),
+        buildConfig({ repoType: 'User', tokenOwnsPackage: true }),
         octokitClient
       )
       mockOctokit.paginate.iterator.mockReturnValue(
@@ -745,7 +809,7 @@ describe('PackageRepo', () => {
       await repo.getPackageList()
 
       expect(core.startGroup).toHaveBeenCalledWith(
-        expect.stringContaining('Available packages in repository: test-repo')
+        expect.stringContaining('Available packages for owner: test-owner')
       )
       expect(core.info).toHaveBeenCalledWith('alpha')
       expect(core.info).toHaveBeenCalledWith('beta')

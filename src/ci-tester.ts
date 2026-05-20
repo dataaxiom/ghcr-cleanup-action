@@ -207,12 +207,13 @@ export async function run(): Promise<void> {
     config.githubApiUrl,
     config.logLevel
   )
-  const repoInfo = await octokitClient.getRepository(
-    config.owner,
-    config.repository
-  )
-  config.isPrivateRepo = repoInfo.isPrivate
-  config.repoType = repoInfo.ownerType
+  // Mirror production: identify the owner type and whether our token's
+  // login matches the package owner. No repository lookup involved.
+  config.repoType = await octokitClient.getOwnerType(config.owner)
+  const tokenLogin = await octokitClient.getAuthenticatedUserLogin()
+  config.tokenOwnsPackage =
+    tokenLogin !== null &&
+    tokenLogin.toLowerCase() === config.owner.toLowerCase()
 
   const packageRepo = new PackageRepo(config, octokitClient)
   const registry = new Registry(config, packageRepo)

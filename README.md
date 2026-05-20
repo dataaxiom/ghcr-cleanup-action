@@ -123,11 +123,14 @@ jobs:
         with:
           token: ${{ secrets.MY_PAT }}
           owner: dataaxiom
-          repository: tiecd
           package: tiecd
           delete-tags: '^mytag[12]$'
           use-regex: true
 ```
+
+`repository` is omitted — the action looks up the package by `owner` + `package`
+directly, so the calling workflow's repository can be anywhere. This also works
+when the target package isn't linked to any repository at all.
 
 ## Inputs
 
@@ -137,7 +140,7 @@ jobs:
 | ----------------- | ---------------------- | --------------------------------------------------------------------------------------------------- |
 | `token`           | `secrets.GITHUB_TOKEN` | Token used to call ghcr.io and the Package API.                                                     |
 | `owner`           | project owner          | GitHub user or organization that owns the package.                                                  |
-| `repository`      | repository name        | GitHub repository the package belongs to.                                                           |
+| `repository`      | repository name        | _Informational only._ Shown in logs; does not affect which packages are touched. Safe to omit.      |
 | `package(s)`      | repository name        | Comma-separated list of packages. Accepts `package` or `packages`. Wildcards require a PAT (below). |
 | `expand-packages` | `false`                | Enable wildcard / regular expression matching on `package(s)`. Requires a PAT for `token`.          |
 

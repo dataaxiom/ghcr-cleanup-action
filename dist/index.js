@@ -54808,7 +54808,13 @@ const MyOctokit = dist_src_Octokit.plugin(requestLog, throttling, retry);
  */
 class OctokitClient {
     octokit;
+    // GitHub App installation tokens use the `ghs_` prefix (workflow
+    // GITHUB_TOKEN is one). These can't successfully call `GET /user` —
+    // the endpoint 403s and Octokit's request logger emits a noisy
+    // [Octokit ERROR] line. Skip the call entirely for these tokens.
+    tokenIsAppInstallation;
     constructor(token, githubApiUrl, logLevel = LogLevel.INFO) {
+        this.tokenIsAppInstallation = token.startsWith('ghs_');
         const baseUrl = githubApiUrl || 'https://api.github.com';
         this.octokit = new MyOctokit({
             auth: token,
@@ -54869,23 +54875,63 @@ class OctokitClient {
         return this.octokit;
     }
     /**
-     * Get repository information
+     * Look up an owner (user or organization) and return its account type.
+     * Uses `GET /users/{login}`, which returns both Users and Organizations
+     * — the response carries a `.type` field distinguishing them. This is
+     * the canonical way to ask "is this login a user or an org" without
+     * touching any repository.
      */
-    async getRepository(owner, repository) {
+    async getOwnerType(owner) {
         try {
-            const result = await this.octokit.request(`GET /repos/${owner}/${repository}`);
-            return {
-                isPrivate: result.data.private,
-                ownerType: result.data.owner.type
-            };
+            const result = await this.octokit.request(`GET /users/${owner}`);
+            const type = result.data.type;
+            if (type !== 'User' && type !== 'Organization') {
+                throw new Error(`unexpected owner type "${type}" for "${owner}" (expected User or Organization)`);
+            }
+            return type;
+        }
+        catch (error) {
+            if (error instanceof RequestError && error.status === 404) {
+                warning(`Owner "${owner}" not found — check the owner input is correct.`);
+            }
+            throw error;
+        }
+    }
+    /**
+     * Return the authenticated user's login via `GET /user`. Used to compare
+     * against the package owner for endpoint selection (token owns package
+     * → use the authenticated-user endpoint; otherwise → use the user
+     * endpoint).
+     *
+     * Returns `null` when the token doesn't represent a user we can compare
+     * (e.g. a GitHub App installation token whose login is a bot, or a
+     * scope-restricted PAT). Callers should treat `null` as "not the
+     * package owner" and pick the non-authenticated endpoint.
+     */
+    async getAuthenticatedUserLogin() {
+        // Short-circuit for GitHub App installation tokens (workflow
+        // GITHUB_TOKEN is one). They can't usefully identify a user via
+        // `GET /user` — the call would 403 and Octokit would log a noisy
+        // error. The app's "user" is a bot, which can never own a
+        // user-scoped package anyway, so treating it as null is correct.
+        if (this.tokenIsAppInstallation) {
+            return null;
+        }
+        try {
+            const result = await this.octokit.request('GET /user');
+            const login = result.data?.login;
+            return typeof login === 'string' && login.length > 0 ? login : null;
         }
         catch (error) {
             if (error instanceof RequestError) {
-                if (error.status === 404) {
-                    warning(`The repository is not found, check the owner value "${owner}" or the repository value "${repository}" are correct`);
+                // 401/403/404 all mean "we can't identify this token as a user" —
+                // safe to treat as not-the-owner.
+                if (error.status === 401 ||
+                    error.status === 403 ||
+                    error.status === 404) {
+                    return null;
                 }
             }
-            // rethrow the error
             throw error;
         }
     }
@@ -54907,7 +54953,13 @@ var LogLevel;
     LogLevel[LogLevel["DEBUG"] = 4] = "DEBUG";
 })(LogLevel || (LogLevel = {}));
 class Config {
-    isPrivateRepo = false;
+    // True when the authenticated token's login matches `owner` —
+    // tells package-repo which Packages-API endpoint flavour to call:
+    // - tokenOwnsPackage  → packages.forAuthenticatedUser.*
+    // - !tokenOwnsPackage → packages.forUser.* (or forOrg if owner is Org)
+    // Named for what it actually means; replaced the older `isPrivateRepo`
+    // proxy, which was derived from an unrelated repository's privacy flag.
+    tokenOwnsPackage = false;
     repoType = 'Organization';
     owner = '';
     repository = '';
@@ -55123,18 +55175,23 @@ async function buildConfig() {
     if (!config.package) {
         throw new Error('package is not set');
     }
-    if (!config.repository) {
-        throw new Error('repository is not set');
-    }
-    // Fetch repository information
+    // `repository` is no longer required. It now only appears in
+    // diagnostic log lines; the cleanup decision path uses `owner` + token
+    // identity directly. Falls back to empty string if unset.
+    // Identify the owner (User vs Organization) and the authenticated
+    // token's login. Endpoint selection in package-repo.ts uses these
+    // directly — no repository lookup needed. See issue #117.
     const octokitClient = new OctokitClient(config.token, config.githubApiUrl, config.logLevel);
-    const repoInfo = await octokitClient.getRepository(config.owner, config.repository);
-    config.isPrivateRepo = repoInfo.isPrivate;
-    config.repoType = repoInfo.ownerType;
+    config.repoType = await octokitClient.getOwnerType(config.owner);
+    const tokenLogin = await octokitClient.getAuthenticatedUserLogin();
+    config.tokenOwnsPackage =
+        tokenLogin !== null &&
+            tokenLogin.toLowerCase() === config.owner.toLowerCase();
     const optionsMap = new MapPrinter();
-    optionsMap.add('private repository', `${config.isPrivateRepo}`);
+    optionsMap.add('token owns package', `${config.tokenOwnsPackage}`);
     optionsMap.add('project owner', `${config.owner}`);
-    optionsMap.add('repository', `${config.repository}`);
+    // `repository` was previously printed here. Removed in the #117 fix —
+    // the field is no longer load-bearing and showing it implied otherwise.
     optionsMap.add('package', `${config.package}`);
     if (config.expandPackages !== undefined) {
         optionsMap.add('expand-packages', `${config.expandPackages}`);
@@ -55257,7 +55314,17 @@ class PackageRepo {
     /**
      * Loads all versions of the package from the GitHub Packages API and populates the internal maps
      */
-    async loadPackages(targetPackage, output) {
+    /**
+     * Load the package list into the in-memory maps.
+     *
+     * @param afterLoad - optional callback fired inside the
+     *   `[Loaded package data]` log group (when `output` is true), before
+     *   the group closes. Lets the caller emit related diagnostic lines
+     *   (e.g. manifest-cache prune output) into the same collapsible
+     *   section instead of leaking out as a standalone line. The caller
+     *   sees the fully-populated cache state.
+     */
+    async loadPackages(targetPackage, output, afterLoad) {
         try {
             // clear the maps for reloading
             this.digest2Id.clear();
@@ -55276,7 +55343,7 @@ class PackageRepo {
             let getFunc = octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg;
             let getParams;
             if (this.config.repoType === 'User') {
-                getFunc = this.config.isPrivateRepo
+                getFunc = this.config.tokenOwnsPackage
                     ? octokit.rest.packages
                         .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
                     : octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser;
@@ -55348,7 +55415,15 @@ class PackageRepo {
                     }
                     info(`${ghPackage.id} ${ghPackage.name} ${tags}`);
                 }
+                // Run inside the group so related diagnostic lines (e.g. manifest-
+                // cache prune) appear alongside the package listing.
+                afterLoad?.();
                 endGroup();
+            }
+            else {
+                // Even when the group isn't being printed, give the caller its
+                // post-load callback so cache-pruning still happens.
+                afterLoad?.();
             }
             if (output && this.config.logLevel === LogLevel.DEBUG) {
                 startGroup(`[${targetPackage}] Loaded package payloads`);
@@ -55363,11 +55438,16 @@ class PackageRepo {
             if (error instanceof RequestError) {
                 if (error.status) {
                     if (error.status === 404) {
+                        // The cleanup decision path no longer depends on a parent
+                        // repository (issue #117) — surface the package's actual
+                        // owner/name path in the error rather than synthesising a
+                        // (potentially nonexistent) owner/repository pair.
+                        const ownerPath = `${this.config.owner}/${targetPackage}`;
                         if (this.config.defaultPackageUsed) {
-                            warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
+                            warning(`The package "${targetPackage}" is not found under ${ownerPath} and is currently using a generated value as it's not set on the action. Override the package option on the action to set to the package you want to cleanup.`);
                         }
                         else {
-                            warning(`The package "${targetPackage}" is not found in the repository ${this.config.owner}/${this.config.repository}, check the package value is correctly set.`);
+                            warning(`The package "${targetPackage}" is not found under ${ownerPath}, check the package value is correctly set.`);
                         }
                     }
                 }
@@ -55445,7 +55525,7 @@ class PackageRepo {
             if (!this.config.dryRun) {
                 const octokit = this.octokitClient.getClient();
                 if (this.config.repoType === 'User') {
-                    if (this.config.isPrivateRepo) {
+                    if (this.config.tokenOwnsPackage) {
                         await octokit.rest.packages.deletePackageVersionForAuthenticatedUser({
                             package_type: 'container',
                             package_name: targetPackage,
@@ -55508,7 +55588,7 @@ class PackageRepo {
         let listFunc;
         let listParams;
         if (this.config.repoType === 'User') {
-            listFunc = this.config.isPrivateRepo
+            listFunc = this.config.tokenOwnsPackage
                 ? octokit.rest.packages.listPackagesForAuthenticatedUser
                 : octokit.rest.packages.listPackagesForUser;
             listParams = {
@@ -55530,7 +55610,7 @@ class PackageRepo {
                 packages.push(data.name);
             }
         }
-        startGroup(`Available packages in repository: ${this.config.repository}`);
+        startGroup(`Available packages for owner: ${this.config.owner}`);
         for (const name of packages) {
             info(name);
         }
@@ -111303,13 +111383,19 @@ class CleanupOrchestrator {
     }
     async reload() {
         this.deleteSet.clear();
-        // Prime the list of current packages
-        await this.packageRepo.loadPackages(this.targetPackage, true);
-        // Drop cached manifest entries whose digests no longer exist in the
-        // package list. Without this, the cross-run cache accumulates entries
-        // for deleted packages forever — they'll never come back (digests are
-        // content-addressed) so they're pure bloat.
-        this.manifestCache?.prune(this.packageRepo.getDigests());
+        // Prime the list of current packages. The afterLoad callback runs
+        // inside the "[Loaded package data]" log group, so the manifest-
+        // cache prune's diagnostic line lands inside that group rather than
+        // floating alone above subsequent groups.
+        //
+        // The prune itself: drop cached manifest entries whose digests no
+        // longer exist in the package list. Without this, the cross-run
+        // cache accumulates entries for deleted packages forever — they'll
+        // never come back (digests are content-addressed) so they're pure
+        // bloat.
+        await this.packageRepo.loadPackages(this.targetPackage, true, () => {
+            this.manifestCache?.prune(this.packageRepo.getDigests());
+        });
         // Build digestUsedBy + subjectReferrers maps in one pass
         const analysis = await this.manifestAnalyzer.loadDigestUsedByMap();
         this.digestUsedBy = analysis.digestUsedBy;
@@ -111530,6 +111616,7 @@ class CleanupAction {
         }
         let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0);
         const perPackageStats = [];
+        const cacheStats = { hits: 0, misses: 0 };
         for (const targetPackage of targetPackages) {
             // Manifest cache is keyed per (owner, package, GITHUB_RUN_ID).
             // Restore before reload() so analyzer manifest fetches see the
@@ -111547,15 +111634,18 @@ class CleanupAction {
             }
             finally {
                 await manifestCache.save();
+                const s = manifestCache.getStats();
+                cacheStats.hits += s.hits;
+                cacheStats.misses += s.misses;
             }
         }
         if (targetPackages.length > 1) {
             globalStatistics.print();
         }
         const durationMs = Date.now() - startedAt;
-        await this.writeJobSummary(targetPackages, perPackageStats, globalStatistics, durationMs);
+        await this.writeJobSummary(targetPackages, perPackageStats, globalStatistics, durationMs, cacheStats);
     }
-    async writeJobSummary(targetPackages, perPackageStats, globalStats, durationMs) {
+    async writeJobSummary(targetPackages, perPackageStats, globalStats, durationMs, cacheStats) {
         const summary = summary_summary;
         // Header
         summary.addHeading('🧹 GHCR Cleanup Summary');
@@ -111565,7 +111655,7 @@ class CleanupAction {
         }
         // Quick stats
         summary.addHeading('Overview', 2);
-        summary.addTable([
+        const overviewRows = [
             [
                 { data: 'Metric', header: true },
                 { data: 'Value', header: true }
@@ -111575,11 +111665,22 @@ class CleanupAction {
             ['Multi-arch images deleted', `${globalStats.numberMultiImagesDeleted}`],
             ['Mode', this.config.dryRun ? 'Dry run' : 'Live'],
             ['Duration', `${Math.round(durationMs / 1000)}s`]
-        ]);
+        ];
+        // Only surface manifest-cache stats when the cache actually saw
+        // traffic this run. A 0/0 row would be misleading noise — implies
+        // a cache miss-rate of 0% when really nothing was looked up.
+        const cacheTotal = cacheStats.hits + cacheStats.misses;
+        if (cacheTotal > 0) {
+            const rate = Math.round((cacheStats.hits / cacheTotal) * 100);
+            overviewRows.push([
+                'Manifest cache hit rate',
+                `${rate}% (${cacheStats.hits} hits / ${cacheTotal} lookups)`
+            ]);
+        }
+        summary.addTable(overviewRows);
         // Configuration overview
         const configPairs = [];
         configPairs.push(['owner', `${this.config.owner}`]);
-        configPairs.push(['repository', `${this.config.repository}`]);
         configPairs.push(['packages', `${targetPackages.join(', ')}`]);
         if (this.config.deleteTags !== undefined) {
             configPairs.push(['delete-tags', `${this.config.deleteTags}`]);
