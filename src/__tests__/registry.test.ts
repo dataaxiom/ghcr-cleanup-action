@@ -155,9 +155,9 @@ describe('Registry', () => {
       await expect(registry.login('pkg')).rejects.toBeDefined()
     })
 
-    it('rethrows non-axios errors (regression for FINDINGS #2)', async () => {
-      // Previously the catch only handled isAxiosError && error.response, so
-      // anything outside that shape silently resolved.
+    it('rethrows non-axios errors', async () => {
+      // Regression: an earlier catch only handled isAxiosError &&
+      // error.response, so anything outside that shape silently resolved.
       const dnsError = new Error('ENOTFOUND ghcr.io')
       mockAxiosInstance.get.mockRejectedValueOnce(dnsError)
 
@@ -362,9 +362,9 @@ describe('Registry', () => {
       expect(mockAxiosInstance.get).not.toHaveBeenCalled()
     })
 
-    it('returns early when the first PUT succeeds without a challenge (regression for FINDINGS #3)', async () => {
-      // Previously this path threw "no token set to upload manifest" even
-      // though the upload succeeded.
+    it('returns early when the first PUT succeeds without a challenge', async () => {
+      // Regression: an earlier flow threw "no token set to upload manifest"
+      // on this path even though the upload succeeded.
       mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
 
       await expect(

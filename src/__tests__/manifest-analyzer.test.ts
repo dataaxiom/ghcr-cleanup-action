@@ -81,10 +81,10 @@ describe('ManifestAnalyzer', () => {
     })
 
     it('records all parents when a child is shared between two indexes', async () => {
-      // Regression for FINDINGS.md #19: previously the code removed the
-      // child from the iteration set on first encounter, so the second
-      // parent never registered itself — causing cascade-delete to wrongly
-      // treat shared children as single-parent.
+      // Regression: an earlier implementation removed the child from the
+      // iteration set on first encounter, so the second parent never
+      // registered itself — causing cascade-delete to wrongly treat shared
+      // children as single-parent.
       const parentA = 'sha256:parentA'
       const parentB = 'sha256:parentB'
       const sharedChild = 'sha256:shared'
@@ -192,11 +192,10 @@ describe('ManifestAnalyzer', () => {
     })
 
     it('builds a subjectReferrers reverse index for OCI 1.1 referrers', async () => {
-      // Regression for FINDINGS.md #20 / upstream issue #104: a bare
-      // OCI 1.1 referrer carries a subject descriptor pointing at its
-      // target image but is itself untagged. We index it so cleanup
-      // and validation can follow the link without depending on the
-      // ghcr /referrers API (which is not implemented).
+      // A bare OCI 1.1 referrer carries a subject descriptor pointing at
+      // its target image but is itself untagged. We index it so cleanup
+      // and validation can follow the link without depending on the ghcr
+      // /referrers API (which is not implemented).
       const subject = 'sha256:subject'
       const referrer = 'sha256:referrer'
       mockPackageRepo.getDigests.mockReturnValue(new Set([subject, referrer]))

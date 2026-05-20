@@ -404,11 +404,10 @@ describe('ImageDeleter', () => {
     })
 
     it('cascades subject-bearing OCI 1.1 referrers when their subject is deleted', async () => {
-      // Regression for FINDINGS.md #20 / upstream issue #104: a bare
-      // OCI 1.1 referrer (no tag, no sha256-* fallback) was previously
-      // dropped by delete-untagged because nothing linked it back to
-      // its subject. The subjectReferrers reverse index now lets the
-      // deleter take it down alongside its subject.
+      // Regression: a bare OCI 1.1 referrer (no tag, no sha256-* fallback)
+      // was previously dropped by delete-untagged because nothing linked
+      // it back to its subject. The subjectReferrers reverse index now
+      // lets the deleter take it down alongside its subject.
       const subjectPackage = {
         id: 'subject-id',
         name: 'sha256:subject',
