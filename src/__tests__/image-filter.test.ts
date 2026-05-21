@@ -158,6 +158,34 @@ describe('ImageFilter', () => {
       expect(filterSet.has('sha256:def456')).toBe(true)
     })
 
+    it('should exclude digest-based format matches under use-regex', () => {
+      // Regex mode walks getDigests() separately from getTags() and
+      // applies the same regex to the digest strings — the previously
+      // uncovered branch.
+      context.config.excludeTags = '^sha256:abc'
+      context.config.useRegex = true
+      const filterSet = new Set([
+        'sha256:abc123',
+        'sha256:def456',
+        'sha256:abc789'
+      ])
+
+      mockPackageRepo.getTags.mockReturnValue([])
+      mockPackageRepo.getDigests.mockReturnValue([
+        'sha256:abc123',
+        'sha256:def456',
+        'sha256:abc789'
+      ])
+
+      const result = filter.applyExclusionFilters(filterSet)
+
+      expect(result).toContain('sha256:abc123')
+      expect(result).toContain('sha256:abc789')
+      expect(result).not.toContain('sha256:def456')
+      expect(filterSet.has('sha256:abc123')).toBe(false)
+      expect(filterSet.has('sha256:def456')).toBe(true)
+    })
+
     it('should log excluded tags', () => {
       context.config.excludeTags = 'latest'
       const filterSet = new Set(['digest1'])
@@ -326,6 +354,26 @@ describe('ImageFilter', () => {
 
     it('should match digest-based formats', () => {
       context.config.deleteTags = 'sha256:abc*'
+      const filterSet = new Set(['sha256:abc123', 'sha256:def456'])
+
+      mockPackageRepo.getPackageByDigest.mockImplementation(
+        (digest: string) => ({
+          name: digest,
+          metadata: { container: { tags: [] } }
+        })
+      )
+
+      const result = filter.expandTags(filterSet)
+
+      expect(result).toContain('sha256:abc123')
+      expect(result).not.toContain('sha256:def456')
+    })
+
+    it('should match digest-based formats under use-regex', () => {
+      // Regex mode in expandTags also walks the filterSet separately
+      // for digest matches — symmetric with the exclude path.
+      context.config.deleteTags = '^sha256:abc'
+      context.config.useRegex = true
       const filterSet = new Set(['sha256:abc123', 'sha256:def456'])
 
       mockPackageRepo.getPackageByDigest.mockImplementation(
