@@ -159,11 +159,23 @@ export class CleanupOrchestrator {
           this.deleteSet.add(digest)
         }
       } else {
-        // After reload, process all tag deletions again
+        // After reload, process all tag deletions again.
         const newPlan = await this.deletionStrategy.processTagDeletions(
           this.filterSet,
           this.excludeTags
         )
+        // Invariant: the first-pass performUntagging consumed every tag
+        // the strategy could have matched against the affected images.
+        // After reload those tags no longer exist, so the second pass
+        // should never produce fresh untag operations. We only ingest
+        // its deleteSet below; if untagOperations is non-empty something
+        // has changed about the strategy's behaviour and we want to
+        // know loudly rather than silently dropping work.
+        if (newPlan.untagOperations.size > 0) {
+          throw new Error(
+            `CleanupOrchestrator.run() invariant: post-reload processTagDeletions produced ${newPlan.untagOperations.size} untag operation(s); first-pass untag should have consumed all matches`
+          )
+        }
         for (const digest of newPlan.deleteSet) {
           this.deleteSet.add(digest)
         }

@@ -299,6 +299,30 @@ describe('CleanupOrchestrator', () => {
       expect(mockDeletionStrategy.processTagDeletions).toHaveBeenCalledTimes(2)
     })
 
+    it('throws if post-reload processTagDeletions produces fresh untag operations', async () => {
+      // Invariant: the first-pass untag already consumed every matched
+      // tag, so a second pass after reload must not produce more. If it
+      // ever does, something has changed about the strategy's behaviour
+      // and we want a loud failure instead of silently dropping work.
+      config.deleteTags = 'tag1'
+      mockDeletionStrategy.processTagDeletions
+        .mockResolvedValueOnce({
+          deleteSet: new Set(),
+          untagOperations: new Map([['digest1', ['tag1']]])
+        })
+        .mockResolvedValueOnce({
+          deleteSet: new Set(),
+          // Hypothetical regression: a future change makes the second
+          // pass produce untag ops. This used to be silently dropped.
+          untagOperations: new Map([['digest2', ['tag2']]])
+        })
+      mockImageDeleter.performUntagging.mockResolvedValue(true)
+
+      await expect(orchestrator.run()).rejects.toThrow(
+        /post-reload processTagDeletions produced 1 untag operation/
+      )
+    })
+
     it('filters plan.untagOperations against the keep-n-tagged keep set (#10 regression)', async () => {
       // Multi-tagged image is in the keep set; its queued untag operation
       // must be dropped before performUntagging runs, otherwise a matched

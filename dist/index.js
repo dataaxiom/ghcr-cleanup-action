@@ -111024,7 +111024,18 @@ class DeletionStrategy {
         this.imageFilter = new ImageFilter(context);
     }
     /**
-     * Process tag deletions including untagging operations
+     * Process tag deletions including untagging operations.
+     *
+     * Multi-tagged matches go into `plan.untagOperations`. The caller
+     * (CleanupOrchestrator.run) is responsible for gating those against
+     * `keep-n-tagged` BEFORE executing them — a multi-tagged image in
+     * the keep set must not have a matched tag stripped, or it would
+     * silently slip out of the keep set on subsequent runs. The gate
+     * lives in the orchestrator because keep-n-tagged is the
+     * orchestrator's concern, not the strategy's; this method just
+     * reports what it found.
+     *
+     * @see CleanupOrchestrator.run — search "gate the untag operations"
      */
     async processTagDeletions(filterSet, excludeTags) {
         const plan = {
@@ -111636,8 +111647,18 @@ class CleanupOrchestrator {
                 }
             }
             else {
-                // After reload, process all tag deletions again
+                // After reload, process all tag deletions again.
                 const newPlan = await this.deletionStrategy.processTagDeletions(this.filterSet, this.excludeTags);
+                // Invariant: the first-pass performUntagging consumed every tag
+                // the strategy could have matched against the affected images.
+                // After reload those tags no longer exist, so the second pass
+                // should never produce fresh untag operations. We only ingest
+                // its deleteSet below; if untagOperations is non-empty something
+                // has changed about the strategy's behaviour and we want to
+                // know loudly rather than silently dropping work.
+                if (newPlan.untagOperations.size > 0) {
+                    throw new Error(`CleanupOrchestrator.run() invariant: post-reload processTagDeletions produced ${newPlan.untagOperations.size} untag operation(s); first-pass untag should have consumed all matches`);
+                }
                 for (const digest of newPlan.deleteSet) {
                     this.deleteSet.add(digest);
                 }
