@@ -5,6 +5,7 @@ import { RequestError } from '@octokit/request-error'
 import {
   consoleLogger,
   GhPackage,
+  logListing,
   Logger,
   parentDigestFromReferrerTag,
   runWithConcurrency
@@ -210,30 +211,30 @@ export class PackageRepo {
       }
 
       if (output && this.config.logLevel >= LogLevel.INFO) {
-        core.startGroup(`[${targetPackage}] Loaded package data`)
+        const lines: string[] = []
         for (const ghPackage of this.id2Package.values()) {
-          let tags = ''
-          for (const tag of ghPackage.metadata.container.tags) {
-            tags += `${tag} `
-          }
-          core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`)
+          const tags = ghPackage.metadata.container.tags.join(' ')
+          lines.push(`${ghPackage.id} ${ghPackage.name} ${tags}`)
         }
-        // Run inside the group so related diagnostic lines (e.g. manifest-
-        // cache prune) appear alongside the package listing.
-        afterLoad?.()
-        core.endGroup()
+        logListing(`[${targetPackage}] Loaded package data`, lines, {
+          debug: this.config.logLevel >= LogLevel.DEBUG,
+          // Fired inside the group so related diagnostic lines (e.g.
+          // manifest-cache prune) appear alongside the package listing.
+          afterEmit: afterLoad
+        })
       } else {
         // Even when the group isn't being printed, give the caller its
         // post-load callback so cache-pruning still happens.
         afterLoad?.()
       }
       if (output && this.config.logLevel === LogLevel.DEBUG) {
-        core.startGroup(`[${targetPackage}] Loaded package payloads`)
+        const payloadLines: string[] = []
         for (const ghPackage of this.id2Package.values()) {
-          const payload = JSON.stringify(ghPackage, null, 4)
-          core.info(payload)
+          payloadLines.push(JSON.stringify(ghPackage, null, 4))
         }
-        core.endGroup()
+        logListing(`[${targetPackage}] Loaded package payloads`, payloadLines, {
+          debug: true
+        })
       }
     } catch (error) {
       if (error instanceof RequestError) {
@@ -449,11 +450,9 @@ export class PackageRepo {
       }
     }
 
-    core.startGroup(`Available packages for owner: ${this.config.owner}`)
-    for (const name of packages) {
-      core.info(name)
-    }
-    core.endGroup()
+    logListing(`Available packages for owner: ${this.config.owner}`, packages, {
+      debug: this.config.logLevel >= LogLevel.DEBUG
+    })
 
     return packages
   }

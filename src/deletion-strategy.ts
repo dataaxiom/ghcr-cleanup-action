@@ -1,7 +1,7 @@
-import * as core from '@actions/core'
 import { CleanupContext, DeletionPlan } from './cleanup-types.js'
 import { ImageFilter } from './image-filter.js'
-import { GhPackage } from './utils.js'
+import { LogLevel } from './config.js'
+import { GhPackage, logListing } from './utils.js'
 
 export class DeletionStrategy {
   private context: CleanupContext
@@ -42,11 +42,14 @@ export class DeletionStrategy {
     const matchTags = this.imageFilter.expandTags(filterSet)
 
     if (matchTags.size === 0) {
-      core.startGroup(
-        `[${this.context.targetPackage}] Finding tagged images to delete: ${this.context.config.deleteTags}`
+      logListing(
+        `[${this.context.targetPackage}] Finding tagged images to delete: ${this.context.config.deleteTags}`,
+        [],
+        {
+          debug: this.context.config.logLevel >= LogLevel.DEBUG,
+          emptyMessage: 'no matching tags found'
+        }
       )
-      core.info('no matching tags found')
-      core.endGroup()
       return plan
     }
 
@@ -88,11 +91,9 @@ export class DeletionStrategy {
     // Process standard deletions - only if keep-n-tagged is not set
     // When keep-n-tagged IS set, it will handle ALL tagged deletions later
     if (standardTags.size > 0 && this.context.config.keepNtagged == null) {
-      core.startGroup(
-        `[${this.context.targetPackage}] Find tagged images to delete: ${this.context.config.deleteTags}`
-      )
+      const lines: string[] = []
       for (const tag of standardTags) {
-        core.info(tag)
+        lines.push(tag)
         let manifestDigest: string | undefined
         if (tag.startsWith('sha256:')) {
           manifestDigest = tag
@@ -104,7 +105,11 @@ export class DeletionStrategy {
           filterSet.delete(manifestDigest)
         }
       }
-      core.endGroup()
+      logListing(
+        `[${this.context.targetPackage}] Find tagged images to delete: ${this.context.config.deleteTags}`,
+        lines,
+        { debug: this.context.config.logLevel >= LogLevel.DEBUG }
+      )
     }
 
     return plan
@@ -120,10 +125,6 @@ export class DeletionStrategy {
       return deleteSet
     }
 
-    core.startGroup(
-      `[${this.context.targetPackage}] Finding untagged images to delete, keeping ${this.context.config.keepNuntagged} versions`
-    )
-
     const unTaggedPackages: GhPackage[] = []
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
@@ -137,6 +138,7 @@ export class DeletionStrategy {
       }
     }
 
+    const lines: string[] = []
     if (unTaggedPackages.length > 0) {
       // Sort descending by date
       unTaggedPackages.sort((a, b) => {
@@ -150,15 +152,19 @@ export class DeletionStrategy {
         for (const deletePackage of deletePackages) {
           deleteSet.add(deletePackage.name)
           filterSet.delete(deletePackage.name)
-          core.info(`${deletePackage.name}`)
+          lines.push(`${deletePackage.name}`)
         }
       }
     }
 
-    if (deleteSet.size === 0) {
-      core.info('no untagged images found to delete')
-    }
-    core.endGroup()
+    logListing(
+      `[${this.context.targetPackage}] Finding untagged images to delete, keeping ${this.context.config.keepNuntagged} versions`,
+      lines,
+      {
+        debug: this.context.config.logLevel >= LogLevel.DEBUG,
+        emptyMessage: 'no untagged images found to delete'
+      }
+    )
 
     return deleteSet
   }
@@ -173,11 +179,8 @@ export class DeletionStrategy {
       return deleteSet
     }
 
-    core.startGroup(
-      `[${this.context.targetPackage}] Finding tagged images to delete, keeping ${this.context.config.keepNtagged} versions`
-    )
-
     const taggedPackages = this.collectKeepNTaggedCandidates(filterSet)
+    const lines: string[] = []
 
     if (taggedPackages.length > this.context.config.keepNtagged) {
       const deletePackages = taggedPackages.splice(
@@ -194,12 +197,18 @@ export class DeletionStrategy {
             `cache invariant: digest ${deletePackage.name} not in package cache`
           )
         }
-        core.info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`)
+        lines.push(`${deletePackage.name} ${ghPackage.metadata.container.tags}`)
       }
-    } else {
-      core.info('no tagged images found to delete')
     }
-    core.endGroup()
+
+    logListing(
+      `[${this.context.targetPackage}] Finding tagged images to delete, keeping ${this.context.config.keepNtagged} versions`,
+      lines,
+      {
+        debug: this.context.config.logLevel >= LogLevel.DEBUG,
+        emptyMessage: 'no tagged images found to delete'
+      }
+    )
 
     return deleteSet
   }
@@ -279,10 +288,7 @@ export class DeletionStrategy {
    */
   deleteAllUntagged(filterSet: Set<string>): Set<string> {
     const deleteSet = new Set<string>()
-
-    core.startGroup(
-      `[${this.context.targetPackage}] Finding all untagged images to delete`
-    )
+    const lines: string[] = []
 
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
@@ -294,14 +300,18 @@ export class DeletionStrategy {
       if (ghPackage.metadata.container.tags.length === 0) {
         deleteSet.add(digest)
         filterSet.delete(digest)
-        core.info(`${digest}`)
+        lines.push(`${digest}`)
       }
     }
 
-    if (deleteSet.size === 0) {
-      core.info('no untagged images found')
-    }
-    core.endGroup()
+    logListing(
+      `[${this.context.targetPackage}] Finding all untagged images to delete`,
+      lines,
+      {
+        debug: this.context.config.logLevel >= LogLevel.DEBUG,
+        emptyMessage: 'no untagged images found'
+      }
+    )
 
     return deleteSet
   }

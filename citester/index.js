@@ -53584,18 +53584,17 @@ class PackageRepo {
                 }
             }
             if (output && this.config.logLevel >= _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel */ .$b.INFO) {
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .startGroup */ .Oh(`[${targetPackage}] Loaded package data`);
+                const lines = [];
                 for (const ghPackage of this.id2Package.values()) {
-                    let tags = '';
-                    for (const tag of ghPackage.metadata.container.tags) {
-                        tags += `${tag} `;
-                    }
-                    _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(`${ghPackage.id} ${ghPackage.name} ${tags}`);
+                    const tags = ghPackage.metadata.container.tags.join(' ');
+                    lines.push(`${ghPackage.id} ${ghPackage.name} ${tags}`);
                 }
-                // Run inside the group so related diagnostic lines (e.g. manifest-
-                // cache prune) appear alongside the package listing.
-                afterLoad?.();
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .endGroup */ .N4();
+                (0,_utils_js__WEBPACK_IMPORTED_MODULE_2__/* .logListing */ .B1)(`[${targetPackage}] Loaded package data`, lines, {
+                    debug: this.config.logLevel >= _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel */ .$b.DEBUG,
+                    // Fired inside the group so related diagnostic lines (e.g.
+                    // manifest-cache prune) appear alongside the package listing.
+                    afterEmit: afterLoad
+                });
             }
             else {
                 // Even when the group isn't being printed, give the caller its
@@ -53603,12 +53602,13 @@ class PackageRepo {
                 afterLoad?.();
             }
             if (output && this.config.logLevel === _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel */ .$b.DEBUG) {
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .startGroup */ .Oh(`[${targetPackage}] Loaded package payloads`);
+                const payloadLines = [];
                 for (const ghPackage of this.id2Package.values()) {
-                    const payload = JSON.stringify(ghPackage, null, 4);
-                    _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(payload);
+                    payloadLines.push(JSON.stringify(ghPackage, null, 4));
                 }
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .endGroup */ .N4();
+                (0,_utils_js__WEBPACK_IMPORTED_MODULE_2__/* .logListing */ .B1)(`[${targetPackage}] Loaded package payloads`, payloadLines, {
+                    debug: true
+                });
             }
         }
         catch (error) {
@@ -53796,11 +53796,9 @@ class PackageRepo {
                 ingest(response.data);
             }
         }
-        _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .startGroup */ .Oh(`Available packages for owner: ${this.config.owner}`);
-        for (const name of packages) {
-            _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(name);
-        }
-        _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .endGroup */ .N4();
+        (0,_utils_js__WEBPACK_IMPORTED_MODULE_2__/* .logListing */ .B1)(`Available packages for owner: ${this.config.owner}`, packages, {
+            debug: this.config.logLevel >= _config_js__WEBPACK_IMPORTED_MODULE_1__/* .LogLevel */ .$b.DEBUG
+        });
         return packages;
     }
 }
@@ -108836,13 +108834,14 @@ class Registry {
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 /* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   B1: () => (/* binding */ logListing),
 /* harmony export */   Kv: () => (/* binding */ parentDigestFromReferrerTag),
 /* harmony export */   Pd: () => (/* binding */ runWithConcurrency),
 /* harmony export */   iD: () => (/* binding */ isValidChallenge),
 /* harmony export */   kS: () => (/* binding */ consoleLogger),
 /* harmony export */   xy: () => (/* binding */ parseChallenge)
 /* harmony export */ });
-/* unused harmony exports SHA256_DIGEST_LENGTH, MAX_USER_REGEX_LENGTH, validateUserRegex, BufferedLogger, MapPrinter, CleanupTaskStatistics */
+/* unused harmony exports SHA256_DIGEST_LENGTH, MAX_USER_REGEX_LENGTH, validateUserRegex, BufferedLogger, DEFAULT_LISTING_LIMIT, MapPrinter, CleanupTaskStatistics */
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3838);
 /* harmony import */ var safe_regex2__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(8700);
 /* harmony import */ var safe_regex2__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(safe_regex2__WEBPACK_IMPORTED_MODULE_1__);
@@ -108946,6 +108945,67 @@ class BufferedLogger {
             target[e.level](e.message);
         }
         this.entries = [];
+    }
+}
+/**
+ * Default cap for {@link logListing} truncation. At INFO level, listings
+ * larger than this emit the first N entries plus a "more entries truncated"
+ * marker; DEBUG always emits the full listing. 1000 keeps log files under
+ * the GitHub UI's render cliff (~4 MB at typical line widths) without
+ * losing useful detail on the moderately-active repos that cluster around
+ * the lower hundreds.
+ */
+const DEFAULT_LISTING_LIMIT = 1000;
+/**
+ * Emit an itemised list under a `core.startGroup` block, with INFO-level
+ * truncation above `verboseLimit` to keep large-repo runs from blowing
+ * past the Actions UI render cliff. DEBUG bypasses truncation.
+ *
+ * The group title is suffixed with `(N)` so the size is visible from
+ * the collapsed view — useful for sanity-checking without expanding.
+ *
+ * Designed to replace the "open group, loop-and-emit, close group"
+ * pattern across the cleanup pipeline. Callers build an array of
+ * pre-formatted lines and hand it over; the helper handles group
+ * bracketing, truncation, and the empty-listing fallback.
+ *
+ * @param title - The group title (count is appended automatically).
+ * @param items - The pre-formatted lines to emit.
+ * @param options.debug - When true, emit the full listing regardless of
+ *   size. Pass `config.logLevel >= LogLevel.DEBUG` from the caller.
+ * @param options.verboseLimit - Truncation threshold at INFO. Defaults
+ *   to {@link DEFAULT_LISTING_LIMIT}.
+ * @param options.emptyMessage - Single line emitted inside the group
+ *   when `items` is empty (e.g. "no ghost images found"). Omit to leave
+ *   the group body silent on empty.
+ * @param options.afterEmit - Hook fired inside the group, after the
+ *   listing but before `endGroup`. Lets a caller emit related
+ *   diagnostic lines under the same collapsible section.
+ */
+function logListing(title, items, options) {
+    const limit = options.verboseLimit ?? DEFAULT_LISTING_LIMIT;
+    _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .startGroup */ .Oh(`${title} (${items.length})`);
+    try {
+        if (items.length === 0) {
+            if (options.emptyMessage) {
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(options.emptyMessage);
+            }
+        }
+        else if (options.debug || items.length <= limit) {
+            for (const item of items) {
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(item);
+            }
+        }
+        else {
+            for (let i = 0; i < limit; i++) {
+                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(items[i]);
+            }
+            _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(`... ${items.length - limit} more entries truncated (set log-level: debug for the full listing)`);
+        }
+        options.afterEmit?.();
+    }
+    finally {
+        _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .endGroup */ .N4();
     }
 }
 class MapPrinter {

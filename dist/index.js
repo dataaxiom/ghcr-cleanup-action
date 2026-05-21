@@ -50748,6 +50748,67 @@ class BufferedLogger {
         this.entries = [];
     }
 }
+/**
+ * Default cap for {@link logListing} truncation. At INFO level, listings
+ * larger than this emit the first N entries plus a "more entries truncated"
+ * marker; DEBUG always emits the full listing. 1000 keeps log files under
+ * the GitHub UI's render cliff (~4 MB at typical line widths) without
+ * losing useful detail on the moderately-active repos that cluster around
+ * the lower hundreds.
+ */
+const DEFAULT_LISTING_LIMIT = 1000;
+/**
+ * Emit an itemised list under a `core.startGroup` block, with INFO-level
+ * truncation above `verboseLimit` to keep large-repo runs from blowing
+ * past the Actions UI render cliff. DEBUG bypasses truncation.
+ *
+ * The group title is suffixed with `(N)` so the size is visible from
+ * the collapsed view — useful for sanity-checking without expanding.
+ *
+ * Designed to replace the "open group, loop-and-emit, close group"
+ * pattern across the cleanup pipeline. Callers build an array of
+ * pre-formatted lines and hand it over; the helper handles group
+ * bracketing, truncation, and the empty-listing fallback.
+ *
+ * @param title - The group title (count is appended automatically).
+ * @param items - The pre-formatted lines to emit.
+ * @param options.debug - When true, emit the full listing regardless of
+ *   size. Pass `config.logLevel >= LogLevel.DEBUG` from the caller.
+ * @param options.verboseLimit - Truncation threshold at INFO. Defaults
+ *   to {@link DEFAULT_LISTING_LIMIT}.
+ * @param options.emptyMessage - Single line emitted inside the group
+ *   when `items` is empty (e.g. "no ghost images found"). Omit to leave
+ *   the group body silent on empty.
+ * @param options.afterEmit - Hook fired inside the group, after the
+ *   listing but before `endGroup`. Lets a caller emit related
+ *   diagnostic lines under the same collapsible section.
+ */
+function logListing(title, items, options) {
+    const limit = options.verboseLimit ?? DEFAULT_LISTING_LIMIT;
+    startGroup(`${title} (${items.length})`);
+    try {
+        if (items.length === 0) {
+            if (options.emptyMessage) {
+                info(options.emptyMessage);
+            }
+        }
+        else if (options.debug || items.length <= limit) {
+            for (const item of items) {
+                info(item);
+            }
+        }
+        else {
+            for (let i = 0; i < limit; i++) {
+                info(items[i]);
+            }
+            info(`... ${items.length - limit} more entries truncated (set log-level: debug for the full listing)`);
+        }
+        options.afterEmit?.();
+    }
+    finally {
+        endGroup();
+    }
+}
 class MapPrinter {
     entries = new Map();
     maxLength = 1;
@@ -55954,18 +56015,17 @@ class PackageRepo {
                 }
             }
             if (output && this.config.logLevel >= LogLevel.INFO) {
-                startGroup(`[${targetPackage}] Loaded package data`);
+                const lines = [];
                 for (const ghPackage of this.id2Package.values()) {
-                    let tags = '';
-                    for (const tag of ghPackage.metadata.container.tags) {
-                        tags += `${tag} `;
-                    }
-                    info(`${ghPackage.id} ${ghPackage.name} ${tags}`);
+                    const tags = ghPackage.metadata.container.tags.join(' ');
+                    lines.push(`${ghPackage.id} ${ghPackage.name} ${tags}`);
                 }
-                // Run inside the group so related diagnostic lines (e.g. manifest-
-                // cache prune) appear alongside the package listing.
-                afterLoad?.();
-                endGroup();
+                logListing(`[${targetPackage}] Loaded package data`, lines, {
+                    debug: this.config.logLevel >= LogLevel.DEBUG,
+                    // Fired inside the group so related diagnostic lines (e.g.
+                    // manifest-cache prune) appear alongside the package listing.
+                    afterEmit: afterLoad
+                });
             }
             else {
                 // Even when the group isn't being printed, give the caller its
@@ -55973,12 +56033,13 @@ class PackageRepo {
                 afterLoad?.();
             }
             if (output && this.config.logLevel === LogLevel.DEBUG) {
-                startGroup(`[${targetPackage}] Loaded package payloads`);
+                const payloadLines = [];
                 for (const ghPackage of this.id2Package.values()) {
-                    const payload = JSON.stringify(ghPackage, null, 4);
-                    info(payload);
+                    payloadLines.push(JSON.stringify(ghPackage, null, 4));
                 }
-                endGroup();
+                logListing(`[${targetPackage}] Loaded package payloads`, payloadLines, {
+                    debug: true
+                });
             }
         }
         catch (error) {
@@ -56166,11 +56227,9 @@ class PackageRepo {
                 ingest(response.data);
             }
         }
-        startGroup(`Available packages for owner: ${this.config.owner}`);
-        for (const name of packages) {
-            info(name);
-        }
-        endGroup();
+        logListing(`Available packages for owner: ${this.config.owner}`, packages, {
+            debug: this.config.logLevel >= LogLevel.DEBUG
+        });
         return packages;
     }
 }
@@ -111172,6 +111231,7 @@ class Registry {
 ;// CONCATENATED MODULE: ./src/image-filter.ts
 
 
+
 class ImageFilter {
     context;
     constructor(context) {
@@ -111227,11 +111287,7 @@ class ImageFilter {
             }
         }
         if (excludeTags.length > 0) {
-            startGroup(`[${this.context.targetPackage}] Excluding tags from deletion`);
-            for (const tag of excludeTags) {
-                info(tag);
-            }
-            endGroup();
+            logListing(`[${this.context.targetPackage}] Excluding tags from deletion`, excludeTags, { debug: this.context.config.logLevel >= LogLevel.DEBUG });
         }
         return excludeTags;
     }
@@ -111242,7 +111298,7 @@ class ImageFilter {
         if (!this.context.config.olderThan) {
             return;
         }
-        startGroup(`[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`);
+        const lines = [];
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
             if (!ghPackage) {
@@ -111258,18 +111314,18 @@ class ImageFilter {
                 else {
                     const tags = ghPackage.metadata.container.tags;
                     if (tags.length > 0) {
-                        info(`${digest} ${tags}`);
+                        lines.push(`${digest} ${tags}`);
                     }
                     else {
-                        info(digest);
+                        lines.push(digest);
                     }
                 }
             }
         }
-        if (filterSet.size === 0) {
-            info('no images found');
-        }
-        endGroup();
+        logListing(`[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no images found'
+        });
     }
     /**
      * Expands tags based on wildcard or regex patterns
@@ -111531,6 +111587,7 @@ class ManifestAnalyzer {
 ;// CONCATENATED MODULE: ./src/image-validator.ts
 
 
+
 class ImageValidator {
     context;
     constructor(context) {
@@ -111605,8 +111662,8 @@ class ImageValidator {
      * Find ghost images (all child manifests missing)
      */
     async findGhostImages(filterSet) {
-        startGroup(`[${this.context.targetPackage}] Finding ghost images to delete`);
         const ghostImages = new Set();
+        const lines = [];
         for (const digest of filterSet) {
             const manifest = await this.context.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
@@ -111623,18 +111680,18 @@ class ImageValidator {
                         throw new Error(`cache invariant: digest ${digest} not in package cache`);
                     }
                     if (ghPackage.metadata.container.tags.length > 0) {
-                        info(`${digest} ${ghPackage.metadata.container.tags}`);
+                        lines.push(`${digest} ${ghPackage.metadata.container.tags}`);
                     }
                     else {
-                        info(`${digest}`);
+                        lines.push(`${digest}`);
                     }
                 }
             }
         }
-        if (ghostImages.size === 0) {
-            info('no ghost images found');
-        }
-        endGroup();
+        logListing(`[${this.context.targetPackage}] Finding ghost images to delete`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no ghost images found'
+        });
         return ghostImages;
     }
     /**
@@ -111643,8 +111700,8 @@ class ImageValidator {
      * ghost images and are handled by findGhostImages instead.
      */
     async findPartialImages(filterSet) {
-        startGroup(`[${this.context.targetPackage}] Finding partial images to delete`);
         const partialImages = new Set();
+        const lines = [];
         for (const digest of filterSet) {
             const manifest = await this.context.registry.getManifestByDigest(digest);
             if (manifest.manifests) {
@@ -111664,18 +111721,18 @@ class ImageValidator {
                         throw new Error(`cache invariant: digest ${digest} not in package cache`);
                     }
                     if (ghPackage.metadata.container.tags.length > 0) {
-                        info(`${digest} ${ghPackage.metadata.container.tags}`);
+                        lines.push(`${digest} ${ghPackage.metadata.container.tags}`);
                     }
                     else {
-                        info(`${digest}`);
+                        lines.push(`${digest}`);
                     }
                 }
             }
         }
-        if (partialImages.size === 0) {
-            info('no partial images found');
-        }
-        endGroup();
+        logListing(`[${this.context.targetPackage}] Finding partial images to delete`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no partial images found'
+        });
         return partialImages;
     }
     /**
@@ -111684,8 +111741,8 @@ class ImageValidator {
      * whose subject is no longer in the repo.
      */
     findOrphanedImages(subjectReferrers = new Map()) {
-        startGroup(`[${this.context.targetPackage}] Finding orphaned images (tags) to delete`);
         const orphanedImages = new Set();
+        const lines = [];
         for (const tag of this.context.packageRepo.getTags()) {
             const digest = parentDigestFromReferrerTag(tag);
             if (digest &&
@@ -111693,7 +111750,7 @@ class ImageValidator {
                 const orphanDigest = this.context.packageRepo.getDigestByTag(tag);
                 if (orphanDigest) {
                     orphanedImages.add(orphanDigest);
-                    info(tag);
+                    lines.push(tag);
                 }
             }
         }
@@ -111702,20 +111759,21 @@ class ImageValidator {
                 for (const referrerDigest of referrers) {
                     if (this.context.packageRepo.getIdByDigest(referrerDigest)) {
                         orphanedImages.add(referrerDigest);
-                        info(`${referrerDigest} (subject ${subjectDigest} missing)`);
+                        lines.push(`${referrerDigest} (subject ${subjectDigest} missing)`);
                     }
                 }
             }
         }
-        if (orphanedImages.size === 0) {
-            info('no orphaned images found');
-        }
-        endGroup();
+        logListing(`[${this.context.targetPackage}] Finding orphaned images (tags) to delete`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no orphaned images found'
+        });
         return orphanedImages;
     }
 }
 
 ;// CONCATENATED MODULE: ./src/deletion-strategy.ts
+
 
 
 class DeletionStrategy {
@@ -111749,9 +111807,10 @@ class DeletionStrategy {
         }
         const matchTags = this.imageFilter.expandTags(filterSet);
         if (matchTags.size === 0) {
-            startGroup(`[${this.context.targetPackage}] Finding tagged images to delete: ${this.context.config.deleteTags}`);
-            info('no matching tags found');
-            endGroup();
+            logListing(`[${this.context.targetPackage}] Finding tagged images to delete: ${this.context.config.deleteTags}`, [], {
+                debug: this.context.config.logLevel >= LogLevel.DEBUG,
+                emptyMessage: 'no matching tags found'
+            });
             return plan;
         }
         // Separate untagging events and standard deletions
@@ -111789,9 +111848,9 @@ class DeletionStrategy {
         // Process standard deletions - only if keep-n-tagged is not set
         // When keep-n-tagged IS set, it will handle ALL tagged deletions later
         if (standardTags.size > 0 && this.context.config.keepNtagged == null) {
-            startGroup(`[${this.context.targetPackage}] Find tagged images to delete: ${this.context.config.deleteTags}`);
+            const lines = [];
             for (const tag of standardTags) {
-                info(tag);
+                lines.push(tag);
                 let manifestDigest;
                 if (tag.startsWith('sha256:')) {
                     manifestDigest = tag;
@@ -111804,7 +111863,7 @@ class DeletionStrategy {
                     filterSet.delete(manifestDigest);
                 }
             }
-            endGroup();
+            logListing(`[${this.context.targetPackage}] Find tagged images to delete: ${this.context.config.deleteTags}`, lines, { debug: this.context.config.logLevel >= LogLevel.DEBUG });
         }
         return plan;
     }
@@ -111816,7 +111875,6 @@ class DeletionStrategy {
         if (this.context.config.keepNuntagged == null) {
             return deleteSet;
         }
-        startGroup(`[${this.context.targetPackage}] Finding untagged images to delete, keeping ${this.context.config.keepNuntagged} versions`);
         const unTaggedPackages = [];
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
@@ -111827,6 +111885,7 @@ class DeletionStrategy {
                 unTaggedPackages.push(ghPackage);
             }
         }
+        const lines = [];
         if (unTaggedPackages.length > 0) {
             // Sort descending by date
             unTaggedPackages.sort((a, b) => {
@@ -111837,14 +111896,14 @@ class DeletionStrategy {
                 for (const deletePackage of deletePackages) {
                     deleteSet.add(deletePackage.name);
                     filterSet.delete(deletePackage.name);
-                    info(`${deletePackage.name}`);
+                    lines.push(`${deletePackage.name}`);
                 }
             }
         }
-        if (deleteSet.size === 0) {
-            info('no untagged images found to delete');
-        }
-        endGroup();
+        logListing(`[${this.context.targetPackage}] Finding untagged images to delete, keeping ${this.context.config.keepNuntagged} versions`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no untagged images found to delete'
+        });
         return deleteSet;
     }
     /**
@@ -111855,8 +111914,8 @@ class DeletionStrategy {
         if (this.context.config.keepNtagged == null) {
             return deleteSet;
         }
-        startGroup(`[${this.context.targetPackage}] Finding tagged images to delete, keeping ${this.context.config.keepNtagged} versions`);
         const taggedPackages = this.collectKeepNTaggedCandidates(filterSet);
+        const lines = [];
         if (taggedPackages.length > this.context.config.keepNtagged) {
             const deletePackages = taggedPackages.splice(this.context.config.keepNtagged);
             for (const deletePackage of deletePackages) {
@@ -111866,13 +111925,13 @@ class DeletionStrategy {
                 if (!ghPackage) {
                     throw new Error(`cache invariant: digest ${deletePackage.name} not in package cache`);
                 }
-                info(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
+                lines.push(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
             }
         }
-        else {
-            info('no tagged images found to delete');
-        }
-        endGroup();
+        logListing(`[${this.context.targetPackage}] Finding tagged images to delete, keeping ${this.context.config.keepNtagged} versions`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no tagged images found to delete'
+        });
         return deleteSet;
     }
     /**
@@ -111942,7 +112001,7 @@ class DeletionStrategy {
      */
     deleteAllUntagged(filterSet) {
         const deleteSet = new Set();
-        startGroup(`[${this.context.targetPackage}] Finding all untagged images to delete`);
+        const lines = [];
         for (const digest of filterSet) {
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
             if (!ghPackage) {
@@ -111951,13 +112010,13 @@ class DeletionStrategy {
             if (ghPackage.metadata.container.tags.length === 0) {
                 deleteSet.add(digest);
                 filterSet.delete(digest);
-                info(`${digest}`);
+                lines.push(`${digest}`);
             }
         }
-        if (deleteSet.size === 0) {
-            info('no untagged images found');
-        }
-        endGroup();
+        logListing(`[${this.context.targetPackage}] Finding all untagged images to delete`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no untagged images found'
+        });
         return deleteSet;
     }
 }
