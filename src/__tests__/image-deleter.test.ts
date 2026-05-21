@@ -284,7 +284,9 @@ describe('ImageDeleter', () => {
         'test-package',
         'pkg-id',
         'sha256:abc123',
-        ['v1.0']
+        ['v1.0'],
+        undefined,
+        expect.anything() // logger (consoleLogger by default in unit tests)
       )
     })
 
@@ -337,7 +339,8 @@ describe('ImageDeleter', () => {
         'child-id',
         'sha256:child1',
         [],
-        'label'
+        'label',
+        expect.anything() // logger
       )
     })
 
@@ -439,13 +442,17 @@ describe('ImageDeleter', () => {
         'test-package',
         'subject-id',
         'sha256:subject',
-        ['v1.0']
+        ['v1.0'],
+        undefined,
+        expect.anything() // logger
       )
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
         'test-package',
         'referrer-id',
         'sha256:referrer',
-        []
+        [],
+        undefined,
+        expect.anything() // logger
       )
     })
 
@@ -688,6 +695,142 @@ describe('ImageDeleter', () => {
       expect(maxInFlight).toBeGreaterThanOrEqual(2)
       expect(result.deleted).toBe(7) // parent + 6 children
       expect(result.multiDeleted).toBe(1)
+    })
+  })
+
+  describe('deleteImages log buffering', () => {
+    it('defers log emission until the whole tree finishes deleting', async () => {
+      // The core promise of per-tree buffering: a top-level image's
+      // log lines appear only AFTER every API call in its tree
+      // (parent + children) has completed. Without the buffer, the
+      // parent's "deleting package" line would emit synchronously
+      // right after its API call returns, then child lines would
+      // arrive as each child's API call resolves — interleaving log
+      // emission with ongoing API work.
+      //
+      // Test: record the order of API calls and core.info calls into
+      // a single global timeline. Assert that the first "deleting
+      // package" line for the tree appears strictly AFTER the last
+      // API call resolves for that tree.
+      const parent = {
+        id: 'parent-id',
+        name: 'sha256:parent',
+        metadata: { container: { tags: ['v1'] } }
+      }
+      const childA = {
+        id: 'child-a',
+        name: 'sha256:childA',
+        metadata: { container: { tags: [] } }
+      }
+      const childB = {
+        id: 'child-b',
+        name: 'sha256:childB',
+        metadata: { container: { tags: [] } }
+      }
+      mockPackageRepo.getPackageByDigest.mockImplementation(
+        (digest: string) => {
+          if (digest === 'sha256:childA') return childA
+          if (digest === 'sha256:childB') return childB
+          return parent
+        }
+      )
+      mockRegistry.getManifestByDigest.mockResolvedValue({
+        manifests: [{ digest: 'sha256:childA' }, { digest: 'sha256:childB' }]
+      })
+      digestUsedBy.set('sha256:childA', new Set(['sha256:parent']))
+      digestUsedBy.set('sha256:childB', new Set(['sha256:parent']))
+
+      const timeline: string[] = []
+      // Stand in for the real deletePackageVersion: record the API
+      // call, then route its log line through the logger the caller
+      // passed in (mirrors the production impl). If the logger is the
+      // BufferedLogger we expect, the line lands in the buffer; if
+      // anything went wrong and the default consoleLogger was used,
+      // it would emit to core.info immediately.
+      mockPackageRepo.deletePackageVersion.mockImplementation(
+        async (
+          _pkg: string,
+          _id: string,
+          digest: string,
+          _tags?: string[],
+          _label?: string,
+          logger?: { info: (msg: string) => void }
+        ) => {
+          timeline.push(`api:${digest}`)
+          logger?.info(` deleting package digest: ${digest}`)
+        }
+      )
+      vi.mocked(core.info).mockImplementation((message: string) => {
+        timeline.push(`log:${message}`)
+      })
+
+      await deleter.deleteImages(new Set(['sha256:parent']))
+
+      // Locate the boundary: every "api:*" event must precede every
+      // "log:*deleting package*" event in the timeline (the buffer
+      // defers all log emission until the tree resolves).
+      // "log:*deleting package*" event in the timeline.
+      const lastApiIdx = timeline.reduce(
+        (acc, e, i) => (e.startsWith('api:') ? i : acc),
+        -1
+      )
+      const firstLogIdx = timeline.findIndex(
+        e => e.startsWith('log:') && e.includes('deleting package')
+      )
+      expect(lastApiIdx).toBeGreaterThanOrEqual(0)
+      expect(firstLogIdx).toBeGreaterThanOrEqual(0)
+      expect(firstLogIdx).toBeGreaterThan(lastApiIdx)
+      // Sanity: three API calls (parent + 2 children) and three log lines.
+      expect(timeline.filter(e => e.startsWith('api:'))).toHaveLength(3)
+      expect(
+        timeline.filter(
+          e => e.startsWith('log:') && e.includes('deleting package')
+        )
+      ).toHaveLength(3)
+    })
+
+    it('a thrown error mid-tree drops the partial buffer rather than emitting half-truths', async () => {
+      // If a child delete throws, the buffer for that top-level call
+      // is never flushed. The user sees the failure but not a partial
+      // "we deleted some children" audit trail that contradicts the
+      // actual registry state.
+      const parent = {
+        id: 'parent-id',
+        name: 'sha256:parent',
+        metadata: { container: { tags: ['v1'] } }
+      }
+      const child = {
+        id: 'child-id',
+        name: 'sha256:child',
+        metadata: { container: { tags: [] } }
+      }
+      mockPackageRepo.getPackageByDigest.mockImplementation((digest: string) =>
+        digest === 'sha256:child' ? child : parent
+      )
+      mockRegistry.getManifestByDigest.mockResolvedValue({
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      digestUsedBy.set('sha256:child', new Set(['sha256:parent']))
+
+      mockPackageRepo.deletePackageVersion.mockImplementation(
+        async (_pkg: string, _id: string, digest: string) => {
+          if (digest === 'sha256:child') {
+            throw new Error('child delete blew up')
+          }
+        }
+      )
+
+      await expect(
+        deleter.deleteImages(new Set(['sha256:parent']))
+      ).rejects.toThrow(/child delete blew up/)
+
+      const infoLines = vi
+        .mocked(core.info)
+        .mock.calls.map(args => String(args[0]))
+        .filter(line => line.includes('deleting package'))
+      // Neither the parent's "deleting" line nor any child's emitted —
+      // the buffer never flushed.
+      expect(infoLines).toEqual([])
     })
   })
 })

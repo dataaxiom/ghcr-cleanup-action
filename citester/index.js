@@ -53688,16 +53688,21 @@ class PackageRepo {
      * @param tags The tags associated with the package
      * @param label Additional label to display
      */
-    async deletePackageVersion(targetPackage, id, digest, tags, label) {
+    async deletePackageVersion(targetPackage, id, digest, tags, label, 
+    // Callers that need to bundle this delete's log output with related
+    // operations (e.g. image-deleter buffering a parent + its child
+    // tree) can pass their own logger. Defaults to {@link consoleLogger}
+    // so existing callers (untag cleanup, etc.) keep streaming directly.
+    logger = _utils_js__WEBPACK_IMPORTED_MODULE_2__/* .consoleLogger */ .kS) {
         try {
             if (tags && tags.length > 0) {
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
+                logger.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
             }
             else if (label) {
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(` deleting package id: ${id} digest: ${digest} ${label}`);
+                logger.info(` deleting package id: ${id} digest: ${digest} ${label}`);
             }
             else {
-                _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(` deleting package id: ${id} digest: ${digest}`);
+                logger.info(` deleting package id: ${id} digest: ${digest}`);
             }
             if (!this.config.dryRun) {
                 const octokit = this.octokitClient.getClient();
@@ -53739,11 +53744,11 @@ class PackageRepo {
                     if (error.status === 404) {
                         if (this.lastDeleteResult === true) {
                             ignoreError = true;
-                            _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`);
+                            logger.warning(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`);
                             this.lastDeleteResult = false;
                         }
                         else {
-                            _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e('Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access');
+                            logger.warning('Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access');
                         }
                     }
                 }
@@ -108834,9 +108839,10 @@ class Registry {
 /* harmony export */   Kv: () => (/* binding */ parentDigestFromReferrerTag),
 /* harmony export */   Pd: () => (/* binding */ runWithConcurrency),
 /* harmony export */   iD: () => (/* binding */ isValidChallenge),
+/* harmony export */   kS: () => (/* binding */ consoleLogger),
 /* harmony export */   xy: () => (/* binding */ parseChallenge)
 /* harmony export */ });
-/* unused harmony exports SHA256_DIGEST_LENGTH, MAX_USER_REGEX_LENGTH, validateUserRegex, MapPrinter, CleanupTaskStatistics */
+/* unused harmony exports SHA256_DIGEST_LENGTH, MAX_USER_REGEX_LENGTH, validateUserRegex, BufferedLogger, MapPrinter, CleanupTaskStatistics */
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3838);
 /* harmony import */ var safe_regex2__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(8700);
 /* harmony import */ var safe_regex2__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(safe_regex2__WEBPACK_IMPORTED_MODULE_1__);
@@ -108917,6 +108923,30 @@ function isValidChallenge(attributes) {
         valid = true;
     }
     return valid;
+}
+const consoleLogger = {
+    info: (message) => _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .info */ .pq(message),
+    warning: (message) => _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e(message)
+};
+/**
+ * Captures log entries in memory until {@link flush} is called. Entries
+ * keep their level so warnings still surface as warnings (yellow badge in
+ * the Actions UI) when flushed, just deferred.
+ */
+class BufferedLogger {
+    entries = [];
+    info(message) {
+        this.entries.push({ level: 'info', message });
+    }
+    warning(message) {
+        this.entries.push({ level: 'warning', message });
+    }
+    flush(target = consoleLogger) {
+        for (const e of this.entries) {
+            target[e.level](e.message);
+        }
+        this.entries = [];
+    }
 }
 class MapPrinter {
     entries = new Map();

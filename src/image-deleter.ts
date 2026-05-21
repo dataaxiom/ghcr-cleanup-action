@@ -2,7 +2,10 @@ import * as core from '@actions/core'
 import { CleanupContext, DeletionResult } from './cleanup-types.js'
 import { ManifestAnalyzer } from './manifest-analyzer.js'
 import {
+  BufferedLogger,
+  consoleLogger,
   GhPackage,
+  Logger,
   Manifest,
   ManifestEntry,
   runWithConcurrency
@@ -198,9 +201,18 @@ export class ImageDeleter {
    * gone, parent intact" profile. Children fan out with bounded
    * concurrency ({@link CHILD_DELETE_CONCURRENCY}) inside this method;
    * the calling deleteImages loop stays sequential at the top level.
+   *
+   * The `logger` is threaded through every log call (this method's own
+   * "skipping" lines, the underlying packageRepo.deletePackageVersion,
+   * and recursive sub-deleteImage calls for referrers). The top-level
+   * deleteImages loop hands each invocation a {@link BufferedLogger}
+   * and flushes after the whole tree completes, so a parent and its
+   * descendants emit as one contiguous block in the workflow log
+   * instead of interleaving with sibling parents' children.
    */
   async deleteImage(
-    ghPackage: GhPackage
+    ghPackage: GhPackage,
+    logger: Logger = consoleLogger
   ): Promise<{ deleted: number; multiDeleted: number }> {
     if (this.deleted.has(ghPackage.name)) {
       return { deleted: 0, multiDeleted: 0 }
@@ -214,7 +226,9 @@ export class ImageDeleter {
       this.context.targetPackage,
       ghPackage.id,
       ghPackage.name,
-      ghPackage.metadata.container.tags
+      ghPackage.metadata.container.tags,
+      undefined,
+      logger
     )
     this.deleted.add(ghPackage.name)
     let imagesDeleted = 1
@@ -235,7 +249,8 @@ export class ImageDeleter {
       multiImagesDeleted += 1
       for (const imageManifest of manifest.manifests) {
         childJobs.push(
-          async () => await this.deletePlatformChild(ghPackage, imageManifest)
+          async () =>
+            await this.deletePlatformChild(ghPackage, imageManifest, logger)
         )
       }
     }
@@ -247,7 +262,7 @@ export class ImageDeleter {
       ghPackage.name
     )
     for (const tag of referrerTags) {
-      childJobs.push(async () => await this.deleteReferrerByTag(tag))
+      childJobs.push(async () => await this.deleteReferrerByTag(tag, logger))
     }
 
     // OCI 1.1 subject-bearing referrers. ghcr.io doesn't tag these with a
@@ -258,7 +273,7 @@ export class ImageDeleter {
     if (referrers) {
       for (const referrerDigest of referrers) {
         childJobs.push(
-          async () => await this.deleteReferrerByDigest(referrerDigest)
+          async () => await this.deleteReferrerByDigest(referrerDigest, logger)
         )
       }
     }
@@ -279,7 +294,8 @@ export class ImageDeleter {
    */
   private async deletePlatformChild(
     parent: GhPackage,
-    imageManifest: ManifestEntry
+    imageManifest: ManifestEntry,
+    logger: Logger
   ): Promise<{ deleted: number; multiDeleted: number }> {
     const manifestPackage = this.context.packageRepo.getPackageByDigest(
       imageManifest.digest
@@ -297,13 +313,14 @@ export class ImageDeleter {
         manifestPackage.id,
         manifestPackage.name,
         [],
-        await this.manifestAnalyzer.buildLabel(imageManifest)
+        await this.manifestAnalyzer.buildLabel(imageManifest),
+        logger
       )
       this.deleted.add(manifestPackage.name)
       this.digestUsedBy.delete(manifestPackage.name)
       return { deleted: 1, multiDeleted: 0 }
     }
-    core.info(
+    logger.info(
       ` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`
     )
     parents.delete(parent.name)
@@ -314,14 +331,15 @@ export class ImageDeleter {
    * Resolve a sha256-* fallback referrer tag to its package and cascade.
    */
   private async deleteReferrerByTag(
-    tag: string
+    tag: string,
+    logger: Logger
   ): Promise<{ deleted: number; multiDeleted: number }> {
     const manifestDigest = this.context.packageRepo.getDigestByTag(tag)
     if (!manifestDigest) return { deleted: 0, multiDeleted: 0 }
     const attestationPackage =
       this.context.packageRepo.getPackageByDigest(manifestDigest)
     if (!attestationPackage) return { deleted: 0, multiDeleted: 0 }
-    return await this.deleteImage(attestationPackage)
+    return await this.deleteImage(attestationPackage, logger)
   }
 
   /**
@@ -330,12 +348,13 @@ export class ImageDeleter {
    * path (e.g. it also had a sha256-* fallback tag).
    */
   private async deleteReferrerByDigest(
-    digest: string
+    digest: string,
+    logger: Logger
   ): Promise<{ deleted: number; multiDeleted: number }> {
     if (this.deleted.has(digest)) return { deleted: 0, multiDeleted: 0 }
     const referrerPackage = this.context.packageRepo.getPackageByDigest(digest)
     if (!referrerPackage) return { deleted: 0, multiDeleted: 0 }
-    return await this.deleteImage(referrerPackage)
+    return await this.deleteImage(referrerPackage, logger)
   }
 
   /**
@@ -367,7 +386,18 @@ export class ImageDeleter {
             `cache invariant: digest ${deleteDigest} not in package cache`
           )
         }
-        const result = await this.deleteImage(deleteImage)
+        // Each top-level delete gets its own buffer. Child fan-out
+        // inside deleteImage runs concurrently, so streaming straight
+        // to core.info would interleave a parent's children with the
+        // recursive sub-trees of its referrers. Buffering keeps the
+        // unit (parent + all descendants) emitted as one contiguous
+        // block in the workflow log. flush() runs only after the
+        // whole tree resolves, so a thrown error mid-tree drops the
+        // partial buffer — the user sees what completed, not a
+        // half-written audit trail.
+        const logger = new BufferedLogger()
+        const result = await this.deleteImage(deleteImage, logger)
+        logger.flush()
         totalDeleted += result.deleted
         totalMultiDeleted += result.multiDeleted
       }

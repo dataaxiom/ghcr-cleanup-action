@@ -50724,6 +50724,30 @@ function isValidChallenge(attributes) {
     }
     return valid;
 }
+const consoleLogger = {
+    info: (message) => info(message),
+    warning: (message) => warning(message)
+};
+/**
+ * Captures log entries in memory until {@link flush} is called. Entries
+ * keep their level so warnings still surface as warnings (yellow badge in
+ * the Actions UI) when flushed, just deferred.
+ */
+class BufferedLogger {
+    entries = [];
+    info(message) {
+        this.entries.push({ level: 'info', message });
+    }
+    warning(message) {
+        this.entries.push({ level: 'warning', message });
+    }
+    flush(target = consoleLogger) {
+        for (const e of this.entries) {
+            target[e.level](e.message);
+        }
+        this.entries = [];
+    }
+}
 class MapPrinter {
     entries = new Map();
     maxLength = 1;
@@ -56034,16 +56058,21 @@ class PackageRepo {
      * @param tags The tags associated with the package
      * @param label Additional label to display
      */
-    async deletePackageVersion(targetPackage, id, digest, tags, label) {
+    async deletePackageVersion(targetPackage, id, digest, tags, label, 
+    // Callers that need to bundle this delete's log output with related
+    // operations (e.g. image-deleter buffering a parent + its child
+    // tree) can pass their own logger. Defaults to {@link consoleLogger}
+    // so existing callers (untag cleanup, etc.) keep streaming directly.
+    logger = consoleLogger) {
         try {
             if (tags && tags.length > 0) {
-                info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
+                logger.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`);
             }
             else if (label) {
-                info(` deleting package id: ${id} digest: ${digest} ${label}`);
+                logger.info(` deleting package id: ${id} digest: ${digest} ${label}`);
             }
             else {
-                info(` deleting package id: ${id} digest: ${digest}`);
+                logger.info(` deleting package id: ${id} digest: ${digest}`);
             }
             if (!this.config.dryRun) {
                 const octokit = this.octokitClient.getClient();
@@ -56085,11 +56114,11 @@ class PackageRepo {
                     if (error.status === 404) {
                         if (this.lastDeleteResult === true) {
                             ignoreError = true;
-                            warning(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`);
+                            logger.warning(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`);
                             this.lastDeleteResult = false;
                         }
                         else {
-                            warning('Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access');
+                            logger.warning('Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access');
                         }
                     }
                 }
@@ -112062,13 +112091,21 @@ class ImageDeleter {
      * gone, parent intact" profile. Children fan out with bounded
      * concurrency ({@link CHILD_DELETE_CONCURRENCY}) inside this method;
      * the calling deleteImages loop stays sequential at the top level.
+     *
+     * The `logger` is threaded through every log call (this method's own
+     * "skipping" lines, the underlying packageRepo.deletePackageVersion,
+     * and recursive sub-deleteImage calls for referrers). The top-level
+     * deleteImages loop hands each invocation a {@link BufferedLogger}
+     * and flushes after the whole tree completes, so a parent and its
+     * descendants emit as one contiguous block in the workflow log
+     * instead of interleaving with sibling parents' children.
      */
-    async deleteImage(ghPackage) {
+    async deleteImage(ghPackage, logger = consoleLogger) {
         if (this.deleted.has(ghPackage.name)) {
             return { deleted: 0, multiDeleted: 0 };
         }
         const manifest = await this.context.registry.getManifestByDigest(ghPackage.name);
-        await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags);
+        await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags, undefined, logger);
         this.deleted.add(ghPackage.name);
         let imagesDeleted = 1;
         let multiImagesDeleted = 0;
@@ -112083,7 +112120,7 @@ class ImageDeleter {
         if (manifest.manifests) {
             multiImagesDeleted += 1;
             for (const imageManifest of manifest.manifests) {
-                childJobs.push(async () => await this.deletePlatformChild(ghPackage, imageManifest));
+                childJobs.push(async () => await this.deletePlatformChild(ghPackage, imageManifest, logger));
             }
         }
         // sha256-* fallback referrer tags (cosign default, attestations).
@@ -112091,7 +112128,7 @@ class ImageDeleter {
         // tag in the repo for every digest we delete.
         const referrerTags = this.context.packageRepo.getReferrerTagsForDigest(ghPackage.name);
         for (const tag of referrerTags) {
-            childJobs.push(async () => await this.deleteReferrerByTag(tag));
+            childJobs.push(async () => await this.deleteReferrerByTag(tag, logger));
         }
         // OCI 1.1 subject-bearing referrers. ghcr.io doesn't tag these with a
         // sha256-* fallback when the publisher uses --registry-referrers-mode
@@ -112100,7 +112137,7 @@ class ImageDeleter {
         const referrers = this.subjectReferrers.get(ghPackage.name);
         if (referrers) {
             for (const referrerDigest of referrers) {
-                childJobs.push(async () => await this.deleteReferrerByDigest(referrerDigest));
+                childJobs.push(async () => await this.deleteReferrerByDigest(referrerDigest, logger));
             }
         }
         await runWithConcurrency(childJobs, CHILD_DELETE_CONCURRENCY, async (job) => {
@@ -112115,7 +112152,7 @@ class ImageDeleter {
      * this parent is its only reference. If the child is shared with
      * another parent, log and decrement the parent set instead.
      */
-    async deletePlatformChild(parent, imageManifest) {
+    async deletePlatformChild(parent, imageManifest, logger) {
         const manifestPackage = this.context.packageRepo.getPackageByDigest(imageManifest.digest);
         if (!manifestPackage || this.deleted.has(manifestPackage.name)) {
             return { deleted: 0, multiDeleted: 0 };
@@ -112125,39 +112162,39 @@ class ImageDeleter {
             return { deleted: 0, multiDeleted: 0 };
         }
         if (parents.size === 1 && parents.has(parent.name)) {
-            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.manifestAnalyzer.buildLabel(imageManifest));
+            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.manifestAnalyzer.buildLabel(imageManifest), logger);
             this.deleted.add(manifestPackage.name);
             this.digestUsedBy.delete(manifestPackage.name);
             return { deleted: 1, multiDeleted: 0 };
         }
-        info(` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`);
+        logger.info(` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`);
         parents.delete(parent.name);
         return { deleted: 0, multiDeleted: 0 };
     }
     /**
      * Resolve a sha256-* fallback referrer tag to its package and cascade.
      */
-    async deleteReferrerByTag(tag) {
+    async deleteReferrerByTag(tag, logger) {
         const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
         if (!manifestDigest)
             return { deleted: 0, multiDeleted: 0 };
         const attestationPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
         if (!attestationPackage)
             return { deleted: 0, multiDeleted: 0 };
-        return await this.deleteImage(attestationPackage);
+        return await this.deleteImage(attestationPackage, logger);
     }
     /**
      * Resolve an OCI 1.1 subject-bearing referrer digest and cascade.
      * Short-circuits when the referrer was already deleted via another
      * path (e.g. it also had a sha256-* fallback tag).
      */
-    async deleteReferrerByDigest(digest) {
+    async deleteReferrerByDigest(digest, logger) {
         if (this.deleted.has(digest))
             return { deleted: 0, multiDeleted: 0 };
         const referrerPackage = this.context.packageRepo.getPackageByDigest(digest);
         if (!referrerPackage)
             return { deleted: 0, multiDeleted: 0 };
-        return await this.deleteImage(referrerPackage);
+        return await this.deleteImage(referrerPackage, logger);
     }
     /**
      * Delete all images in the delete set
@@ -112179,7 +112216,18 @@ class ImageDeleter {
                 if (!deleteImage) {
                     throw new Error(`cache invariant: digest ${deleteDigest} not in package cache`);
                 }
-                const result = await this.deleteImage(deleteImage);
+                // Each top-level delete gets its own buffer. Child fan-out
+                // inside deleteImage runs concurrently, so streaming straight
+                // to core.info would interleave a parent's children with the
+                // recursive sub-trees of its referrers. Buffering keeps the
+                // unit (parent + all descendants) emitted as one contiguous
+                // block in the workflow log. flush() runs only after the
+                // whole tree resolves, so a thrown error mid-tree drops the
+                // partial buffer — the user sees what completed, not a
+                // half-written audit trail.
+                const logger = new BufferedLogger();
+                const result = await this.deleteImage(deleteImage, logger);
+                logger.flush();
                 totalDeleted += result.deleted;
                 totalMultiDeleted += result.multiDeleted;
             }

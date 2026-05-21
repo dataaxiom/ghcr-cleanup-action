@@ -87,6 +87,49 @@ export function isValidChallenge(attributes: Map<string, string>): boolean {
   return valid
 }
 
+/**
+ * Minimal log sink for the cleanup path. The default {@link consoleLogger}
+ * just forwards to `core.info` / `core.warning`, preserving current behaviour
+ * everywhere a logger isn't passed. The deleteImage flow swaps in a
+ * {@link BufferedLogger} per top-level image so a parent and its entire
+ * descendant tree (children, referrers, recursive sub-deletes) emit as a
+ * single contiguous block once the tree completes — keeps logs readable
+ * under bounded-concurrency child fan-out.
+ */
+export interface Logger {
+  info(message: string): void
+  warning(message: string): void
+}
+
+export const consoleLogger: Logger = {
+  info: (message: string) => core.info(message),
+  warning: (message: string) => core.warning(message)
+}
+
+/**
+ * Captures log entries in memory until {@link flush} is called. Entries
+ * keep their level so warnings still surface as warnings (yellow badge in
+ * the Actions UI) when flushed, just deferred.
+ */
+export class BufferedLogger implements Logger {
+  private entries: Array<{ level: 'info' | 'warning'; message: string }> = []
+
+  info(message: string): void {
+    this.entries.push({ level: 'info', message })
+  }
+
+  warning(message: string): void {
+    this.entries.push({ level: 'warning', message })
+  }
+
+  flush(target: Logger = consoleLogger): void {
+    for (const e of this.entries) {
+      target[e.level](e.message)
+    }
+    this.entries = []
+  }
+}
+
 export class MapPrinter {
   entries: Map<string, string> = new Map<string, string>()
   maxLength = 1

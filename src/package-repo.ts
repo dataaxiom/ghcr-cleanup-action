@@ -3,7 +3,9 @@ import { Config, LogLevel } from './config.js'
 import { OctokitClient } from './octokit-client.js'
 import { RequestError } from '@octokit/request-error'
 import {
+  consoleLogger,
   GhPackage,
+  Logger,
   parentDigestFromReferrerTag,
   runWithConcurrency
 } from './utils.js'
@@ -325,15 +327,22 @@ export class PackageRepo {
     id: number,
     digest: string,
     tags?: string[],
-    label?: string
+    label?: string,
+    // Callers that need to bundle this delete's log output with related
+    // operations (e.g. image-deleter buffering a parent + its child
+    // tree) can pass their own logger. Defaults to {@link consoleLogger}
+    // so existing callers (untag cleanup, etc.) keep streaming directly.
+    logger: Logger = consoleLogger
   ): Promise<void> {
     try {
       if (tags && tags.length > 0) {
-        core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`)
+        logger.info(
+          ` deleting package id: ${id} digest: ${digest} tag: ${tags}`
+        )
       } else if (label) {
-        core.info(` deleting package id: ${id} digest: ${digest} ${label}`)
+        logger.info(` deleting package id: ${id} digest: ${digest} ${label}`)
       } else {
-        core.info(` deleting package id: ${id} digest: ${digest}`)
+        logger.info(` deleting package id: ${id} digest: ${digest}`)
       }
       if (!this.config.dryRun) {
         const octokit = this.octokitClient.getClient()
@@ -374,12 +383,12 @@ export class PackageRepo {
           if (error.status === 404) {
             if (this.lastDeleteResult === true) {
               ignoreError = true
-              core.warning(
+              logger.warning(
                 `The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`
               )
               this.lastDeleteResult = false
             } else {
-              core.warning(
+              logger.warning(
                 'Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access'
               )
             }
