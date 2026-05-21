@@ -3,7 +3,10 @@ import { Config, LogLevel } from './config.js'
 import { OctokitClient } from './octokit-client.js'
 import { RequestError } from '@octokit/request-error'
 import {
+  consoleLogger,
   GhPackage,
+  logListing,
+  Logger,
   parentDigestFromReferrerTag,
   runWithConcurrency
 } from './utils.js'
@@ -103,42 +106,64 @@ export class PackageRepo {
       this.lastDeleteResult = true
 
       const octokit = this.octokitClient.getClient()
-      // Using 'any' type here because TypeScript cannot unify the different function signatures
-      // for Org vs User package endpoints. The actual type safety is maintained by the
-      // parameters we pass to these functions.
-      let getFunc: any =
-        octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg
-      let getParams: any
-
-      if (this.config.repoType === 'User') {
-        getFunc = this.config.tokenOwnsPackage
-          ? octokit.rest.packages
-              .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-          : octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser
-
-        getParams = {
-          package_type: 'container' as const,
-          package_name: targetPackage,
-          username: this.config.owner,
-          state: 'active' as const,
-          per_page: 100
+      // Three-branch endpoint dispatch with full Octokit types — each
+      // branch has a different required owner param (org / username /
+      // none), so a single polymorphic helper would need a discriminated
+      // union or fall back to `any`. Inline dispatch is clearer and
+      // type-safe; the only cast in the flow is `response.data as
+      // GhPackage[]` at the ingest boundary (see ingestPage comment).
+      const fetchPage = async (
+        page: number
+      ): Promise<{ data: unknown[]; headers: { link?: string } }> => {
+        if (this.config.repoType === 'User') {
+          if (this.config.tokenOwnsPackage) {
+            return await octokit.rest.packages.getAllPackageVersionsForPackageOwnedByAuthenticatedUser(
+              {
+                package_type: 'container',
+                package_name: targetPackage,
+                state: 'active',
+                per_page: 100,
+                page
+              }
+            )
+          }
+          return await octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser(
+            {
+              package_type: 'container',
+              package_name: targetPackage,
+              username: this.config.owner,
+              state: 'active',
+              per_page: 100,
+              page
+            }
+          )
         }
-      } else {
-        getParams = {
-          package_type: 'container' as const,
-          package_name: targetPackage,
-          org: this.config.owner,
-          state: 'active' as const,
-          per_page: 100
-        }
+        return await octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg(
+          {
+            package_type: 'container',
+            package_name: targetPackage,
+            org: this.config.owner,
+            state: 'active',
+            per_page: 100,
+            page
+          }
+        )
       }
+
       // Custom paginator: fetch page 1 to discover the total page count
       // from the Link header, then fan out remaining pages in parallel.
       // octokit.paginate.iterator follows the rel="next" cursor
       // sequentially, which on a 60k-package repo means ~600 strictly-
       // serial round trips to api.github.com — minutes of wall clock.
-      const ingestPage = (data: GhPackage[]): void => {
-        for (const packageVersion of data) {
+      //
+      // Boundary cast: Octokit's PackageVersion has `metadata?` and
+      // `container?` as optional, but the container-package endpoints
+      // always return populated `metadata.container.tags`. Asserting
+      // the shape here keeps the rest of the codebase on the
+      // required-field GhPackage type without scattering `?.` guards.
+      const ingestPage = (data: unknown[]): void => {
+        const packages = data as GhPackage[]
+        for (const packageVersion of packages) {
           this.digest2Id.set(packageVersion.name, packageVersion.id)
           this.id2Package.set(packageVersion.id, packageVersion)
           for (const tag of packageVersion.metadata.container.tags) {
@@ -147,7 +172,7 @@ export class PackageRepo {
         }
       }
 
-      const firstResponse = await getFunc({ ...getParams, page: 1 })
+      const firstResponse = await fetchPage(1)
       ingestPage(firstResponse.data)
 
       const lastPage = parseLastPageFromLinkHeader(firstResponse.headers?.link)
@@ -160,7 +185,7 @@ export class PackageRepo {
           remainingPages,
           PACKAGE_LIST_PAGE_CONCURRENCY,
           async page => {
-            const response = await getFunc({ ...getParams, page })
+            const response = await fetchPage(page)
             // JS is single-threaded — concurrent ingestPage calls
             // mutate the same Maps safely.
             ingestPage(response.data)
@@ -186,30 +211,30 @@ export class PackageRepo {
       }
 
       if (output && this.config.logLevel >= LogLevel.INFO) {
-        core.startGroup(`[${targetPackage}] Loaded package data`)
+        const lines: string[] = []
         for (const ghPackage of this.id2Package.values()) {
-          let tags = ''
-          for (const tag of ghPackage.metadata.container.tags) {
-            tags += `${tag} `
-          }
-          core.info(`${ghPackage.id} ${ghPackage.name} ${tags}`)
+          const tags = ghPackage.metadata.container.tags.join(' ')
+          lines.push(`${ghPackage.id} ${ghPackage.name} ${tags}`)
         }
-        // Run inside the group so related diagnostic lines (e.g. manifest-
-        // cache prune) appear alongside the package listing.
-        afterLoad?.()
-        core.endGroup()
+        logListing(`[${targetPackage}] Loaded package data`, lines, {
+          debug: this.config.logLevel >= LogLevel.DEBUG,
+          // Fired inside the group so related diagnostic lines (e.g.
+          // manifest-cache prune) appear alongside the package listing.
+          afterEmit: afterLoad
+        })
       } else {
         // Even when the group isn't being printed, give the caller its
         // post-load callback so cache-pruning still happens.
         afterLoad?.()
       }
       if (output && this.config.logLevel === LogLevel.DEBUG) {
-        core.startGroup(`[${targetPackage}] Loaded package payloads`)
+        const payloadLines: string[] = []
         for (const ghPackage of this.id2Package.values()) {
-          const payload = JSON.stringify(ghPackage, null, 4)
-          core.info(payload)
+          payloadLines.push(JSON.stringify(ghPackage, null, 4))
         }
-        core.endGroup()
+        logListing(`[${targetPackage}] Loaded package payloads`, payloadLines, {
+          debug: true
+        })
       }
     } catch (error) {
       if (error instanceof RequestError) {
@@ -303,15 +328,22 @@ export class PackageRepo {
     id: number,
     digest: string,
     tags?: string[],
-    label?: string
+    label?: string,
+    // Callers that need to bundle this delete's log output with related
+    // operations (e.g. image-deleter buffering a parent + its child
+    // tree) can pass their own logger. Defaults to {@link consoleLogger}
+    // so existing callers (untag cleanup, etc.) keep streaming directly.
+    logger: Logger = consoleLogger
   ): Promise<void> {
     try {
       if (tags && tags.length > 0) {
-        core.info(` deleting package id: ${id} digest: ${digest} tag: ${tags}`)
+        logger.info(
+          ` deleting package id: ${id} digest: ${digest} tag: ${tags}`
+        )
       } else if (label) {
-        core.info(` deleting package id: ${id} digest: ${digest} ${label}`)
+        logger.info(` deleting package id: ${id} digest: ${digest} ${label}`)
       } else {
-        core.info(` deleting package id: ${id} digest: ${digest}`)
+        logger.info(` deleting package id: ${id} digest: ${digest}`)
       }
       if (!this.config.dryRun) {
         const octokit = this.octokitClient.getClient()
@@ -352,12 +384,12 @@ export class PackageRepo {
           if (error.status === 404) {
             if (this.lastDeleteResult === true) {
               ignoreError = true
-              core.warning(
+              logger.warning(
                 `The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`
               )
               this.lastDeleteResult = false
             } else {
-              core.warning(
+              logger.warning(
                 'Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access'
               )
             }
@@ -375,47 +407,52 @@ export class PackageRepo {
    * @returns Array of package names
    */
   async getPackageList(): Promise<string[]> {
-    const packages = []
+    const packages: string[] = []
     const octokit = this.octokitClient.getClient()
 
-    // Using 'any' type here for the same reason as above - different API endpoints have
-    // incompatible signatures that TypeScript cannot unify
-    let listFunc: any
-    let listParams: any
+    // Three-branch dispatch with paginate.iterator per branch.
+    // Inlining is more verbose than a single polymorphic call, but each
+    // endpoint has a different required owner param so unifying them
+    // forces `any` on the function reference. Each branch's iterator
+    // is fully typed end-to-end.
+    const ingest = (data: ReadonlyArray<{ name: string }>): void => {
+      for (const pkg of data) {
+        packages.push(pkg.name)
+      }
+    }
 
     if (this.config.repoType === 'User') {
-      listFunc = this.config.tokenOwnsPackage
-        ? octokit.rest.packages.listPackagesForAuthenticatedUser
-        : octokit.rest.packages.listPackagesForUser
-
-      listParams = {
-        package_type: 'container' as const,
-        username: this.config.owner,
-        per_page: 100
+      if (this.config.tokenOwnsPackage) {
+        for await (const response of octokit.paginate.iterator(
+          octokit.rest.packages.listPackagesForAuthenticatedUser,
+          { package_type: 'container', per_page: 100 }
+        )) {
+          ingest(response.data)
+        }
+      } else {
+        for await (const response of octokit.paginate.iterator(
+          octokit.rest.packages.listPackagesForUser,
+          {
+            package_type: 'container',
+            username: this.config.owner,
+            per_page: 100
+          }
+        )) {
+          ingest(response.data)
+        }
       }
     } else {
-      listFunc = octokit.rest.packages.listPackagesForOrganization
-      listParams = {
-        package_type: 'container' as const,
-        org: this.config.owner,
-        per_page: 100
+      for await (const response of octokit.paginate.iterator(
+        octokit.rest.packages.listPackagesForOrganization,
+        { package_type: 'container', org: this.config.owner, per_page: 100 }
+      )) {
+        ingest(response.data)
       }
     }
 
-    for await (const response of octokit.paginate.iterator(
-      listFunc,
-      listParams
-    )) {
-      for (const data of response.data) {
-        packages.push(data.name)
-      }
-    }
-
-    core.startGroup(`Available packages for owner: ${this.config.owner}`)
-    for (const name of packages) {
-      core.info(name)
-    }
-    core.endGroup()
+    logListing(`Available packages for owner: ${this.config.owner}`, packages, {
+      debug: this.config.logLevel >= LogLevel.DEBUG
+    })
 
     return packages
   }

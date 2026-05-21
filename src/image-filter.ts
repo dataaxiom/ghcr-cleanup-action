@@ -1,6 +1,7 @@
-import * as core from '@actions/core'
 import wcmatch from 'wildcard-match'
 import { CleanupContext } from './cleanup-types.js'
+import { LogLevel } from './config.js'
+import { logListing } from './utils.js'
 
 export class ImageFilter {
   private context: CleanupContext
@@ -62,13 +63,11 @@ export class ImageFilter {
     }
 
     if (excludeTags.length > 0) {
-      core.startGroup(
-        `[${this.context.targetPackage}] Excluding tags from deletion`
+      logListing(
+        `[${this.context.targetPackage}] Excluding tags from deletion`,
+        excludeTags,
+        { debug: this.context.config.logLevel >= LogLevel.DEBUG }
       )
-      for (const tag of excludeTags) {
-        core.info(tag)
-      }
-      core.endGroup()
     }
 
     return excludeTags
@@ -82,10 +81,7 @@ export class ImageFilter {
       return
     }
 
-    core.startGroup(
-      `[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`
-    )
-
+    const lines: string[] = []
     for (const digest of filterSet) {
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
       if (!ghPackage) {
@@ -102,18 +98,22 @@ export class ImageFilter {
         } else {
           const tags = ghPackage.metadata.container.tags
           if (tags.length > 0) {
-            core.info(`${digest} ${tags}`)
+            lines.push(`${digest} ${tags}`)
           } else {
-            core.info(digest)
+            lines.push(digest)
           }
         }
       }
     }
 
-    if (filterSet.size === 0) {
-      core.info('no images found')
-    }
-    core.endGroup()
+    logListing(
+      `[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`,
+      lines,
+      {
+        debug: this.context.config.logLevel >= LogLevel.DEBUG,
+        emptyMessage: 'no images found'
+      }
+    )
   }
 
   /**

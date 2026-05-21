@@ -60,6 +60,13 @@ export class ManifestCache {
   // save() time.
   private hits = 0
   private misses = 0
+  // True iff the in-memory map has diverged from the on-disk snapshot
+  // we restored (or from "empty" if there was no restore). Save() skips
+  // the upload entirely when this is false — re-saving identical content
+  // under a fresh run-id would just churn the repo's cache budget
+  // without changing what the next run sees via the prefix restoreKey.
+  // restore() leaves dirty=false; set()/prune() set it.
+  private dirty = false
 
   constructor(owner: string, packageName: string) {
     // Per-package subdirectory under runner temp. The cache action
@@ -110,16 +117,39 @@ export class ManifestCache {
         core.info('manifest cache: no prior cache found, cold start')
         return
       }
-      await this.loadFromDisk()
+      const stats = await this.loadFromDisk()
+      if (stats.skipped > 0) {
+        core.warning(
+          `manifest cache: skipped ${stats.skipped} malformed entries from ${hitKey}`
+        )
+      }
+      // The file was reachable but unsalvageable (e.g. truncated upload,
+      // partial write from an earlier crash). Treat it as a cold start —
+      // the next save() will overwrite with a clean copy. Entries are
+      // content-addressed so the "lost" data costs only a refetch.
+      if (stats.loaded === 0 && stats.skipped > 0) {
+        this.map.clear()
+        core.warning(
+          'manifest cache: file appears corrupt, discarding and starting cold'
+        )
+        return
+      }
       core.info(
         `manifest cache: restored ${this.map.size} entries from ${hitKey}`
       )
     } catch (error) {
-      // Cache problems should never fail the action — fall back to
-      // fetching manifests live.
+      // Catastrophic failure mid-load can leave the in-memory map
+      // half-populated. Wipe it so the rest of the run treats this as a
+      // clean cold start rather than acting on partial data.
+      this.map.clear()
       const message = error instanceof Error ? error.message : String(error)
       core.warning(`manifest cache: restore failed (${message}); continuing`)
     } finally {
+      // restore() established the baseline against which dirty is
+      // measured. Whether we loaded entries, started cold, or recovered
+      // from corruption, what's in `map` right now matches what we'd
+      // want to save — nothing to upload until something changes.
+      this.dirty = false
       core.endGroup()
     }
   }
@@ -135,6 +165,19 @@ export class ManifestCache {
       return
     }
     if (this.map.size === 0) {
+      this.logEffectiveness()
+      return
+    }
+    if (!this.dirty) {
+      // Steady-state no-op run: every digest we needed was already in
+      // the restored cache, nothing got pruned. Re-uploading the same
+      // bytes under a fresh run-id key would just consume the repo's
+      // cache budget without changing the next run's restore — that
+      // run will find this same untouched entry via the prefix
+      // restoreKey, which is exactly what we want.
+      core.info(
+        `manifest cache: ${this.map.size} entries unchanged since restore; skipping upload`
+      )
       this.logEffectiveness()
       return
     }
@@ -184,6 +227,7 @@ export class ManifestCache {
 
   set(digest: string, distilled: DistilledManifest): void {
     this.map.set(digest, distilled)
+    this.dirty = true
   }
 
   size(): number {
@@ -209,6 +253,7 @@ export class ManifestCache {
     }
     if (dropped > 0) {
       core.info(`manifest cache: pruned ${dropped} stale entries`)
+      this.dirty = true
     }
     return dropped
   }
@@ -233,15 +278,17 @@ export class ManifestCache {
     }
   }
 
-  private async loadFromDisk(): Promise<void> {
+  private async loadFromDisk(): Promise<{ loaded: number; skipped: number }> {
     let raw: string
     try {
       raw = await fs.promises.readFile(this.cachePath, 'utf8')
     } catch {
       // File missing means the cache key existed but the archive was
       // empty or had unexpected contents — treat as a cold start.
-      return
+      return { loaded: 0, skipped: 0 }
     }
+    let loaded = 0
+    let skipped = 0
     for (const line of raw.split('\n')) {
       if (!line) continue
       try {
@@ -250,12 +297,23 @@ export class ManifestCache {
         } & DistilledManifest
         const { digest, ...rest } = parsed
         if (typeof digest === 'string' && digest.length > 0) {
+          // set the map directly rather than going through `this.set`,
+          // which would flip the dirty flag — loading from disk is the
+          // baseline, not a change.
           this.map.set(digest, rest)
+          loaded++
+        } else {
+          // Parsed JSON but the digest field is missing/blank. Treat as
+          // structurally invalid — equivalent to a JSON.parse failure.
+          skipped++
         }
       } catch {
-        // Skip malformed lines rather than abort the whole load.
+        // Malformed line — drop it. The digest's content is recoverable
+        // by refetching, so per-line corruption never blocks a load.
+        skipped++
       }
     }
+    return { loaded, skipped }
   }
 
   private async writeToDisk(): Promise<void> {

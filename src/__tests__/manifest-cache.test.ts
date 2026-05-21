@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as cache from '@actions/cache'
 import * as core from '@actions/core'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 import {
   ManifestCache,
   distillManifest,
@@ -192,6 +195,168 @@ describe('manifest-cache', () => {
       ).toBeDefined()
       // No "saved N entries" success log on the conflict path.
       expect(infoCalls.find(m => /saved \d+ entries/.test(m))).toBeUndefined()
+    })
+  })
+
+  describe('restore + dirty tracking', () => {
+    // Seed a real on-disk NDJSON file so the production `loadFromDisk`
+    // path runs unmodified. Each test gets a fresh RUNNER_TEMP so cache
+    // dirs don't collide across cases.
+    let tmpRoot: string
+    const originalRunnerTemp = process.env.RUNNER_TEMP
+
+    function seedCacheFile(owner: string, pkg: string, contents: string): void {
+      const safePackage = pkg.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const dir = path.join(
+        tmpRoot,
+        'ghcr-cleanup-manifest-cache',
+        `${owner}-${safePackage}`
+      )
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'manifests.ndjson'), contents)
+    }
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'manifest-cache-test-'))
+      process.env.RUNNER_TEMP = tmpRoot
+      vi.mocked(cache.isFeatureAvailable).mockReturnValue(true)
+      vi.mocked(cache.restoreCache).mockReset()
+      vi.mocked(cache.saveCache).mockReset().mockResolvedValue(0)
+      vi.mocked(core.info).mockReset()
+      vi.mocked(core.warning).mockReset()
+    })
+
+    afterEach(() => {
+      fs.rmSync(tmpRoot, { recursive: true, force: true })
+      if (originalRunnerTemp === undefined) {
+        delete process.env.RUNNER_TEMP
+      } else {
+        process.env.RUNNER_TEMP = originalRunnerTemp
+      }
+    })
+
+    it('save() skips upload when restore loaded entries and nothing changed', async () => {
+      seedCacheFile('owner', 'pkg', '{"digest":"sha256:a","mediaType":"a"}\n')
+      vi.mocked(cache.restoreCache).mockResolvedValueOnce('hit-key')
+
+      const c = new ManifestCache('owner', 'pkg')
+      await c.restore()
+      expect(c.size()).toBe(1)
+
+      await c.save()
+
+      expect(cache.saveCache).not.toHaveBeenCalled()
+      const infoCalls = vi.mocked(core.info).mock.calls.map(args => args[0])
+      expect(
+        infoCalls.find(m => m.includes('unchanged since restore'))
+      ).toBeDefined()
+    })
+
+    it('save() uploads when set() was called after restore', async () => {
+      seedCacheFile('owner', 'pkg', '{"digest":"sha256:a","mediaType":"a"}\n')
+      vi.mocked(cache.restoreCache).mockResolvedValueOnce('hit-key')
+
+      const c = new ManifestCache('owner', 'pkg')
+      await c.restore()
+      c.set('sha256:new', { mediaType: 'b' })
+
+      await c.save()
+
+      expect(cache.saveCache).toHaveBeenCalledTimes(1)
+    })
+
+    it('save() uploads when prune() removed entries', async () => {
+      seedCacheFile(
+        'owner',
+        'pkg',
+        [
+          '{"digest":"sha256:a","mediaType":"a"}',
+          '{"digest":"sha256:b","mediaType":"b"}'
+        ].join('\n')
+      )
+      vi.mocked(cache.restoreCache).mockResolvedValueOnce('hit-key')
+
+      const c = new ManifestCache('owner', 'pkg')
+      await c.restore()
+      c.prune(new Set(['sha256:a'])) // drops b
+
+      await c.save()
+
+      expect(cache.saveCache).toHaveBeenCalledTimes(1)
+    })
+
+    it('save() skips upload when prune() found nothing to drop', async () => {
+      seedCacheFile('owner', 'pkg', '{"digest":"sha256:a","mediaType":"a"}\n')
+      vi.mocked(cache.restoreCache).mockResolvedValueOnce('hit-key')
+
+      const c = new ManifestCache('owner', 'pkg')
+      await c.restore()
+      c.prune(new Set(['sha256:a'])) // no-op
+
+      await c.save()
+
+      expect(cache.saveCache).not.toHaveBeenCalled()
+    })
+
+    it('keeps valid lines and counts skipped malformed ones', async () => {
+      seedCacheFile(
+        'owner',
+        'pkg',
+        [
+          '{"digest":"sha256:a","mediaType":"a"}',
+          '{not-json',
+          '{"digest":"sha256:b","mediaType":"b"}',
+          '{"mediaType":"no-digest"}',
+          ''
+        ].join('\n')
+      )
+      vi.mocked(cache.restoreCache).mockResolvedValueOnce('hit-key')
+
+      const c = new ManifestCache('owner', 'pkg')
+      await c.restore()
+
+      expect(c.size()).toBe(2)
+      expect(c.get('sha256:a')).toBeDefined()
+      expect(c.get('sha256:b')).toBeDefined()
+      const warnings = vi.mocked(core.warning).mock.calls.map(args => args[0])
+      expect(
+        warnings.find(m => /skipped 2 malformed entries/.test(m))
+      ).toBeDefined()
+    })
+
+    it('discards the file and starts cold when nothing parses', async () => {
+      seedCacheFile('owner', 'pkg', 'binary\x00garbage\n{also bad\n')
+      vi.mocked(cache.restoreCache).mockResolvedValueOnce('hit-key')
+
+      const c = new ManifestCache('owner', 'pkg')
+      await c.restore()
+
+      expect(c.size()).toBe(0)
+      const warnings = vi.mocked(core.warning).mock.calls.map(args => args[0])
+      expect(
+        warnings.find(m => m.includes('file appears corrupt'))
+      ).toBeDefined()
+
+      // Cold start = dirty stays false until something writes — save()
+      // should be a no-op for an empty map even though we just "lost"
+      // the previous cache.
+      await c.save()
+      expect(cache.saveCache).not.toHaveBeenCalled()
+    })
+
+    it('wipes partial state when restoreCache throws mid-restore', async () => {
+      vi.mocked(cache.restoreCache).mockRejectedValueOnce(
+        new Error('boom: network failed mid-restore')
+      )
+
+      const c = new ManifestCache('owner', 'pkg')
+      // Pre-seed in-memory state so we can prove restore() wipes on error.
+      c.set('sha256:pre', { mediaType: 'pre' })
+      await c.restore()
+
+      expect(c.size()).toBe(0)
+      const warnings = vi.mocked(core.warning).mock.calls.map(args => args[0])
+      expect(warnings.find(m => m.includes('restore failed'))).toBeDefined()
     })
   })
 

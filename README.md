@@ -36,9 +36,9 @@ jobs:
           dry-run: true
 ```
 
-When `owner`, `repository`, and `package` are omitted, they default to the
-current workflow's project. Deleting a multi-architecture image also deletes its
-child platform images automatically.
+When `owner` and `package` are omitted, they default to the current workflow's
+project. Deleting a multi-architecture image also deletes its child platform
+images automatically.
 
 ## Examples
 

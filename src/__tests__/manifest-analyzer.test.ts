@@ -415,6 +415,78 @@ describe('ManifestAnalyzer', () => {
       // was loaded.
       expect(mockRegistry.getManifestByDigest).toHaveBeenCalledWith(parent)
     })
+
+    it('walks referrer tags and primes nested children for label-building', async () => {
+      // Parent has an attached attestation reachable via the sha256-*
+      // fallback tag. The attestation is itself a multi-arch manifest
+      // (rare but legal — buildx attestations). primeManifests should
+      // resolve the tag, fetch the attestation manifest, and invoke
+      // buildLabel on each nested child whose digest is in the package
+      // cache, so labels are warm by the time deleteImage runs.
+      const parent = 'sha256:parent'
+      const attestation = 'sha256:attestation'
+      const nestedChild = 'sha256:nested'
+      const referrerTag = 'sha256-parent.att'
+
+      mockPackageRepo.getDigests.mockReturnValue(
+        new Set([parent, attestation, nestedChild])
+      )
+      mockPackageRepo.getReferrerTagsForDigest.mockImplementation(
+        (d: string) => (d === parent ? [referrerTag] : [])
+      )
+      mockPackageRepo.getDigestByTag.mockImplementation((t: string) =>
+        t === referrerTag ? attestation : undefined
+      )
+      mockRegistry.getManifestByDigest.mockImplementation(
+        async (digest: string) => {
+          if (digest === parent) {
+            return {} // no top-level platforms — exercise only the referrer branch
+          }
+          if (digest === attestation) {
+            return {
+              manifests: [
+                {
+                  digest: nestedChild,
+                  artifactType: 'application/vnd.dev.sigstore.bundle.v0.3+json'
+                }
+              ]
+            }
+          }
+          return {}
+        }
+      )
+
+      await analyzer.primeManifests(new Set([parent]))
+
+      // The referrer-tag walk did its work: the attestation manifest was
+      // fetched, and the nested child's label was warmed (via buildLabel,
+      // which for sigstore artifactType returns without an extra fetch).
+      expect(mockPackageRepo.getReferrerTagsForDigest).toHaveBeenCalledWith(
+        parent
+      )
+      expect(mockPackageRepo.getDigestByTag).toHaveBeenCalledWith(referrerTag)
+      expect(mockRegistry.getManifestByDigest).toHaveBeenCalledWith(attestation)
+    })
+
+    it('skips a referrer tag that resolves to an unknown digest', async () => {
+      // Defensive branch: if a referrer tag is in the index but its
+      // digest isn't (race with concurrent deletion, stale fixture, …),
+      // primeManifests should silently skip rather than fetch undefined.
+      const parent = 'sha256:parent'
+      const referrerTag = 'sha256-parent.sig'
+
+      mockPackageRepo.getDigests.mockReturnValue(new Set([parent]))
+      mockPackageRepo.getReferrerTagsForDigest.mockReturnValue([referrerTag])
+      mockPackageRepo.getDigestByTag.mockReturnValue(undefined)
+      mockRegistry.getManifestByDigest.mockResolvedValue({})
+
+      await analyzer.primeManifests(new Set([parent]))
+
+      // No extra manifest fetch was issued for the missing-digest case —
+      // only the parent itself.
+      expect(mockRegistry.getManifestByDigest).toHaveBeenCalledTimes(1)
+      expect(mockRegistry.getManifestByDigest).toHaveBeenCalledWith(parent)
+    })
   })
 
   describe('logging', () => {

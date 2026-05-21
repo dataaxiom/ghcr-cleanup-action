@@ -137,6 +137,68 @@ describe('OctokitClient', () => {
     })
   })
 
+  describe('log handlers', () => {
+    // Pull the `log` object the constructor passed to Octokit so we can
+    // call the four handlers directly. Each one gates on logLevel and
+    // forwards to core.info with a level-tagged prefix.
+    const getLogHandlers = (): {
+      debug: (message: string) => void
+      info: (message: string) => void
+      warn: (message: string) => void
+      error: (message: string) => void
+    } => {
+      const mockOctokit = Octokit as unknown as Mock
+      const lastCall = mockOctokit.mock.calls.at(-1)
+      return lastCall?.[0]?.log
+    }
+
+    it('forwards debug/info to core.info only at DEBUG level', () => {
+      new OctokitClient('t', undefined, LogLevel.DEBUG)
+      const log = getLogHandlers()
+      const mockInfo = vi.mocked(core.info)
+
+      log.debug('d1')
+      log.info('i1')
+      expect(mockInfo).toHaveBeenCalledWith('[Octokit DEBUG] d1')
+      expect(mockInfo).toHaveBeenCalledWith('[Octokit DEBUG] i1')
+    })
+
+    it('silences debug/info below DEBUG level', () => {
+      new OctokitClient('t', undefined, LogLevel.INFO)
+      const log = getLogHandlers()
+      const mockInfo = vi.mocked(core.info)
+      mockInfo.mockClear()
+
+      log.debug('hush')
+      log.info('also hush')
+      expect(mockInfo).not.toHaveBeenCalled()
+    })
+
+    it('forwards warn at WARN level and above', () => {
+      new OctokitClient('t', undefined, LogLevel.WARN)
+      const log = getLogHandlers()
+      const mockInfo = vi.mocked(core.info)
+      mockInfo.mockClear()
+
+      log.warn('careful')
+      expect(mockInfo).toHaveBeenCalledWith('[Octokit WARN] careful')
+    })
+
+    it('forwards error at ERROR level (the floor)', () => {
+      new OctokitClient('t', undefined, LogLevel.ERROR)
+      const log = getLogHandlers()
+      const mockInfo = vi.mocked(core.info)
+      mockInfo.mockClear()
+
+      log.error('boom')
+      expect(mockInfo).toHaveBeenCalledWith('[Octokit ERROR] boom')
+      // warn is one above error and should also fire at this point —
+      // logLevel >= LogLevel.WARN is false, so it should be silent.
+      log.warn('quiet')
+      expect(mockInfo).not.toHaveBeenCalledWith('[Octokit WARN] quiet')
+    })
+  })
+
   describe('getOwnerType', () => {
     let client: OctokitClient
     let mockRequest: Mock

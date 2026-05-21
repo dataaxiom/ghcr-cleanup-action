@@ -3,10 +3,25 @@ name: Integration Tests
 on:
   push:
   pull_request_target:
-    types: [assigned, opened, synchronize, reopened]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
+
+# Trigger model:
+#   push:                    fires on direct upstream pushes (e.g. maintainer
+#                            committing to main). Auto-CI, no approval gate.
+#   pull_request_target:     fires on fork PRs. Default checkout would point
+#                            at base, so each job that runs PR code overrides
+#                            with `ref: ${{ github.event.pull_request.head.sha
+#                            || github.sha }}` — head sha on PRs, pushed sha
+#                            on push events.
+#
+# The `integration-tests` job carries an `environment:` gate scoped to fork
+# PRs only. The conditional expression resolves to '' (no environment) on
+# push events, so direct maintainer pushes never see an approval prompt.
+# Downstream jobs (attestation, cosign, etc.) chain via `needs:` so they
+# inherit the gate without each needing its own approval.
 
 concurrency:
   group: ci-tests
@@ -26,6 +41,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -81,6 +100,13 @@ jobs:
     name: Test
     runs-on: ubuntu-24.04
     needs: general-tests
+    # Approval gate for fork PRs only. On push events the expression
+    # evaluates to '' and the job runs without an environment. The
+    # downstream jobs in this workflow chain via `needs:` so a single
+    # approval here releases the whole integration suite for the run.
+    environment:
+      ${{ github.event_name == 'pull_request_target' && 'pr-integration-tests'
+      || '' }}
     permissions:
       contents: read
       packages: write
@@ -256,6 +282,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -361,6 +391,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -484,6 +518,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -556,6 +594,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Run Test - Multi-package Cleanup
@@ -579,6 +621,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Login to GitHub Container Registry
@@ -666,6 +712,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Login to GitHub Container Registry
@@ -735,6 +785,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Run Test - Multi-package Cleanup
@@ -768,6 +822,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -1008,6 +1066,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Under pull_request_target the default ref is the base branch —
+          # override so PR jobs actually test PR code. The `|| github.sha`
+          # fallback covers push events (where pull_request is null).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js

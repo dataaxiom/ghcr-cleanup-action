@@ -87,6 +87,120 @@ export function isValidChallenge(attributes: Map<string, string>): boolean {
   return valid
 }
 
+/**
+ * Minimal log sink for the cleanup path. The default {@link consoleLogger}
+ * just forwards to `core.info` / `core.warning`, preserving current behaviour
+ * everywhere a logger isn't passed. The deleteImage flow swaps in a
+ * {@link BufferedLogger} per top-level image so a parent and its entire
+ * descendant tree (children, referrers, recursive sub-deletes) emit as a
+ * single contiguous block once the tree completes — keeps logs readable
+ * under bounded-concurrency child fan-out.
+ */
+export interface Logger {
+  info(message: string): void
+  warning(message: string): void
+}
+
+export const consoleLogger: Logger = {
+  info: (message: string) => core.info(message),
+  warning: (message: string) => core.warning(message)
+}
+
+/**
+ * Captures log entries in memory until {@link flush} is called. Entries
+ * keep their level so warnings still surface as warnings (yellow badge in
+ * the Actions UI) when flushed, just deferred.
+ */
+export class BufferedLogger implements Logger {
+  private entries: Array<{ level: 'info' | 'warning'; message: string }> = []
+
+  info(message: string): void {
+    this.entries.push({ level: 'info', message })
+  }
+
+  warning(message: string): void {
+    this.entries.push({ level: 'warning', message })
+  }
+
+  flush(target: Logger = consoleLogger): void {
+    for (const e of this.entries) {
+      target[e.level](e.message)
+    }
+    this.entries = []
+  }
+}
+
+/**
+ * Default cap for {@link logListing} truncation. At INFO level, listings
+ * larger than this emit the first N entries plus a "more entries truncated"
+ * marker; DEBUG always emits the full listing. 1000 keeps log files under
+ * the GitHub UI's render cliff (~4 MB at typical line widths) without
+ * losing useful detail on the moderately-active repos that cluster around
+ * the lower hundreds.
+ */
+export const DEFAULT_LISTING_LIMIT = 1000
+
+/**
+ * Emit an itemised list under a `core.startGroup` block, with INFO-level
+ * truncation above `verboseLimit` to keep large-repo runs from blowing
+ * past the Actions UI render cliff. DEBUG bypasses truncation.
+ *
+ * The group title is suffixed with `(N)` so the size is visible from
+ * the collapsed view — useful for sanity-checking without expanding.
+ *
+ * Designed to replace the "open group, loop-and-emit, close group"
+ * pattern across the cleanup pipeline. Callers build an array of
+ * pre-formatted lines and hand it over; the helper handles group
+ * bracketing, truncation, and the empty-listing fallback.
+ *
+ * @param title - The group title (count is appended automatically).
+ * @param items - The pre-formatted lines to emit.
+ * @param options.debug - When true, emit the full listing regardless of
+ *   size. Pass `config.logLevel >= LogLevel.DEBUG` from the caller.
+ * @param options.verboseLimit - Truncation threshold at INFO. Defaults
+ *   to {@link DEFAULT_LISTING_LIMIT}.
+ * @param options.emptyMessage - Single line emitted inside the group
+ *   when `items` is empty (e.g. "no ghost images found"). Omit to leave
+ *   the group body silent on empty.
+ * @param options.afterEmit - Hook fired inside the group, after the
+ *   listing but before `endGroup`. Lets a caller emit related
+ *   diagnostic lines under the same collapsible section.
+ */
+export function logListing(
+  title: string,
+  items: readonly string[],
+  options: {
+    debug?: boolean
+    verboseLimit?: number
+    emptyMessage?: string
+    afterEmit?: () => void
+  }
+): void {
+  const limit = options.verboseLimit ?? DEFAULT_LISTING_LIMIT
+  core.startGroup(`${title} (${items.length})`)
+  try {
+    if (items.length === 0) {
+      if (options.emptyMessage) {
+        core.info(options.emptyMessage)
+      }
+    } else if (options.debug || items.length <= limit) {
+      for (const item of items) {
+        core.info(item)
+      }
+    } else {
+      for (let i = 0; i < limit; i++) {
+        core.info(items[i])
+      }
+      core.info(
+        `... ${items.length - limit} more entries truncated (set log-level: debug for the full listing)`
+      )
+    }
+    options.afterEmit?.()
+  } finally {
+    core.endGroup()
+  }
+}
+
 export class MapPrinter {
   entries: Map<string, string> = new Map<string, string>()
   maxLength = 1

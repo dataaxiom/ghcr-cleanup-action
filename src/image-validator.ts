@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { CleanupContext, ValidationResult } from './cleanup-types.js'
-import { parentDigestFromReferrerTag } from './utils.js'
+import { LogLevel } from './config.js'
+import { logListing, parentDigestFromReferrerTag } from './utils.js'
 
 export class ImageValidator {
   private context: CleanupContext
@@ -99,10 +100,8 @@ export class ImageValidator {
    * Find ghost images (all child manifests missing)
    */
   async findGhostImages(filterSet: Set<string>): Promise<Set<string>> {
-    core.startGroup(
-      `[${this.context.targetPackage}] Finding ghost images to delete`
-    )
     const ghostImages = new Set<string>()
+    const lines: string[] = []
 
     for (const digest of filterSet) {
       const manifest = await this.context.registry.getManifestByDigest(digest)
@@ -122,18 +121,22 @@ export class ImageValidator {
             )
           }
           if (ghPackage.metadata.container.tags.length > 0) {
-            core.info(`${digest} ${ghPackage.metadata.container.tags}`)
+            lines.push(`${digest} ${ghPackage.metadata.container.tags}`)
           } else {
-            core.info(`${digest}`)
+            lines.push(`${digest}`)
           }
         }
       }
     }
 
-    if (ghostImages.size === 0) {
-      core.info('no ghost images found')
-    }
-    core.endGroup()
+    logListing(
+      `[${this.context.targetPackage}] Finding ghost images to delete`,
+      lines,
+      {
+        debug: this.context.config.logLevel >= LogLevel.DEBUG,
+        emptyMessage: 'no ghost images found'
+      }
+    )
 
     return ghostImages
   }
@@ -144,10 +147,8 @@ export class ImageValidator {
    * ghost images and are handled by findGhostImages instead.
    */
   async findPartialImages(filterSet: Set<string>): Promise<Set<string>> {
-    core.startGroup(
-      `[${this.context.targetPackage}] Finding partial images to delete`
-    )
     const partialImages = new Set<string>()
+    const lines: string[] = []
 
     for (const digest of filterSet) {
       const manifest = await this.context.registry.getManifestByDigest(digest)
@@ -170,18 +171,22 @@ export class ImageValidator {
             )
           }
           if (ghPackage.metadata.container.tags.length > 0) {
-            core.info(`${digest} ${ghPackage.metadata.container.tags}`)
+            lines.push(`${digest} ${ghPackage.metadata.container.tags}`)
           } else {
-            core.info(`${digest}`)
+            lines.push(`${digest}`)
           }
         }
       }
     }
 
-    if (partialImages.size === 0) {
-      core.info('no partial images found')
-    }
-    core.endGroup()
+    logListing(
+      `[${this.context.targetPackage}] Finding partial images to delete`,
+      lines,
+      {
+        debug: this.context.config.logLevel >= LogLevel.DEBUG,
+        emptyMessage: 'no partial images found'
+      }
+    )
 
     return partialImages
   }
@@ -194,10 +199,8 @@ export class ImageValidator {
   findOrphanedImages(
     subjectReferrers: Map<string, Set<string>> = new Map()
   ): Set<string> {
-    core.startGroup(
-      `[${this.context.targetPackage}] Finding orphaned images (tags) to delete`
-    )
     const orphanedImages = new Set<string>()
+    const lines: string[] = []
 
     for (const tag of this.context.packageRepo.getTags()) {
       const digest = parentDigestFromReferrerTag(tag)
@@ -208,7 +211,7 @@ export class ImageValidator {
         const orphanDigest = this.context.packageRepo.getDigestByTag(tag)
         if (orphanDigest) {
           orphanedImages.add(orphanDigest)
-          core.info(tag)
+          lines.push(tag)
         }
       }
     }
@@ -218,16 +221,20 @@ export class ImageValidator {
         for (const referrerDigest of referrers) {
           if (this.context.packageRepo.getIdByDigest(referrerDigest)) {
             orphanedImages.add(referrerDigest)
-            core.info(`${referrerDigest} (subject ${subjectDigest} missing)`)
+            lines.push(`${referrerDigest} (subject ${subjectDigest} missing)`)
           }
         }
       }
     }
 
-    if (orphanedImages.size === 0) {
-      core.info('no orphaned images found')
-    }
-    core.endGroup()
+    logListing(
+      `[${this.context.targetPackage}] Finding orphaned images (tags) to delete`,
+      lines,
+      {
+        debug: this.context.config.logLevel >= LogLevel.DEBUG,
+        emptyMessage: 'no orphaned images found'
+      }
+    )
 
     return orphanedImages
   }

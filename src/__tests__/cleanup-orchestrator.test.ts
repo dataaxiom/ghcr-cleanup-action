@@ -299,6 +299,42 @@ describe('CleanupOrchestrator', () => {
       expect(mockDeletionStrategy.processTagDeletions).toHaveBeenCalledTimes(2)
     })
 
+    it('drops post-reload untagOperations (gate-kept images would otherwise re-untag)', async () => {
+      // When keep-n-tagged keeps a multi-tagged image, the orchestrator
+      // removes that image from the first pass's untagOperations. The
+      // image still carries its matched tag after the reload triggered
+      // by other untag work, so the second pass re-derives the same
+      // untag operation. Acting on it would defeat keep-n-tagged. The
+      // orchestrator must ignore newPlan.untagOperations entirely and
+      // only ingest newPlan.deleteSet — locks in that drop.
+      config.deleteTags = 'tag1'
+      mockDeletionStrategy.processTagDeletions
+        .mockResolvedValueOnce({
+          deleteSet: new Set(),
+          untagOperations: new Map([['digest1', ['tag1']]])
+        })
+        .mockResolvedValueOnce({
+          // Second pass re-derives an untag op for a gate-kept image,
+          // plus a deleteSet entry we DO want to honour.
+          deleteSet: new Set(['digest3']),
+          untagOperations: new Map([['gate-kept', ['tag1']]])
+        })
+      mockImageDeleter.performUntagging.mockResolvedValue(true)
+
+      const stats = await orchestrator.run()
+
+      // performUntagging fired only once (for the first pass's set),
+      // not a second time with the gate-kept image.
+      expect(mockImageDeleter.performUntagging).toHaveBeenCalledTimes(1)
+      // deleteSet entries from the second pass propagate to the
+      // orchestrator's final delete set.
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        expect.objectContaining(new Set(['digest3'])),
+        expect.any(Function)
+      )
+      expect(stats).toBeDefined()
+    })
+
     it('filters plan.untagOperations against the keep-n-tagged keep set (#10 regression)', async () => {
       // Multi-tagged image is in the keep set; its queued untag operation
       // must be dropped before performUntagging runs, otherwise a matched
