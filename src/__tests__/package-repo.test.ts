@@ -223,16 +223,17 @@ describe('PackageRepo', () => {
 
       await repo.loadPackages('pkg', false)
 
-      expect(
+      // The authenticated-user endpoint derives the user from the
+      // auth token — no username/org param accepted.
+      const fn =
         mockOctokit.rest.packages
           .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-      ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          username: 'test-owner',
-          package_name: 'pkg',
-          page: 1
-        })
+      expect(fn).toHaveBeenCalledWith(
+        expect.objectContaining({ package_name: 'pkg', page: 1 })
       )
+      const callArgs = fn.mock.calls[0][0]
+      expect(callArgs).not.toHaveProperty('username')
+      expect(callArgs).not.toHaveProperty('org')
     })
 
     it('logs a group of package data when output=true and INFO level', async () => {
@@ -792,12 +793,15 @@ describe('PackageRepo', () => {
 
       await repo.getPackageList()
 
+      // The authenticated-user list endpoint derives the user from
+      // the auth token — no username/org param accepted.
       expect(mockOctokit.paginate.iterator).toHaveBeenCalledWith(
         mockOctokit.rest.packages.listPackagesForAuthenticatedUser,
-        expect.objectContaining({
-          username: 'test-owner'
-        })
+        expect.objectContaining({ package_type: 'container' })
       )
+      const params = mockOctokit.paginate.iterator.mock.calls[0][1]
+      expect(params).not.toHaveProperty('username')
+      expect(params).not.toHaveProperty('org')
     })
 
     it('logs each discovered package under a group', async () => {

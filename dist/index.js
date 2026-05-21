@@ -55337,40 +55337,55 @@ class PackageRepo {
             // package leaking in if this repo is ever reused).
             this.lastDeleteResult = true;
             const octokit = this.octokitClient.getClient();
-            // Using 'any' type here because TypeScript cannot unify the different function signatures
-            // for Org vs User package endpoints. The actual type safety is maintained by the
-            // parameters we pass to these functions.
-            let getFunc = octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg;
-            let getParams;
-            if (this.config.repoType === 'User') {
-                getFunc = this.config.tokenOwnsPackage
-                    ? octokit.rest.packages
-                        .getAllPackageVersionsForPackageOwnedByAuthenticatedUser
-                    : octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser;
-                getParams = {
-                    package_type: 'container',
-                    package_name: targetPackage,
-                    username: this.config.owner,
-                    state: 'active',
-                    per_page: 100
-                };
-            }
-            else {
-                getParams = {
+            // Three-branch endpoint dispatch with full Octokit types — each
+            // branch has a different required owner param (org / username /
+            // none), so a single polymorphic helper would need a discriminated
+            // union or fall back to `any`. Inline dispatch is clearer and
+            // type-safe; the only cast in the flow is `response.data as
+            // GhPackage[]` at the ingest boundary (see ingestPage comment).
+            const fetchPage = async (page) => {
+                if (this.config.repoType === 'User') {
+                    if (this.config.tokenOwnsPackage) {
+                        return await octokit.rest.packages.getAllPackageVersionsForPackageOwnedByAuthenticatedUser({
+                            package_type: 'container',
+                            package_name: targetPackage,
+                            state: 'active',
+                            per_page: 100,
+                            page
+                        });
+                    }
+                    return await octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                        package_type: 'container',
+                        package_name: targetPackage,
+                        username: this.config.owner,
+                        state: 'active',
+                        per_page: 100,
+                        page
+                    });
+                }
+                return await octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
                     package_type: 'container',
                     package_name: targetPackage,
                     org: this.config.owner,
                     state: 'active',
-                    per_page: 100
-                };
-            }
+                    per_page: 100,
+                    page
+                });
+            };
             // Custom paginator: fetch page 1 to discover the total page count
             // from the Link header, then fan out remaining pages in parallel.
             // octokit.paginate.iterator follows the rel="next" cursor
             // sequentially, which on a 60k-package repo means ~600 strictly-
             // serial round trips to api.github.com — minutes of wall clock.
+            //
+            // Boundary cast: Octokit's PackageVersion has `metadata?` and
+            // `container?` as optional, but the container-package endpoints
+            // always return populated `metadata.container.tags`. Asserting
+            // the shape here keeps the rest of the codebase on the
+            // required-field GhPackage type without scattering `?.` guards.
             const ingestPage = (data) => {
-                for (const packageVersion of data) {
+                const packages = data;
+                for (const packageVersion of packages) {
                     this.digest2Id.set(packageVersion.name, packageVersion.id);
                     this.id2Package.set(packageVersion.id, packageVersion);
                     for (const tag of packageVersion.metadata.container.tags) {
@@ -55378,13 +55393,13 @@ class PackageRepo {
                     }
                 }
             };
-            const firstResponse = await getFunc({ ...getParams, page: 1 });
+            const firstResponse = await fetchPage(1);
             ingestPage(firstResponse.data);
             const lastPage = parseLastPageFromLinkHeader(firstResponse.headers?.link);
             if (lastPage > 1) {
                 const remainingPages = Array.from({ length: lastPage - 1 }, (_, i) => i + 2);
                 await runWithConcurrency(remainingPages, PACKAGE_LIST_PAGE_CONCURRENCY, async (page) => {
-                    const response = await getFunc({ ...getParams, page });
+                    const response = await fetchPage(page);
                     // JS is single-threaded — concurrent ingestPage calls
                     // mutate the same Maps safely.
                     ingestPage(response.data);
@@ -55583,31 +55598,35 @@ class PackageRepo {
     async getPackageList() {
         const packages = [];
         const octokit = this.octokitClient.getClient();
-        // Using 'any' type here for the same reason as above - different API endpoints have
-        // incompatible signatures that TypeScript cannot unify
-        let listFunc;
-        let listParams;
+        // Three-branch dispatch with paginate.iterator per branch.
+        // Inlining is more verbose than a single polymorphic call, but each
+        // endpoint has a different required owner param so unifying them
+        // forces `any` on the function reference. Each branch's iterator
+        // is fully typed end-to-end.
+        const ingest = (data) => {
+            for (const pkg of data) {
+                packages.push(pkg.name);
+            }
+        };
         if (this.config.repoType === 'User') {
-            listFunc = this.config.tokenOwnsPackage
-                ? octokit.rest.packages.listPackagesForAuthenticatedUser
-                : octokit.rest.packages.listPackagesForUser;
-            listParams = {
-                package_type: 'container',
-                username: this.config.owner,
-                per_page: 100
-            };
+            if (this.config.tokenOwnsPackage) {
+                for await (const response of octokit.paginate.iterator(octokit.rest.packages.listPackagesForAuthenticatedUser, { package_type: 'container', per_page: 100 })) {
+                    ingest(response.data);
+                }
+            }
+            else {
+                for await (const response of octokit.paginate.iterator(octokit.rest.packages.listPackagesForUser, {
+                    package_type: 'container',
+                    username: this.config.owner,
+                    per_page: 100
+                })) {
+                    ingest(response.data);
+                }
+            }
         }
         else {
-            listFunc = octokit.rest.packages.listPackagesForOrganization;
-            listParams = {
-                package_type: 'container',
-                org: this.config.owner,
-                per_page: 100
-            };
-        }
-        for await (const response of octokit.paginate.iterator(listFunc, listParams)) {
-            for (const data of response.data) {
-                packages.push(data.name);
+            for await (const response of octokit.paginate.iterator(octokit.rest.packages.listPackagesForOrganization, { package_type: 'container', org: this.config.owner, per_page: 100 })) {
+                ingest(response.data);
             }
         }
         startGroup(`Available packages for owner: ${this.config.owner}`);

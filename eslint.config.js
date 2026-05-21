@@ -66,7 +66,11 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-array-constructor': 'error',
       '@typescript-eslint/no-empty-interface': 'error',
-      '@typescript-eslint/no-explicit-any': 'off',
+      // Enforced in production sources to catch `any` introductions early.
+      // Tests opt out via the per-file override below — mock shapes that
+      // intentionally widen Octokit/Manifest types use `any` for brevity
+      // and aren't load-bearing for runtime behaviour.
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-extraneous-class': 'error',
       '@typescript-eslint/no-for-in-array': 'error',
       '@typescript-eslint/no-inferrable-types': 'error',
@@ -95,7 +99,11 @@ export default tseslint.config(
     files: ['**/__tests__/**/*.ts', '**/*.test.ts'],
     plugins: { vitest },
     rules: {
-      ...vitest.configs.recommended.rules
+      ...vitest.configs.recommended.rules,
+      // Mocks legitimately use `any` to shape-shift production types;
+      // enforcing strict types here would force unproductive ceremony
+      // without improving test fidelity.
+      '@typescript-eslint/no-explicit-any': 'off'
     },
     languageOptions: {
       globals: {
