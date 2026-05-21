@@ -112368,18 +112368,22 @@ class CleanupOrchestrator {
                 }
             }
             else {
-                // After reload, process all tag deletions again.
+                // After reload, re-process tag deletions to pick up images
+                // whose deletion candidacy depended on tags that survived the
+                // first pass (e.g. multi-tagged images whose untag was gated
+                // out by keep-n-tagged — their other tags are still present
+                // and may now resolve to a delete-set entry).
+                //
+                // We only ingest newPlan.deleteSet — newPlan.untagOperations
+                // is intentionally dropped. When keep-n-tagged gates a
+                // multi-tagged image out of the first pass's untag list, that
+                // image still has the matched tag after reload, so the second
+                // pass re-derives the same untag operation. Re-running it
+                // would defeat the keep-n-tagged protection that filtered it
+                // out in the first place — re-applying the gate here would
+                // simply remove the same entry again. Skipping the work is
+                // equivalent and avoids a redundant gate computation.
                 const newPlan = await this.deletionStrategy.processTagDeletions(this.filterSet, this.excludeTags);
-                // Invariant: the first-pass performUntagging consumed every tag
-                // the strategy could have matched against the affected images.
-                // After reload those tags no longer exist, so the second pass
-                // should never produce fresh untag operations. We only ingest
-                // its deleteSet below; if untagOperations is non-empty something
-                // has changed about the strategy's behaviour and we want to
-                // know loudly rather than silently dropping work.
-                if (newPlan.untagOperations.size > 0) {
-                    throw new Error(`CleanupOrchestrator.run() invariant: post-reload processTagDeletions produced ${newPlan.untagOperations.size} untag operation(s); first-pass untag should have consumed all matches`);
-                }
                 for (const digest of newPlan.deleteSet) {
                     this.deleteSet.add(digest);
                 }

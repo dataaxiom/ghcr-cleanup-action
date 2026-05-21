@@ -299,11 +299,14 @@ describe('CleanupOrchestrator', () => {
       expect(mockDeletionStrategy.processTagDeletions).toHaveBeenCalledTimes(2)
     })
 
-    it('throws if post-reload processTagDeletions produces fresh untag operations', async () => {
-      // Invariant: the first-pass untag already consumed every matched
-      // tag, so a second pass after reload must not produce more. If it
-      // ever does, something has changed about the strategy's behaviour
-      // and we want a loud failure instead of silently dropping work.
+    it('drops post-reload untagOperations (gate-kept images would otherwise re-untag)', async () => {
+      // When keep-n-tagged keeps a multi-tagged image, the orchestrator
+      // removes that image from the first pass's untagOperations. The
+      // image still carries its matched tag after the reload triggered
+      // by other untag work, so the second pass re-derives the same
+      // untag operation. Acting on it would defeat keep-n-tagged. The
+      // orchestrator must ignore newPlan.untagOperations entirely and
+      // only ingest newPlan.deleteSet — locks in that drop.
       config.deleteTags = 'tag1'
       mockDeletionStrategy.processTagDeletions
         .mockResolvedValueOnce({
@@ -311,16 +314,25 @@ describe('CleanupOrchestrator', () => {
           untagOperations: new Map([['digest1', ['tag1']]])
         })
         .mockResolvedValueOnce({
-          deleteSet: new Set(),
-          // Hypothetical regression: a future change makes the second
-          // pass produce untag ops. This used to be silently dropped.
-          untagOperations: new Map([['digest2', ['tag2']]])
+          // Second pass re-derives an untag op for a gate-kept image,
+          // plus a deleteSet entry we DO want to honour.
+          deleteSet: new Set(['digest3']),
+          untagOperations: new Map([['gate-kept', ['tag1']]])
         })
       mockImageDeleter.performUntagging.mockResolvedValue(true)
 
-      await expect(orchestrator.run()).rejects.toThrow(
-        /post-reload processTagDeletions produced 1 untag operation/
+      const stats = await orchestrator.run()
+
+      // performUntagging fired only once (for the first pass's set),
+      // not a second time with the gate-kept image.
+      expect(mockImageDeleter.performUntagging).toHaveBeenCalledTimes(1)
+      // deleteSet entries from the second pass propagate to the
+      // orchestrator's final delete set.
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        expect.objectContaining(new Set(['digest3'])),
+        expect.any(Function)
       )
+      expect(stats).toBeDefined()
     })
 
     it('filters plan.untagOperations against the keep-n-tagged keep set (#10 regression)', async () => {
