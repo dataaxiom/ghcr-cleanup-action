@@ -423,5 +423,147 @@ describe('Registry', () => {
         registry.putManifest('latest', { mediaType: 'x' }, false)
       ).rejects.toBeDefined()
     })
+
+    it('reuses a cached push token across calls without re-exchanging on 401', async () => {
+      // First PUT: 401 → token exchange → authed PUT.
+      mockAxiosInstance.put.mockRejectedValueOnce(
+        fakeAxiosError({
+          status: 401,
+          headers: {
+            'www-authenticate':
+              'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:test-owner/pkg:push,pull"'
+          }
+        })
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { token: 'push-token', expires_in: 300 }
+      })
+      mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
+
+      await registry.putManifest('tag1', { mediaType: 'x' }, false)
+
+      // Second PUT: should use the cached token and skip the challenge.
+      mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
+      await registry.putManifest('tag2', { mediaType: 'x' }, false)
+
+      // Only one token-exchange GET across both putManifest calls.
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
+      // Three PUTs total: the initial unauthed 401-triggering PUT, the
+      // authed retry on tag1, and the fast-path PUT on tag2.
+      expect(mockAxiosInstance.put).toHaveBeenCalledTimes(3)
+      // tag2's PUT carried the cached bearer token from the start.
+      const tag2Call = mockAxiosInstance.put.mock.calls[2]
+      expect(tag2Call[2].headers.Authorization).toBe('Bearer push-token')
+    })
+
+    it('drops a cached token that the server later rejects and re-exchanges', async () => {
+      // Prime the cache via a normal 401-challenge flow.
+      mockAxiosInstance.put.mockRejectedValueOnce(
+        fakeAxiosError({
+          status: 401,
+          headers: {
+            'www-authenticate':
+              'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:test-owner/pkg:push,pull"'
+          }
+        })
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { token: 'token-A', expires_in: 300 }
+      })
+      mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
+      await registry.putManifest('tag1', { mediaType: 'x' }, false)
+
+      // Second call: cached-token PUT is rejected with 401 (mid-TTL
+      // revocation). Implementation must fall through to a fresh
+      // challenge exchange and retry.
+      mockAxiosInstance.put.mockRejectedValueOnce(
+        fakeAxiosError({ status: 401, headers: {} })
+      )
+      mockAxiosInstance.put.mockRejectedValueOnce(
+        fakeAxiosError({
+          status: 401,
+          headers: {
+            'www-authenticate':
+              'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:test-owner/pkg:push,pull"'
+          }
+        })
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { token: 'token-B', expires_in: 300 }
+      })
+      mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
+
+      await registry.putManifest('tag2', { mediaType: 'x' }, false)
+
+      // Two token exchanges total — the original and the post-rejection one.
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(2)
+      // Final PUT used the refreshed token-B.
+      const finalCall = mockAxiosInstance.put.mock.calls.at(-1)
+      expect(finalCall?.[2].headers.Authorization).toBe('Bearer token-B')
+    })
+
+    it('clears the cached push token when login() switches package', async () => {
+      // First package: prime the cache.
+      mockAxiosInstance.put.mockRejectedValueOnce(
+        fakeAxiosError({
+          status: 401,
+          headers: {
+            'www-authenticate':
+              'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:test-owner/pkg:push,pull"'
+          }
+        })
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { token: 'pkg-token', expires_in: 300 }
+      })
+      mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
+      await registry.putManifest('tag1', { mediaType: 'x' }, false)
+
+      // Switch packages. login() does its own tags/list call (resolved
+      // here without a challenge to keep the setup short).
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
+      await registry.login('other-pkg')
+
+      // Next putManifest must NOT use the stale pkg-token. Expect a
+      // fresh challenge handshake.
+      mockAxiosInstance.put.mockRejectedValueOnce(
+        fakeAxiosError({
+          status: 401,
+          headers: {
+            'www-authenticate':
+              'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:test-owner/other-pkg:push,pull"'
+          }
+        })
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { token: 'other-token', expires_in: 300 }
+      })
+      mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
+      await registry.putManifest('tag2', { mediaType: 'x' }, false)
+
+      // First PUT on the second package paid a challenge — would not
+      // happen if the prior cache had leaked across the login boundary.
+      const tag2FirstPut = mockAxiosInstance.put.mock.calls[2]
+      expect(tag2FirstPut[2]?.headers?.Authorization).toBeUndefined()
+    })
+  })
+
+  describe('auth client retry configuration', () => {
+    it('applies the same 429 retry condition to the token-exchange client', () => {
+      // Constructor wires axios-retry twice: once for the manifest
+      // client, once for the auth client. Both must accept 429.
+      const calls = vi.mocked(axiosRetry).mock.calls
+      // The two most recent calls correspond to the registry instance
+      // built in the outer beforeEach.
+      const lastTwo = calls.slice(-2)
+      expect(lastTwo).toHaveLength(2)
+      for (const call of lastTwo) {
+        const retryCondition = call[1]?.retryCondition
+        expect(retryCondition).toBeDefined()
+        expect(retryCondition?.({ response: { status: 429 } } as never)).toBe(
+          true
+        )
+      }
+    })
   })
 })

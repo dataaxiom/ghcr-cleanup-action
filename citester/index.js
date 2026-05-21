@@ -107783,6 +107783,16 @@ class Registry {
     // Cross-run distilled cache. Optional — null disables persistent caching
     // (e.g. when running outside a GitHub Actions runner).
     distilledCache;
+    // Shared client for token-exchange calls (used by both login and
+    // putManifest). Carries the same 429 retry condition as `this.axios`
+    // — the token endpoint is rate-limited under bursty fan-out just like
+    // the manifest endpoints.
+    authClient;
+    // Memoised push-scope token for putManifest. The first untag PUT pays
+    // a 401-challenge round-trip; subsequent PUTs reuse this until expiry.
+    // Cleared on login() (which switches targetPackage and therefore
+    // invalidates the scope) and on any 401 from a subsequent PUT.
+    pushToken = null;
     /**
      * Constructor
      *
@@ -107808,12 +107818,18 @@ class Registry {
         // under bursty parallel reads (manifest fan-out, untag PUTs).
         // exponentialDelay honors the Retry-After header automatically when
         // present, so we honor the server's hint without an extra hook.
-        esm(this.axios, {
+        const retryConfig = {
             retries: 3,
-            retryCondition: error => esm.isNetworkOrIdempotentRequestError(error) ||
+            retryCondition: (error) => esm.isNetworkOrIdempotentRequestError(error) ||
                 error.response?.status === 429,
             retryDelay: (retryNumber, error) => esm.exponentialDelay(retryNumber, error)
-        });
+        };
+        esm(this.axios, retryConfig);
+        // The token-exchange client gets the same retry posture — token
+        // endpoint 429s used to slip through with the old `retries: 3`-only
+        // config and surface as bare failures under parallel untag PUTs.
+        this.authClient = lib_axios.create();
+        esm(this.authClient, retryConfig);
         this.axios.defaults.headers.common['Accept'] =
             'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json';
         (0,lib/* setGlobalConfig */.e1)({
@@ -107835,6 +107851,9 @@ class Registry {
     async login(targetPackage) {
         // reset the cache
         this.manifestCache.clear();
+        // Drop any push token cached for the previous package — its scope
+        // is repository-bound and cannot be reused after the switch.
+        this.pushToken = null;
         this.targetPackage = targetPackage;
         try {
             if (this.config.logLevel === src_config/* LogLevel */.$b.DEBUG) {
@@ -107849,15 +107868,8 @@ class Registry {
                     const challenge = error.response?.headers['www-authenticate'];
                     const attributes = (0,src_utils/* parseChallenge */.xy)(challenge);
                     if ((0,src_utils/* isValidChallenge */.iD)(attributes)) {
-                        const auth = lib_axios.create();
-                        esm(auth, { retries: 3 });
-                        const tokenResponse = await auth.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
-                            auth: {
-                                username: 'token',
-                                password: this.config.token
-                            }
-                        });
-                        const token = tokenResponse.data.token;
+                        const tokenResponse = await this.fetchRegistryToken(attributes);
+                        const token = tokenResponse.token;
                         if (token) {
                             this.axios.defaults.headers.common['Authorization'] =
                                 `Bearer ${token}`;
@@ -107866,7 +107878,7 @@ class Registry {
                             }
                         }
                         else {
-                            throw new Error(`${this.baseUrl} login failed: ${JSON.stringify(tokenResponse.data)}`);
+                            throw new Error(`${this.baseUrl} login failed: ${JSON.stringify(tokenResponse)}`);
                         }
                     }
                     else {
@@ -107883,6 +107895,22 @@ class Registry {
                 throw error;
             }
         }
+    }
+    /**
+     * Exchange a www-authenticate challenge for a bearer token using the
+     * shared {@link authClient}. Returns the raw token-service response
+     * so callers can read both `token` and `expires_in` if present.
+     *
+     * Docker token spec: https://distribution.github.io/distribution/spec/auth/token/
+     */
+    async fetchRegistryToken(attributes) {
+        const response = await this.authClient.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
+            auth: {
+                username: 'token',
+                password: this.config.token
+            }
+        });
+        return response.data;
     }
     /**
      * Retrieves a manifest by its digest. May return a reconstituted manifest
@@ -107955,50 +107983,99 @@ class Registry {
      * @returns A Promise that resolves when the manifest is successfully put in the registry.
      */
     async putManifest(tag, manifest, multiArch) {
-        if (!this.config.dryRun) {
-            const contentType = manifest.mediaType;
-            const config = {
-                headers: {
-                    'Content-Type': contentType
-                }
-            };
-            const auth = lib_axios.create();
-            esm(auth, { retries: 3 });
-            let putToken;
+        if (this.config.dryRun) {
+            return;
+        }
+        const contentType = manifest.mediaType;
+        // Fast path: a cached push token from a previous PUT this run. Skip
+        // the 401-challenge handshake entirely. On expiry we clear the cache
+        // and fall through to the challenge path below.
+        const cached = this.getCachedPushToken();
+        if (cached) {
             try {
-                await auth.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, config);
-                // No challenge issued — upload already succeeded
+                await this.putManifestWithToken(tag, manifest, contentType, cached);
                 return;
             }
             catch (error) {
                 if (axios_isAxiosError(error) && error.response?.status === 401) {
-                    const challenge = error.response.headers['www-authenticate'];
-                    const attributes = (0,src_utils/* parseChallenge */.xy)(challenge);
-                    if (!(0,src_utils/* isValidChallenge */.iD)(attributes)) {
-                        throw new Error(`invalid www-authenticate challenge ${challenge}`);
-                    }
-                    const tokenResponse = await auth.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
-                        auth: {
-                            username: 'token',
-                            password: this.config.token
-                        }
-                    });
-                    putToken = tokenResponse.data.token;
+                    // Token rejected (likely server-side revocation or rotation
+                    // before our TTL window elapsed). Drop it and fall through.
+                    this.pushToken = null;
                 }
                 else {
                     throw error;
                 }
             }
-            if (!putToken) {
-                throw new Error('failed to obtain push token from authentication challenge');
-            }
-            await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, {
-                headers: {
-                    'content-type': contentType,
-                    Authorization: `Bearer ${putToken}`
-                }
-            });
         }
+        // Cold path: PUT without auth, expect a 401 challenge, exchange it
+        // for a fresh push token, then PUT again with the token. The
+        // challenge body carries the realm/service/scope we need.
+        try {
+            await this.authClient.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, { headers: { 'Content-Type': contentType } });
+            // No challenge issued — upload already succeeded
+            return;
+        }
+        catch (error) {
+            if (axios_isAxiosError(error) && error.response?.status === 401) {
+                const challenge = error.response.headers['www-authenticate'];
+                const attributes = (0,src_utils/* parseChallenge */.xy)(challenge);
+                if (!(0,src_utils/* isValidChallenge */.iD)(attributes)) {
+                    throw new Error(`invalid www-authenticate challenge ${challenge}`);
+                }
+                const tokenResponse = await this.fetchRegistryToken(attributes);
+                const token = tokenResponse.token;
+                if (!token) {
+                    throw new Error('failed to obtain push token from authentication challenge');
+                }
+                this.cachePushToken(token, tokenResponse.expires_in);
+                await this.putManifestWithToken(tag, manifest, contentType, token);
+            }
+            else {
+                throw error;
+            }
+        }
+    }
+    /**
+     * PUT a manifest body to `<tag>` using the supplied bearer token.
+     * Extracted so both the cached-token fast path and the
+     * challenge-response cold path share the same call shape.
+     */
+    async putManifestWithToken(tag, manifest, contentType, token) {
+        await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, {
+            headers: {
+                'content-type': contentType,
+                Authorization: `Bearer ${token}`
+            }
+        });
+    }
+    /**
+     * Return the memoised push token if it's still valid, otherwise null.
+     * A small safety buffer guards against clock skew between us and the
+     * token service.
+     */
+    getCachedPushToken() {
+        if (!this.pushToken)
+            return null;
+        if (Date.now() >= this.pushToken.expiresAt) {
+            this.pushToken = null;
+            return null;
+        }
+        return this.pushToken.value;
+    }
+    /**
+     * Memoise a freshly-issued push token. The Docker token spec defines
+     * `expires_in` (seconds, optional, spec default 60) — we honor that
+     * when present and otherwise fall back to a conservative 60s. A 10s
+     * skew buffer trims the effective TTL so we re-auth slightly before
+     * the server actually rejects.
+     */
+    cachePushToken(token, expiresInSeconds) {
+        const ttlSeconds = expiresInSeconds && expiresInSeconds > 0 ? expiresInSeconds : 60;
+        const skewBufferMs = 10_000;
+        this.pushToken = {
+            value: token,
+            expiresAt: Date.now() + ttlSeconds * 1000 - skewBufferMs
+        };
     }
 }
 
