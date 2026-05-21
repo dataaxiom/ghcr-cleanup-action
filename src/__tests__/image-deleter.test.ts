@@ -612,4 +612,82 @@ describe('ImageDeleter', () => {
       expect(result.numberMultiImagesDeleted).toBe(2)
     })
   })
+
+  describe('deleteImage parallelism', () => {
+    it('fans out child platform deletes in parallel under one parent', async () => {
+      // Six-platform multi-arch index. With CHILD_DELETE_CONCURRENCY=5,
+      // we expect to see >=2 child deletes in flight at the same time —
+      // which serial code can never produce.
+      const parentPackage = {
+        id: 'parent-id',
+        name: 'sha256:parent',
+        metadata: { container: { tags: ['v1'] } }
+      }
+      const childDigests = [
+        'sha256:c1',
+        'sha256:c2',
+        'sha256:c3',
+        'sha256:c4',
+        'sha256:c5',
+        'sha256:c6'
+      ]
+
+      mockRegistry.getManifestByDigest.mockResolvedValue({
+        manifests: childDigests.map(d => ({ digest: d }))
+      })
+      mockPackageRepo.getPackageByDigest.mockImplementation(
+        (digest: string) => {
+          if (digest === 'sha256:parent') return parentPackage
+          if (childDigests.includes(digest)) {
+            return {
+              id: `id-${digest}`,
+              name: digest,
+              metadata: { container: { tags: [] } }
+            }
+          }
+          return null
+        }
+      )
+      // Mark every child as solo-referenced so each one gets deleted.
+      for (const d of childDigests) {
+        digestUsedBy.set(d, new Set(['sha256:parent']))
+      }
+
+      // Make each child delete block on a manual gate so we can observe
+      // concurrent in-flight counts. The parent delete (first call) runs
+      // before any child fans out, so don't gate it.
+      let inFlight = 0
+      let maxInFlight = 0
+      let resolveAll: (() => void) | undefined
+      const allInFlight = new Promise<void>(r => {
+        resolveAll = r
+      })
+      let parentDeleted = false
+
+      mockPackageRepo.deletePackageVersion.mockImplementation(
+        async (_pkg: string, _id: string, digest: string) => {
+          if (digest === 'sha256:parent') {
+            parentDeleted = true
+            return
+          }
+          inFlight++
+          maxInFlight = Math.max(maxInFlight, inFlight)
+          // Once we've seen 2+ simultaneous child deletes, release them.
+          if (maxInFlight >= 2 && resolveAll) {
+            resolveAll()
+            resolveAll = undefined
+          }
+          await allInFlight
+          inFlight--
+        }
+      )
+
+      const result = await deleter.deleteImage(parentPackage)
+
+      expect(parentDeleted).toBe(true)
+      expect(maxInFlight).toBeGreaterThanOrEqual(2)
+      expect(result.deleted).toBe(7) // parent + 6 children
+      expect(result.multiDeleted).toBe(1)
+    })
+  })
 })
