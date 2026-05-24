@@ -789,11 +789,13 @@ describe('ImageDeleter', () => {
       ).toHaveLength(3)
     })
 
-    it('a thrown error mid-tree drops the partial buffer rather than emitting half-truths', async () => {
-      // If a child delete throws, the buffer for that top-level call
-      // is never flushed. The user sees the failure but not a partial
-      // "we deleted some children" audit trail that contradicts the
-      // actual registry state.
+    it('flushes the partial buffer when a child throws mid-tree (preserves audit trail)', async () => {
+      // Regression for the v1.2.0 atomicos report: when one child
+      // delete throws, the parent's successful delete (and any other
+      // log lines pushed before the throw) must still surface in the
+      // workflow log. Losing the audit trail because a later sibling
+      // failed makes diagnosis impossible — the user can't tell what
+      // ghcr actually changed.
       const parent = {
         id: 'parent-id',
         name: 'sha256:parent',
@@ -812,8 +814,21 @@ describe('ImageDeleter', () => {
       })
       digestUsedBy.set('sha256:child', new Set(['sha256:parent']))
 
+      // Stand-in for the real deletePackageVersion: log via the
+      // caller's logger (so the BufferedLogger captures the line),
+      // then on the child digest throw a non-404 error to exit the
+      // tree mid-flight. Non-404 ensures the throw propagates rather
+      // than being tolerated.
       mockPackageRepo.deletePackageVersion.mockImplementation(
-        async (_pkg: string, _id: string, digest: string) => {
+        async (
+          _pkg: string,
+          _id: string,
+          digest: string,
+          _tags?: string[],
+          _label?: string,
+          logger?: { info: (msg: string) => void }
+        ) => {
+          logger?.info(` deleting package digest: ${digest}`)
           if (digest === 'sha256:child') {
             throw new Error('child delete blew up')
           }
@@ -828,9 +843,11 @@ describe('ImageDeleter', () => {
         .mocked(core.info)
         .mock.calls.map(args => String(args[0]))
         .filter(line => line.includes('deleting package'))
-      // Neither the parent's "deleting" line nor any child's emitted —
-      // the buffer never flushed.
-      expect(infoLines).toEqual([])
+      // The parent's "deleting package" line MUST be visible — that's
+      // the audit-trail invariant we're locking in. The child's line
+      // is also present (the mock logs before throwing); both should
+      // surface so the user can correlate against ghcr's actual state.
+      expect(infoLines.some(l => l.includes('sha256:parent'))).toBe(true)
     })
   })
 })

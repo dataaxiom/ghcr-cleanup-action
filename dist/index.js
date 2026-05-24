@@ -55892,8 +55892,6 @@ class PackageRepo {
     // Populated by loadPackages so the analyzer/deleter don't have to do
     // an O(N×T) scan over every tag for every digest they process.
     referrerTagsByParent = new Map();
-    // the result state of the last delete package
-    lastDeleteResult = true;
     /**
      * Constructor
      *
@@ -55924,11 +55922,6 @@ class PackageRepo {
             this.id2Package.clear();
             this.tag2Digest.clear();
             this.referrerTagsByParent.clear();
-            // reset the 404-tolerance flag so each fresh load starts with a clean
-            // "last delete succeeded" baseline (the flag tolerates a single 404 that
-            // follows a real delete - we don't want a stale `false` from a prior
-            // package leaking in if this repo is ever reused).
-            this.lastDeleteResult = true;
             const octokit = this.octokitClient.getClient();
             // Three-branch endpoint dispatch with full Octokit types — each
             // branch has a different required owner param (org / username /
@@ -56162,31 +56155,32 @@ class PackageRepo {
                         package_version_id: id
                     });
                 }
-                this.lastDeleteResult = true;
             }
         }
         catch (error) {
-            let ignoreError = false;
-            if (error instanceof RequestError) {
-                if (error.status) {
-                    // ignore 404's, seen these after a 502 error. whereby the first delete causes a 502 but it really
-                    // deleted the package version, the retry then tries again and returns a 404
-                    // only disregard 404 if that last call was successful - repeating 404s will fail action
-                    if (error.status === 404) {
-                        if (this.lastDeleteResult === true) {
-                            ignoreError = true;
-                            logger.warning(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`);
-                            this.lastDeleteResult = false;
-                        }
-                        else {
-                            logger.warning('Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access');
-                        }
-                    }
-                }
+            if (error instanceof RequestError && error.status === 404) {
+                // 404 on DELETE means the package version is already gone — which
+                // is the outcome we wanted. We only ever call this with IDs that
+                // loadPackages just returned (state=active), so a 404 indicates
+                // stale list output: ghcr reported the version as active but
+                // soft-deleted it (or transitioned its state) before our DELETE
+                // landed. We have no way to fix that from the client side and
+                // the user-visible end state is correct, so warn and continue.
+                //
+                // Historical note: between commits 8f34cb4 and 1e3b9cd (late
+                // 2024, never tagged) this method tolerated every 404. 1e3b9cd
+                // tightened it to "tolerate one then fail" as a guardrail for
+                // suspected misconfig. v1.2.0's parallel cascade exposed that
+                // the guardrail blocks a real, benign scenario — multiple
+                // freshly-listed children can all 404 in rapid succession when
+                // ghcr's list output is stale. The tolerate-all behaviour is
+                // restored here; genuine permission/config issues surface as
+                // 401/403 at the LIST endpoint, not as 404 on per-version
+                // DELETE-after-LIST.
+                logger.warning(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it; treating as already deleted.`);
+                return;
             }
-            if (!ignoreError) {
-                throw error;
-            }
+            throw error;
         }
     }
     /**
@@ -112280,15 +112274,24 @@ class ImageDeleter {
                 // to core.info would interleave a parent's children with the
                 // recursive sub-trees of its referrers. Buffering keeps the
                 // unit (parent + all descendants) emitted as one contiguous
-                // block in the workflow log. flush() runs only after the
-                // whole tree resolves, so a thrown error mid-tree drops the
-                // partial buffer — the user sees what completed, not a
-                // half-written audit trail.
+                // block in the workflow log.
+                //
+                // The flush sits in a finally so a thrown error mid-tree still
+                // emits whatever the tree managed to log before the throw —
+                // the successful parent delete, completed child deletes, any
+                // 404 warnings, etc. Losing that audit trail because a later
+                // sibling failed makes diagnosis much harder, as observed in
+                // the v1.2.0 atomicos report where the parent's successful
+                // delete was invisible.
                 const logger = new BufferedLogger();
-                const result = await this.deleteImage(deleteImage, logger);
-                logger.flush();
-                totalDeleted += result.deleted;
-                totalMultiDeleted += result.multiDeleted;
+                try {
+                    const result = await this.deleteImage(deleteImage, logger);
+                    totalDeleted += result.deleted;
+                    totalMultiDeleted += result.multiDeleted;
+                }
+                finally {
+                    logger.flush();
+                }
             }
         }
         else {

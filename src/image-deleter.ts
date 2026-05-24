@@ -391,15 +391,23 @@ export class ImageDeleter {
         // to core.info would interleave a parent's children with the
         // recursive sub-trees of its referrers. Buffering keeps the
         // unit (parent + all descendants) emitted as one contiguous
-        // block in the workflow log. flush() runs only after the
-        // whole tree resolves, so a thrown error mid-tree drops the
-        // partial buffer — the user sees what completed, not a
-        // half-written audit trail.
+        // block in the workflow log.
+        //
+        // The flush sits in a finally so a thrown error mid-tree still
+        // emits whatever the tree managed to log before the throw —
+        // the successful parent delete, completed child deletes, any
+        // 404 warnings, etc. Losing that audit trail because a later
+        // sibling failed makes diagnosis much harder, as observed in
+        // the v1.2.0 atomicos report where the parent's successful
+        // delete was invisible.
         const logger = new BufferedLogger()
-        const result = await this.deleteImage(deleteImage, logger)
-        logger.flush()
-        totalDeleted += result.deleted
-        totalMultiDeleted += result.multiDeleted
+        try {
+          const result = await this.deleteImage(deleteImage, logger)
+          totalDeleted += result.deleted
+          totalMultiDeleted += result.multiDeleted
+        } finally {
+          logger.flush()
+        }
       }
     } else {
       core.info(`Nothing to delete`)
