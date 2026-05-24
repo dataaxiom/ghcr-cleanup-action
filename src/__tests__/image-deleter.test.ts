@@ -499,6 +499,78 @@ describe('ImageDeleter', () => {
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
     })
 
+    it('dedupes a referrer reached by two parallel cascade paths under real concurrency', async () => {
+      // The previous "does not double-delete" test passes regardless of
+      // locking because vitest mocks resolve in the next microtask —
+      // there's no real await window for the race to happen. This test
+      // forces a window by delaying the referrer's manifest fetch, so
+      // a parallel deleteImage(referrer) from path #2 definitely enters
+      // its has()-check before path #1 has had a chance to claim.
+      //
+      // Without the synchronous pre-claim in deleteImage, both paths
+      // would fire DELETE for the referrer (one wins, the other 404s)
+      // and the action would waste API quota plus produce noisy
+      // tolerated-404 warnings. With the pre-claim, the second path
+      // sees the claim at its has() check and returns early.
+      const subjectDigest = `sha256:${'b'.repeat(64)}`
+      const referrerDigest = 'sha256:locked-referrer'
+      const fallbackTag = `sha256-${'b'.repeat(64)}.sig`
+
+      const subjectPackage = {
+        id: 'subj-id',
+        name: subjectDigest,
+        metadata: { container: { tags: ['v1.0'] } }
+      }
+      const referrerPackage = {
+        id: 'ref-id',
+        name: referrerDigest,
+        metadata: { container: { tags: [fallbackTag] } }
+      }
+
+      // Force a real await window: the referrer's manifest fetch
+      // takes 30ms. Path #1 yields on this fetch; path #2 then enters
+      // and either races (no claim) or short-circuits (claimed).
+      mockRegistry.getManifestByDigest.mockImplementation(
+        async (digest: string) => {
+          if (digest === referrerDigest) {
+            await new Promise(resolve => setTimeout(resolve, 30))
+          }
+          return {}
+        }
+      )
+      mockPackageRepo.getTags.mockReturnValue([fallbackTag])
+      mockPackageRepo.getDigestByTag.mockImplementation((tag: string) =>
+        tag === fallbackTag ? referrerDigest : undefined
+      )
+      mockPackageRepo.getReferrerTagsForDigest.mockImplementation(
+        (digest: string) => (digest === subjectDigest ? [fallbackTag] : [])
+      )
+      mockPackageRepo.getPackageByDigest.mockImplementation(
+        (digest: string) => {
+          if (digest === referrerDigest) return referrerPackage
+          return subjectPackage
+        }
+      )
+
+      const subjectReferrers = new Map([
+        [subjectDigest, new Set([referrerDigest])]
+      ])
+      deleter = new ImageDeleter(context, digestUsedBy, subjectReferrers)
+
+      await deleter.deleteImage(subjectPackage)
+
+      // Exactly two DELETE calls: subject + referrer (once). The
+      // referrer's second cascade path is short-circuited by the
+      // pre-claim — without locking this assertion would fail with
+      // three calls (one for subject, two for referrer racing).
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
+      const referrerCalls =
+        mockPackageRepo.deletePackageVersion.mock.calls.filter(
+          (call: unknown[]) => call[2] === referrerDigest
+        )
+      expect(referrerCalls).toHaveLength(1)
+    })
+
     it('should handle recursive attestation deletion', async () => {
       const parentPackage = {
         id: 'parent-id',
