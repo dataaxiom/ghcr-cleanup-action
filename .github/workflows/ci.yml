@@ -17,11 +17,15 @@ permissions:
 #                            || github.sha }}` — head sha on PRs, pushed sha
 #                            on push events.
 #
-# The `integration-tests` job carries an `environment:` gate scoped to fork
-# PRs only. The conditional expression resolves to '' (no environment) on
-# push events, so direct maintainer pushes never see an approval prompt.
-# Downstream jobs (attestation, cosign, etc.) chain via `needs:` so they
-# inherit the gate without each needing its own approval.
+# A single `pr-integration-tests-gate` job carries the `environment:` for
+# fork-PR approval. The matrix and downstream jobs `needs:` it but don't
+# carry the environment themselves — without this hoist each matrix entry
+# (1a/1b/2a/2b/...) would require its own individual approval, since
+# environment protection rules apply per-job and matrix entries count as
+# separate jobs. The gate's conditional expression resolves to '' on push
+# events, so the job runs immediately without an approval prompt on
+# direct maintainer pushes; on pull_request_target it uses the
+# `pr-integration-tests` environment and waits for a reviewer.
 
 concurrency:
   group: ci-tests
@@ -96,17 +100,26 @@ jobs:
 
           echo "Statements coverage: ${STATEMENTS}%"
 
-  integration-tests:
-    name: Test
+  # Single job that holds the environment gate. The matrix job and the
+  # downstream chain `needs:` this — that way approval is asked for
+  # once per workflow run instead of once per matrix entry.
+  pr-integration-tests-gate:
+    name: PR integration tests gate
     runs-on: ubuntu-24.04
     needs: general-tests
-    # Approval gate for fork PRs only. On push events the expression
-    # evaluates to '' and the job runs without an environment. The
-    # downstream jobs in this workflow chain via `needs:` so a single
-    # approval here releases the whole integration suite for the run.
     environment:
       ${{ github.event_name == 'pull_request_target' && 'pr-integration-tests'
       || '' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Gate
+        run: echo "Integration tests approved to run."
+
+  integration-tests:
+    name: Test
+    runs-on: ubuntu-24.04
+    needs: pr-integration-tests-gate
     permissions:
       contents: read
       packages: write

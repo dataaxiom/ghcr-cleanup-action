@@ -499,6 +499,78 @@ describe('ImageDeleter', () => {
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
     })
 
+    it('dedupes a referrer reached by two parallel cascade paths under real concurrency', async () => {
+      // The previous "does not double-delete" test passes regardless of
+      // locking because vitest mocks resolve in the next microtask —
+      // there's no real await window for the race to happen. This test
+      // forces a window by delaying the referrer's manifest fetch, so
+      // a parallel deleteImage(referrer) from path #2 definitely enters
+      // its has()-check before path #1 has had a chance to claim.
+      //
+      // Without the synchronous pre-claim in deleteImage, both paths
+      // would fire DELETE for the referrer (one wins, the other 404s)
+      // and the action would waste API quota plus produce noisy
+      // tolerated-404 warnings. With the pre-claim, the second path
+      // sees the claim at its has() check and returns early.
+      const subjectDigest = `sha256:${'b'.repeat(64)}`
+      const referrerDigest = 'sha256:locked-referrer'
+      const fallbackTag = `sha256-${'b'.repeat(64)}.sig`
+
+      const subjectPackage = {
+        id: 'subj-id',
+        name: subjectDigest,
+        metadata: { container: { tags: ['v1.0'] } }
+      }
+      const referrerPackage = {
+        id: 'ref-id',
+        name: referrerDigest,
+        metadata: { container: { tags: [fallbackTag] } }
+      }
+
+      // Force a real await window: the referrer's manifest fetch
+      // takes 30ms. Path #1 yields on this fetch; path #2 then enters
+      // and either races (no claim) or short-circuits (claimed).
+      mockRegistry.getManifestByDigest.mockImplementation(
+        async (digest: string) => {
+          if (digest === referrerDigest) {
+            await new Promise(resolve => setTimeout(resolve, 30))
+          }
+          return {}
+        }
+      )
+      mockPackageRepo.getTags.mockReturnValue([fallbackTag])
+      mockPackageRepo.getDigestByTag.mockImplementation((tag: string) =>
+        tag === fallbackTag ? referrerDigest : undefined
+      )
+      mockPackageRepo.getReferrerTagsForDigest.mockImplementation(
+        (digest: string) => (digest === subjectDigest ? [fallbackTag] : [])
+      )
+      mockPackageRepo.getPackageByDigest.mockImplementation(
+        (digest: string) => {
+          if (digest === referrerDigest) return referrerPackage
+          return subjectPackage
+        }
+      )
+
+      const subjectReferrers = new Map([
+        [subjectDigest, new Set([referrerDigest])]
+      ])
+      deleter = new ImageDeleter(context, digestUsedBy, subjectReferrers)
+
+      await deleter.deleteImage(subjectPackage)
+
+      // Exactly two DELETE calls: subject + referrer (once). The
+      // referrer's second cascade path is short-circuited by the
+      // pre-claim — without locking this assertion would fail with
+      // three calls (one for subject, two for referrer racing).
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
+      const referrerCalls =
+        mockPackageRepo.deletePackageVersion.mock.calls.filter(
+          (call: unknown[]) => call[2] === referrerDigest
+        )
+      expect(referrerCalls).toHaveLength(1)
+    })
+
     it('should handle recursive attestation deletion', async () => {
       const parentPackage = {
         id: 'parent-id',
@@ -789,11 +861,13 @@ describe('ImageDeleter', () => {
       ).toHaveLength(3)
     })
 
-    it('a thrown error mid-tree drops the partial buffer rather than emitting half-truths', async () => {
-      // If a child delete throws, the buffer for that top-level call
-      // is never flushed. The user sees the failure but not a partial
-      // "we deleted some children" audit trail that contradicts the
-      // actual registry state.
+    it('flushes the partial buffer when a child throws mid-tree (preserves audit trail)', async () => {
+      // Regression for the v1.2.0 atomicos report: when one child
+      // delete throws, the parent's successful delete (and any other
+      // log lines pushed before the throw) must still surface in the
+      // workflow log. Losing the audit trail because a later sibling
+      // failed makes diagnosis impossible — the user can't tell what
+      // ghcr actually changed.
       const parent = {
         id: 'parent-id',
         name: 'sha256:parent',
@@ -812,8 +886,21 @@ describe('ImageDeleter', () => {
       })
       digestUsedBy.set('sha256:child', new Set(['sha256:parent']))
 
+      // Stand-in for the real deletePackageVersion: log via the
+      // caller's logger (so the BufferedLogger captures the line),
+      // then on the child digest throw a non-404 error to exit the
+      // tree mid-flight. Non-404 ensures the throw propagates rather
+      // than being tolerated.
       mockPackageRepo.deletePackageVersion.mockImplementation(
-        async (_pkg: string, _id: string, digest: string) => {
+        async (
+          _pkg: string,
+          _id: string,
+          digest: string,
+          _tags?: string[],
+          _label?: string,
+          logger?: { info: (msg: string) => void }
+        ) => {
+          logger?.info(` deleting package digest: ${digest}`)
           if (digest === 'sha256:child') {
             throw new Error('child delete blew up')
           }
@@ -828,9 +915,11 @@ describe('ImageDeleter', () => {
         .mocked(core.info)
         .mock.calls.map(args => String(args[0]))
         .filter(line => line.includes('deleting package'))
-      // Neither the parent's "deleting" line nor any child's emitted —
-      // the buffer never flushed.
-      expect(infoLines).toEqual([])
+      // The parent's "deleting package" line MUST be visible — that's
+      // the audit-trail invariant we're locking in. The child's line
+      // is also present (the mock logs before throwing); both should
+      // surface so the user can correlate against ghcr's actual state.
+      expect(infoLines.some(l => l.includes('sha256:parent'))).toBe(true)
     })
   })
 })

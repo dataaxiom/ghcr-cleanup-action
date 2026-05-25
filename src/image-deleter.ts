@@ -217,6 +217,18 @@ export class ImageDeleter {
     if (this.deleted.has(ghPackage.name)) {
       return { deleted: 0, multiDeleted: 0 }
     }
+    // Claim this digest synchronously before any await. Without the
+    // claim, two parallel callers (e.g. dual-path cosign: the same
+    // signature reached via both its sha256-*.sig tag and its OCI 1.1
+    // subject descriptor) would both pass the has() check, both fetch
+    // the manifest, both fire DELETE — one wins, one 404s. This entry
+    // is unconditional because deleteImage is only ever invoked when
+    // we've already committed to deleting `ghPackage` (top-level
+    // deleteSet member, or cascade from a parent that's being
+    // deleted). Reference-count-gated deletes go through
+    // deletePlatformChild instead and claim only after the gate
+    // passes — see that method.
+    this.deleted.add(ghPackage.name)
 
     const manifest = await this.context.registry.getManifestByDigest(
       ghPackage.name
@@ -230,17 +242,25 @@ export class ImageDeleter {
       undefined,
       logger
     )
-    this.deleted.add(ghPackage.name)
     let imagesDeleted = 1
     let multiImagesDeleted = 0
 
     // Collect child-delete jobs from three sources (multi-arch platforms,
     // sha256-* fallback referrers, OCI 1.1 subject referrers) and run
-    // them under a single shared concurrency budget. Mutations on the
-    // shared maps (this.deleted, this.digestUsedBy, parents sets) are
-    // safe to interleave because Map/Set ops are atomic between awaits
-    // and each job either touches its own keys or applies an idempotent
-    // delete that other jobs would also have produced.
+    // them under a single shared concurrency budget.
+    //
+    // Concurrency safety: the shared maps (this.deleted, this.digestUsedBy,
+    // parents sets) are read and mutated by multiple parallel tasks. We
+    // rely on two invariants to stay correct:
+    //   (1) Every code path that decides to issue a DELETE first
+    //       synchronously claims the target digest via this.deleted.add
+    //       BEFORE any await. The next task to enter for the same digest
+    //       sees the claim at its has() check and short-circuits.
+    //   (2) The reference-count gate in deletePlatformChild (parents.size
+    //       === 1 && parents.has(parent.name)) is evaluated synchronously,
+    //       and the skip branch's parents.delete(...) is also synchronous,
+    //       so two parallel tasks racing on a shared child are serialized
+    //       through the JS event loop without an explicit lock.
     const childJobs: Array<
       () => Promise<{ deleted: number; multiDeleted: number }>
     > = []
@@ -308,6 +328,18 @@ export class ImageDeleter {
       return { deleted: 0, multiDeleted: 0 }
     }
     if (parents.size === 1 && parents.has(parent.name)) {
+      // Claim the digest synchronously now that the reference-count
+      // gate has passed. The gate (parents.size === 1) is what
+      // distinguishes "I am the last parent and should delete" from
+      // "another parent still references this child." Once that
+      // decision is made, the claim prevents a duplicate-listing race
+      // (same digest appearing twice in one parent's manifest.manifests
+      // → two parallel deletePlatformChild tasks both passing the
+      // gate) from firing two DELETEs. Removing the digestUsedBy entry
+      // is part of the same synchronous "this is mine, nobody else
+      // gets it" transition.
+      this.deleted.add(manifestPackage.name)
+      this.digestUsedBy.delete(manifestPackage.name)
       await this.context.packageRepo.deletePackageVersion(
         this.context.targetPackage,
         manifestPackage.id,
@@ -316,8 +348,6 @@ export class ImageDeleter {
         await this.manifestAnalyzer.buildLabel(imageManifest),
         logger
       )
-      this.deleted.add(manifestPackage.name)
-      this.digestUsedBy.delete(manifestPackage.name)
       return { deleted: 1, multiDeleted: 0 }
     }
     logger.info(
@@ -391,15 +421,23 @@ export class ImageDeleter {
         // to core.info would interleave a parent's children with the
         // recursive sub-trees of its referrers. Buffering keeps the
         // unit (parent + all descendants) emitted as one contiguous
-        // block in the workflow log. flush() runs only after the
-        // whole tree resolves, so a thrown error mid-tree drops the
-        // partial buffer — the user sees what completed, not a
-        // half-written audit trail.
+        // block in the workflow log.
+        //
+        // The flush sits in a finally so a thrown error mid-tree still
+        // emits whatever the tree managed to log before the throw —
+        // the successful parent delete, completed child deletes, any
+        // 404 warnings, etc. Losing that audit trail because a later
+        // sibling failed makes diagnosis much harder, as observed in
+        // the v1.2.0 atomicos report where the parent's successful
+        // delete was invisible.
         const logger = new BufferedLogger()
-        const result = await this.deleteImage(deleteImage, logger)
-        logger.flush()
-        totalDeleted += result.deleted
-        totalMultiDeleted += result.multiDeleted
+        try {
+          const result = await this.deleteImage(deleteImage, logger)
+          totalDeleted += result.deleted
+          totalMultiDeleted += result.multiDeleted
+        } finally {
+          logger.flush()
+        }
       }
     } else {
       core.info(`Nothing to delete`)

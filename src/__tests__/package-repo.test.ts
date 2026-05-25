@@ -460,26 +460,6 @@ describe('PackageRepo', () => {
         mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg
       ).toHaveBeenCalledTimes(3)
     })
-
-    // The lastDeleteResult flag tolerates a single 404 after a real delete.
-    // If a PackageRepo is ever reused across packages, a stale `false` left
-    // from a prior cycle would cause the next package's first 404 to fail
-    // instead of being tolerated. loadPackages() acts as the cycle boundary
-    // and should reset the flag.
-    it('resets lastDeleteResult on each fresh load', async () => {
-      const repo = new PackageRepo(buildConfig(), octokitClient)
-      mockPaginatedPages(
-        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
-        []
-      )
-
-      // Simulate a tolerated 404 from a previous delete operation
-      repo.lastDeleteResult = false
-
-      await repo.loadPackages('pkg', false)
-
-      expect(repo.lastDeleteResult).toBe(true)
-    })
   })
 
   describe('lookup methods', () => {
@@ -687,7 +667,12 @@ describe('PackageRepo', () => {
       )
     })
 
-    it('rethrows on repeated 404 (consecutive failures)', async () => {
+    it('tolerates every 404 (no per-instance counter or cap)', async () => {
+      // ghcr's list endpoint occasionally reports versions as active
+      // that are no longer deletable (soft-deletion lag, state-machine
+      // race, etc.). Each such call yields a 404; the action's correct
+      // response is to log and move on because the user-visible end
+      // state is what they asked for (the version is gone).
       const err = new RequestError('Not Found', 404, {
         request: { method: 'DELETE', url: 'x', headers: {} },
         response: {
@@ -701,16 +686,20 @@ describe('PackageRepo', () => {
       mockOctokit.rest.packages.deletePackageVersionForOrg
         .mockRejectedValueOnce(err)
         .mockRejectedValueOnce(err)
+        .mockRejectedValueOnce(err)
 
-      // First swallowed
-      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
-      // Second propagates
-      await expect(
-        repo.deletePackageVersion('pkg', 43, 'sha256:b')
-      ).rejects.toBe(err)
-      expect(core.warning).toHaveBeenLastCalledWith(
-        expect.stringContaining('Multiple 404 errors')
+      // All three 404s should resolve without throwing.
+      await repo.deletePackageVersion('pkg', 41, 'sha256:a')
+      await repo.deletePackageVersion('pkg', 42, 'sha256:b')
+      await repo.deletePackageVersion('pkg', 43, 'sha256:c')
+
+      // Each one logged its own warning — no "multiple" escalation,
+      // no thrown error.
+      const warningCalls = vi.mocked(core.warning).mock.calls.map(c => c[0])
+      const tolerated = warningCalls.filter(m =>
+        String(m).includes("wasn't found while trying to delete it")
       )
+      expect(tolerated.length).toBe(3)
     })
 
     it('rethrows non-404 RequestError', async () => {

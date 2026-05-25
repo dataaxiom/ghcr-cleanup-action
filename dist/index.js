@@ -55892,8 +55892,6 @@ class PackageRepo {
     // Populated by loadPackages so the analyzer/deleter don't have to do
     // an O(N×T) scan over every tag for every digest they process.
     referrerTagsByParent = new Map();
-    // the result state of the last delete package
-    lastDeleteResult = true;
     /**
      * Constructor
      *
@@ -55924,11 +55922,6 @@ class PackageRepo {
             this.id2Package.clear();
             this.tag2Digest.clear();
             this.referrerTagsByParent.clear();
-            // reset the 404-tolerance flag so each fresh load starts with a clean
-            // "last delete succeeded" baseline (the flag tolerates a single 404 that
-            // follows a real delete - we don't want a stale `false` from a prior
-            // package leaking in if this repo is ever reused).
-            this.lastDeleteResult = true;
             const octokit = this.octokitClient.getClient();
             // Three-branch endpoint dispatch with full Octokit types — each
             // branch has a different required owner param (org / username /
@@ -56162,31 +56155,32 @@ class PackageRepo {
                         package_version_id: id
                     });
                 }
-                this.lastDeleteResult = true;
             }
         }
         catch (error) {
-            let ignoreError = false;
-            if (error instanceof RequestError) {
-                if (error.status) {
-                    // ignore 404's, seen these after a 502 error. whereby the first delete causes a 502 but it really
-                    // deleted the package version, the retry then tries again and returns a 404
-                    // only disregard 404 if that last call was successful - repeating 404s will fail action
-                    if (error.status === 404) {
-                        if (this.lastDeleteResult === true) {
-                            ignoreError = true;
-                            logger.warning(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it, something went wrong and ignoring this error.`);
-                            this.lastDeleteResult = false;
-                        }
-                        else {
-                            logger.warning('Multiple 404 errors have occurred, check the package settings and ensure the repository has been granted admin access');
-                        }
-                    }
-                }
+            if (error instanceof RequestError && error.status === 404) {
+                // 404 on DELETE means the package version is already gone — which
+                // is the outcome we wanted. We only ever call this with IDs that
+                // loadPackages just returned (state=active), so a 404 indicates
+                // stale list output: ghcr reported the version as active but
+                // soft-deleted it (or transitioned its state) before our DELETE
+                // landed. We have no way to fix that from the client side and
+                // the user-visible end state is correct, so warn and continue.
+                //
+                // Historical note: between commits 8f34cb4 and 1e3b9cd (late
+                // 2024, never tagged) this method tolerated every 404. 1e3b9cd
+                // tightened it to "tolerate one then fail" as a guardrail for
+                // suspected misconfig. v1.2.0's parallel cascade exposed that
+                // the guardrail blocks a real, benign scenario — multiple
+                // freshly-listed children can all 404 in rapid succession when
+                // ghcr's list output is stale. The tolerate-all behaviour is
+                // restored here; genuine permission/config issues surface as
+                // 401/403 at the LIST endpoint, not as 404 on per-version
+                // DELETE-after-LIST.
+                logger.warning(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it; treating as already deleted.`);
+                return;
             }
-            if (!ignoreError) {
-                throw error;
-            }
+            throw error;
         }
     }
     /**
@@ -112163,18 +112157,38 @@ class ImageDeleter {
         if (this.deleted.has(ghPackage.name)) {
             return { deleted: 0, multiDeleted: 0 };
         }
+        // Claim this digest synchronously before any await. Without the
+        // claim, two parallel callers (e.g. dual-path cosign: the same
+        // signature reached via both its sha256-*.sig tag and its OCI 1.1
+        // subject descriptor) would both pass the has() check, both fetch
+        // the manifest, both fire DELETE — one wins, one 404s. This entry
+        // is unconditional because deleteImage is only ever invoked when
+        // we've already committed to deleting `ghPackage` (top-level
+        // deleteSet member, or cascade from a parent that's being
+        // deleted). Reference-count-gated deletes go through
+        // deletePlatformChild instead and claim only after the gate
+        // passes — see that method.
+        this.deleted.add(ghPackage.name);
         const manifest = await this.context.registry.getManifestByDigest(ghPackage.name);
         await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags, undefined, logger);
-        this.deleted.add(ghPackage.name);
         let imagesDeleted = 1;
         let multiImagesDeleted = 0;
         // Collect child-delete jobs from three sources (multi-arch platforms,
         // sha256-* fallback referrers, OCI 1.1 subject referrers) and run
-        // them under a single shared concurrency budget. Mutations on the
-        // shared maps (this.deleted, this.digestUsedBy, parents sets) are
-        // safe to interleave because Map/Set ops are atomic between awaits
-        // and each job either touches its own keys or applies an idempotent
-        // delete that other jobs would also have produced.
+        // them under a single shared concurrency budget.
+        //
+        // Concurrency safety: the shared maps (this.deleted, this.digestUsedBy,
+        // parents sets) are read and mutated by multiple parallel tasks. We
+        // rely on two invariants to stay correct:
+        //   (1) Every code path that decides to issue a DELETE first
+        //       synchronously claims the target digest via this.deleted.add
+        //       BEFORE any await. The next task to enter for the same digest
+        //       sees the claim at its has() check and short-circuits.
+        //   (2) The reference-count gate in deletePlatformChild (parents.size
+        //       === 1 && parents.has(parent.name)) is evaluated synchronously,
+        //       and the skip branch's parents.delete(...) is also synchronous,
+        //       so two parallel tasks racing on a shared child are serialized
+        //       through the JS event loop without an explicit lock.
         const childJobs = [];
         if (manifest.manifests) {
             multiImagesDeleted += 1;
@@ -112221,9 +112235,19 @@ class ImageDeleter {
             return { deleted: 0, multiDeleted: 0 };
         }
         if (parents.size === 1 && parents.has(parent.name)) {
-            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.manifestAnalyzer.buildLabel(imageManifest), logger);
+            // Claim the digest synchronously now that the reference-count
+            // gate has passed. The gate (parents.size === 1) is what
+            // distinguishes "I am the last parent and should delete" from
+            // "another parent still references this child." Once that
+            // decision is made, the claim prevents a duplicate-listing race
+            // (same digest appearing twice in one parent's manifest.manifests
+            // → two parallel deletePlatformChild tasks both passing the
+            // gate) from firing two DELETEs. Removing the digestUsedBy entry
+            // is part of the same synchronous "this is mine, nobody else
+            // gets it" transition.
             this.deleted.add(manifestPackage.name);
             this.digestUsedBy.delete(manifestPackage.name);
+            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.manifestAnalyzer.buildLabel(imageManifest), logger);
             return { deleted: 1, multiDeleted: 0 };
         }
         logger.info(` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`);
@@ -112280,15 +112304,24 @@ class ImageDeleter {
                 // to core.info would interleave a parent's children with the
                 // recursive sub-trees of its referrers. Buffering keeps the
                 // unit (parent + all descendants) emitted as one contiguous
-                // block in the workflow log. flush() runs only after the
-                // whole tree resolves, so a thrown error mid-tree drops the
-                // partial buffer — the user sees what completed, not a
-                // half-written audit trail.
+                // block in the workflow log.
+                //
+                // The flush sits in a finally so a thrown error mid-tree still
+                // emits whatever the tree managed to log before the throw —
+                // the successful parent delete, completed child deletes, any
+                // 404 warnings, etc. Losing that audit trail because a later
+                // sibling failed makes diagnosis much harder, as observed in
+                // the v1.2.0 atomicos report where the parent's successful
+                // delete was invisible.
                 const logger = new BufferedLogger();
-                const result = await this.deleteImage(deleteImage, logger);
-                logger.flush();
-                totalDeleted += result.deleted;
-                totalMultiDeleted += result.multiDeleted;
+                try {
+                    const result = await this.deleteImage(deleteImage, logger);
+                    totalDeleted += result.deleted;
+                    totalMultiDeleted += result.multiDeleted;
+                }
+                finally {
+                    logger.flush();
+                }
             }
         }
         else {
