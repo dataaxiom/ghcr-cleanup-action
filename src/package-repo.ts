@@ -382,13 +382,68 @@ export class PackageRepo {
         // the guardrail blocks a real, benign scenario — multiple
         // freshly-listed children can all 404 in rapid succession when
         // ghcr's list output is stale. The tolerate-all behaviour is
-        // restored here; genuine permission/config issues surface as
-        // 401/403 at the LIST endpoint, not as 404 on per-version
-        // DELETE-after-LIST.
+        // restored here.
+        //
+        // GitHub also answers 404 instead of 403 when the token may list
+        // the package but not delete from it, e.g. a GITHUB_TOKEN whose
+        // repository lacks the Admin role on the package. Listing a public
+        // package succeeds for any token, so that misconfiguration never
+        // shows at the LIST endpoint. A version that still exists after
+        // its DELETE returned 404 tells the two cases apart (#147).
+        if (await this.packageVersionExists(targetPackage, id)) {
+          throw new Error(
+            `The package "${targetPackage}" version id ${id} still exists after deleting it returned 404, which GitHub reports when the token lacks permission to delete it. For the GITHUB_TOKEN, give the workflow's repository the Admin role under the package's "Manage Actions access" settings; for a personal access token, add the delete:packages scope.`
+          )
+        }
         logger.warning(
           `The package "${targetPackage}" version id ${id} wasn't found while trying to delete it; treating as already deleted.`
         )
         return
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Checks whether a package version is still present, as a 404 on DELETE
+   * can mean both "already gone" and "not allowed to delete".
+   * @param targetPackage The package name
+   * @param id The package version id
+   * @returns true if the version can still be fetched, false on 404
+   */
+  private async packageVersionExists(
+    targetPackage: string,
+    id: number
+  ): Promise<boolean> {
+    const octokit = this.octokitClient.getClient()
+    try {
+      if (this.config.repoType === 'User') {
+        if (this.config.tokenOwnsPackage) {
+          await octokit.rest.packages.getPackageVersionForAuthenticatedUser({
+            package_type: 'container' as const,
+            package_name: targetPackage,
+            package_version_id: id
+          })
+        } else {
+          await octokit.rest.packages.getPackageVersionForUser({
+            package_type: 'container' as const,
+            package_name: targetPackage,
+            username: this.config.owner,
+            package_version_id: id
+          })
+        }
+      } else {
+        await octokit.rest.packages.getPackageVersionForOrganization({
+          package_type: 'container' as const,
+          package_name: targetPackage,
+          org: this.config.owner,
+          package_version_id: id
+        })
+      }
+      return true
+    } catch (error) {
+      if (error instanceof RequestError && error.status === 404) {
+        return false
       }
       throw error
     }
