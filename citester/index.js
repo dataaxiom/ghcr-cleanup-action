@@ -55545,7 +55545,10 @@ class OctokitClient {
      */
     async getOwnerType(owner) {
         try {
-            const result = await this.octokit.request(`GET /users/${owner}`);
+            // Pass owner as a route parameter so Octokit URL-encodes it.
+            const result = await this.octokit.request('GET /users/{username}', {
+                username: owner
+            });
             const type = result.data.type;
             if (type !== 'User' && type !== 'Organization') {
                 throw new Error(`unexpected owner type "${type}" for "${owner}" (expected User or Organization)`);
@@ -119387,11 +119390,14 @@ class ManifestCache {
         // concurrently.
         this.packageName = packageName;
         const root = process.env.RUNNER_TEMP || os.tmpdir();
+        // Sanitize both: they form a path under RUNNER_TEMP and a cache key, so
+        // a value like `../x` must not escape the cache root.
         const safePackage = packageName.replace(/[^a-zA-Z0-9._-]/g, '_');
-        this.cacheDir = path.join(root, 'ghcr-cleanup-manifest-cache', `${owner}-${safePackage}`);
+        const safeOwner = owner.replace(/[^a-zA-Z0-9._-]/g, '_');
+        this.cacheDir = path.join(root, 'ghcr-cleanup-manifest-cache', `${safeOwner}-${safePackage}`);
         this.cachePath = path.join(this.cacheDir, 'manifests.ndjson');
         const runId = process.env.GITHUB_RUN_ID || `${Date.now()}`;
-        const keyPrefix = `ghcr-manifest-${CACHE_SCHEMA_VERSION}-${owner}-${safePackage}-`;
+        const keyPrefix = `ghcr-manifest-${CACHE_SCHEMA_VERSION}-${safeOwner}-${safePackage}-`;
         this.key = `${keyPrefix}${runId}`;
         this.restoreKeys = [keyPrefix];
         this.enabled = cache.isFeatureAvailable();

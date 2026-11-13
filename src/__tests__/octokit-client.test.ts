@@ -213,7 +213,10 @@ describe('OctokitClient', () => {
       mockRequest.mockResolvedValue({ data: { type: 'User' } })
 
       await expect(client.getOwnerType('alice')).resolves.toBe('User')
-      expect(mockRequest).toHaveBeenCalledWith('GET /users/alice')
+      // owner goes in as a route parameter, so Octokit URL-encodes it.
+      expect(mockRequest).toHaveBeenCalledWith('GET /users/{username}', {
+        username: 'alice'
+      })
     })
 
     it('returns "Organization" for an org account', async () => {

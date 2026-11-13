@@ -117,7 +117,10 @@ export class OctokitClient {
    */
   async getOwnerType(owner: string): Promise<'User' | 'Organization'> {
     try {
-      const result = await this.octokit.request(`GET /users/${owner}`)
+      // Pass owner as a route parameter so Octokit URL-encodes it.
+      const result = await this.octokit.request('GET /users/{username}', {
+        username: owner
+      })
       const type = result.data.type
       if (type !== 'User' && type !== 'Organization') {
         throw new Error(
