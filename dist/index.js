@@ -57577,7 +57577,7 @@ class PackageRepo {
                 // shows at the LIST endpoint. A version that still exists after
                 // its DELETE returned 404 tells the two cases apart (#147).
                 if (await this.packageVersionExists(targetPackage, id)) {
-                    throw new Error(`The package "${targetPackage}" version id ${id} still exists after deleting it returned 404, which GitHub reports when the token lacks permission to delete it. For the GITHUB_TOKEN, give the workflow's repository the Admin role under the package's "Manage Actions access" settings; for a personal access token, add the delete:packages scope.`);
+                    throw new Error(`The package "${targetPackage}" version id ${id} still exists after deleting it returned 404, which GitHub reports when the token lacks permission to delete it. For the GITHUB_TOKEN, give the workflow's repository the Admin role under the package's "Manage Actions access" settings; for a personal access token, add the delete:packages scope.`, { cause: error });
                 }
                 logger.warning(`The package "${targetPackage}" version id ${id} wasn't found while trying to delete it; treating as already deleted.`);
                 return;
