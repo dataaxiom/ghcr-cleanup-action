@@ -26,6 +26,12 @@ permissions:
 # events, so the job runs immediately without an approval prompt on
 # direct maintainer pushes; on pull_request_target it uses the
 # `pr-integration-tests` environment and waits for a reviewer.
+#
+# Every job that runs PR code waits on the gate, general-tests included:
+# under pull_request_target a job runs in the base repo's context, so
+# un-reviewed fork code (npm lifecycle scripts, eslint config, tests)
+# could otherwise write poisoned entries into main's Actions cache — which
+# privileged push runs later restore — before anyone has looked at it.
 
 concurrency:
   group: ci-tests
@@ -38,6 +44,7 @@ jobs:
   general-tests:
     name: General Tests
     runs-on: ubuntu-24.04
+    needs: pr-integration-tests-gate
     permissions:
       contents: read
 
@@ -100,13 +107,13 @@ jobs:
 
           echo "Statements coverage: ${STATEMENTS}%"
 
-  # Single job that holds the environment gate. The matrix job and the
-  # downstream chain `needs:` this — that way approval is asked for
-  # once per workflow run instead of once per matrix entry.
+  # Single job that holds the environment gate. Every job that runs PR
+  # code `needs:` it (directly or through the chain) — that way approval
+  # is asked for once per workflow run instead of once per matrix entry,
+  # and no fork code runs before a maintainer approves.
   pr-integration-tests-gate:
     name: PR integration tests gate
     runs-on: ubuntu-24.04
-    needs: general-tests
     environment:
       ${{ github.event_name == 'pull_request_target' && 'pr-integration-tests'
       || '' }}
@@ -119,7 +126,7 @@ jobs:
   integration-tests:
     name: Test
     runs-on: ubuntu-24.04
-    needs: pr-integration-tests-gate
+    needs: [pr-integration-tests-gate, general-tests]
     permissions:
       contents: read
       packages: write
@@ -809,7 +816,7 @@ jobs:
         uses: ./
         with:
           validate: true
-          packages: ghcr-cleanup-action*
+          packages: ^ghcr-cleanup-action.*$
           keep-n-tagged: 1
           delete-untagged: true
           expand-packages: true

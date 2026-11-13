@@ -31,3 +31,14 @@ updates:
         dependency-type: production
         update-types:
           - patch
+    ignore:
+      # Held at ~6.2.0: 6.3.0 pulls @actions/glob 0.7.0 -> minimatch 10
+      # (GHSA-g3hv-75wg-m249), fixed only in minimatch 11, which drops the
+      # matchOne() that @actions/glob calls. Lift once @actions/glob moves on.
+      - dependency-name: '@actions/cache'
+        versions: ['>=6.3.0']
+      # Pinned to 12.33.0 via package.json "overrides": 12.34.0 adds
+      # apache-arrow (an extra ncc bundle chunk) for a blob-listing format
+      # this action never uses.
+      - dependency-name: '@azure/storage-blob'
+        versions: ['>=12.34.0']

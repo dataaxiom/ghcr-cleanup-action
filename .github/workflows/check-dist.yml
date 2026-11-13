@@ -56,6 +56,13 @@ jobs:
             git diff --ignore-space-at-eol --text dist/
             exit 1
           fi
+          # git diff ignores untracked files — e.g. a new chunk ncc emits
+          # for a dynamic import that was never committed.
+          if [ -n "$(git ls-files --others --exclude-standard dist/)" ]; then
+            echo "Detected untracked files in dist/ after build:"
+            git ls-files --others --exclude-standard dist/
+            exit 1
+          fi
 
       # If `dist/` was different than expected, upload the expected version as a
       # workflow artifact.
@@ -80,6 +87,13 @@ jobs:
           if [ "$(git diff --ignore-space-at-eol --text citester/ | wc -l)" -gt "0" ]; then
             echo "Detected uncommitted changes after build. See status below:"
             git diff --ignore-space-at-eol --text citester/
+            exit 1
+          fi
+          # git diff ignores untracked files — e.g. a new chunk ncc emits
+          # for a dynamic import that was never committed.
+          if [ -n "$(git ls-files --others --exclude-standard citester/)" ]; then
+            echo "Detected untracked files in citester/ after build:"
+            git ls-files --others --exclude-standard citester/
             exit 1
           fi
       # If `citester/` was different than expected, upload the expected version as a
