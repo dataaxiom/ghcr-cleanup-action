@@ -169,10 +169,12 @@ export class Registry {
             })
           }
         } else {
-          core.setFailed(
-            `Error logging into registry API with package: ${targetPackage}`
+          // Report through the thrown error only: main's catch calls
+          // setFailed once, with this message.
+          throw new Error(
+            `Error logging into registry API with package: ${targetPackage} (HTTP ${error.response.status})`,
+            { cause: error }
           )
-          throw error
         }
       } else {
         // Non-axios error or error without a response — rethrow so caller sees it
@@ -304,7 +306,7 @@ export class Registry {
     const cached = this.getCachedPushToken()
     if (cached) {
       try {
-        await this.putManifestWithToken(tag, body, contentType, cached)
+        await this.putManifestWithToken(tag, body, contentType, cached, digest)
         return digest
       } catch (error) {
         if (isAxiosError(error) && error.response?.status === 401) {
@@ -321,12 +323,13 @@ export class Registry {
     // for a fresh push token, then PUT again with the token. The
     // challenge body carries the realm/service/scope we need.
     try {
-      await this.authClient.put(
+      const response = await this.authClient.put(
         `${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
         body,
         { headers: { 'Content-Type': contentType } }
       )
       // No challenge issued — upload already succeeded
+      this.assertStoredDigest(response, digest)
       return digest
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 401) {
@@ -353,7 +356,7 @@ export class Registry {
         }
         core.setSecret(token)
         this.cachePushToken(token, tokenResponse.expires_in)
-        await this.putManifestWithToken(tag, body, contentType, token)
+        await this.putManifestWithToken(tag, body, contentType, token, digest)
       } else {
         throw error
       }
@@ -370,9 +373,10 @@ export class Registry {
     tag: string,
     body: Buffer,
     contentType: string | undefined,
-    token: string
+    token: string,
+    expectedDigest: string
   ): Promise<void> {
-    await this.axios.put(
+    const response = await this.axios.put(
       `/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
       body,
       {
@@ -382,6 +386,26 @@ export class Registry {
         }
       }
     )
+    this.assertStoredDigest(response, expectedDigest)
+  }
+
+  /**
+   * The registry reports the digest it stored a manifest under in the
+   * Docker-Content-Digest response header. Untag identifies the version
+   * its PUT created by the digest putManifest computes, so a mismatch
+   * (a registry that re-serialized the manifest) must stop the run rather
+   * than leave untag looking for a version that will never appear.
+   */
+  private assertStoredDigest(
+    response: { headers?: Record<string, unknown> } | undefined,
+    expectedDigest: string
+  ): void {
+    const reported = response?.headers?.['docker-content-digest']
+    if (typeof reported === 'string' && reported !== expectedDigest) {
+      throw new Error(
+        `${this.baseUrl} stored the manifest as ${reported}, not the expected ${expectedDigest}; stopping, since untag identifies the version it created by that digest`
+      )
+    }
   }
 
   /**

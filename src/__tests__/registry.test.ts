@@ -197,6 +197,21 @@ describe('Registry', () => {
       await expect(registry.login('pkg')).rejects.toBeDefined()
     })
 
+    it('reports a non-401 login failure once, through the thrown error', async () => {
+      // main's catch calls setFailed with the message; a setFailed here
+      // too would report the failure twice.
+      const the500 = fakeAxiosError({ status: 500 })
+      mockAxiosInstance.get.mockRejectedValueOnce(the500)
+
+      const err = (await rejectionOf(registry.login('pkg'))) as Error
+
+      expect(err.message).toBe(
+        'Error logging into registry API with package: pkg (HTTP 500)'
+      )
+      expect(err.cause).toBe(the500)
+      expect(core.setFailed).not.toHaveBeenCalled()
+    })
+
     it('throws a clear error when a 401 has no www-authenticate header', async () => {
       // Proxy / misconfigured registry-url can 401 without a challenge;
       // must not crash with an opaque "Cannot read properties of undefined".
@@ -491,6 +506,52 @@ describe('Registry', () => {
       await expect(
         registry.putManifest('latest', { mediaType: 'x' }, false)
       ).rejects.toThrow(/failed to obtain push token/)
+    })
+
+    it('accepts a matching Docker-Content-Digest from the registry', async () => {
+      const expected = sha256(Buffer.from('{"mediaType":"x"}'))
+      mockAxiosInstance.put.mockResolvedValueOnce({
+        status: 201,
+        headers: { 'docker-content-digest': expected }
+      })
+
+      await expect(
+        registry.putManifest('latest', { mediaType: 'x' }, false)
+      ).resolves.toBe(expected)
+    })
+
+    it('fails when the registry stored the manifest under a different digest (no-challenge path)', async () => {
+      mockAxiosInstance.put.mockResolvedValueOnce({
+        status: 201,
+        headers: { 'docker-content-digest': 'sha256:somethingelse' }
+      })
+
+      await expect(
+        registry.putManifest('latest', { mediaType: 'x' }, false)
+      ).rejects.toThrow(/stored the manifest as sha256:somethingelse/)
+    })
+
+    it('fails on a digest mismatch after the token exchange too', async () => {
+      mockAxiosInstance.put.mockRejectedValueOnce(
+        fakeAxiosError({
+          status: 401,
+          headers: {
+            'www-authenticate':
+              'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:test-owner/pkg:push,pull"'
+          }
+        })
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { token: 'push-token' }
+      })
+      mockAxiosInstance.put.mockResolvedValueOnce({
+        status: 201,
+        headers: { 'docker-content-digest': 'sha256:somethingelse' }
+      })
+
+      await expect(
+        registry.putManifest('latest', { mediaType: 'x' }, false)
+      ).rejects.toThrow(/stored the manifest as sha256:somethingelse/)
     })
 
     it('rethrows non-401 errors from the first PUT', async () => {
