@@ -57790,8 +57790,10 @@ class Config {
 async function buildConfig() {
     const token = getInput('token', { required: true });
     // Register the token with the runner's log masker. Values arriving via
-    // ${{ secrets.* }} are masked already; this covers any that didn't
-    // (hardcoded, or passed through an env/output chain that broke the taint).
+    // ${{ secrets.* }} are masked already; this masks any later occurrence in
+    // the job log of one that wasn't (hardcoded, or passed through an
+    // env/output chain that broke the taint). It can't retroactively mask the
+    // step's `with:` echo, which the runner prints before the action starts.
     core_setSecret(token);
     const config = new Config();
     config.token = token;
@@ -58126,6 +58128,10 @@ class PackageRepo {
     // Populated by loadPackages so the analyzer/deleter don't have to do
     // an O(N×T) scan over every tag for every digest they process.
     referrerTagsByParent = new Map();
+    // Dry-run only: tags a simulated untag removed. Re-applied after every
+    // load so the preview sees the listing a live run would see once its
+    // untag landed (see simulateUntag).
+    simulatedUntags = new Set();
     /**
      * Constructor
      *
@@ -58225,6 +58231,7 @@ class PackageRepo {
                     ingestPage(response.data);
                 });
             }
+            this.applySimulatedUntags();
             // Build the fallback-tag-by-parent reverse index in one pass after
             // the maps are populated. The three call sites that need this
             // (image-deleter cascade, manifest-analyzer initFilterSet /
@@ -58294,6 +58301,38 @@ class PackageRepo {
      * Return all tags in use for the package
      * @returns The tags for the package
      */
+    /**
+     * Dry run only: record that `tags` were untagged, and drop them from the
+     * current listing. A live untag moves each tag to a placeholder and then
+     * deletes it, so after the follow-up reload those tags are gone from
+     * their images — and a multi-tag image left with only matched tags gets
+     * deleted on the second pass. A dry run makes no PUTs, so without this
+     * the reload would still list the tags and the preview would omit that
+     * deletion. The removal is re-applied on every later load this run.
+     */
+    simulateUntag(tags) {
+        if (!this.config.dryRun) {
+            throw new Error('simulateUntag is only valid in dry-run mode');
+        }
+        for (const tag of tags) {
+            this.simulatedUntags.add(tag);
+        }
+        this.applySimulatedUntags();
+    }
+    applySimulatedUntags() {
+        for (const tag of this.simulatedUntags) {
+            const digest = this.tag2Digest.get(tag);
+            if (digest === undefined)
+                continue;
+            this.tag2Digest.delete(tag);
+            const id = this.digest2Id.get(digest);
+            const ghPackage = id === undefined ? undefined : this.id2Package.get(id);
+            if (ghPackage) {
+                ghPackage.metadata.container.tags =
+                    ghPackage.metadata.container.tags.filter(t => t !== tag);
+            }
+        }
+    }
     getTags() {
         return new Set(this.tag2Digest.keys());
     }
@@ -122094,6 +122133,7 @@ function reconstituteManifest(distilled) {
 
 
 
+
 /**
  * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
  */
@@ -122204,6 +122244,10 @@ class Registry {
                         const tokenResponse = await this.fetchRegistryToken(attributes);
                         const token = tokenResponse.token;
                         if (token) {
+                            // Mask the exchanged registry token like the input token: it
+                            // rides in the default Authorization header, so any error dump
+                            // that includes request config would otherwise print it.
+                            core_setSecret(token);
                             this.axios.defaults.headers.common['Authorization'] =
                                 `Bearer ${token}`;
                             if (this.config.logLevel === LogLevel.DEBUG) {
@@ -122318,11 +122362,18 @@ class Registry {
      * @param tag - The tag of the manifest.
      * @param manifest - The manifest to be put.
      * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
-     * @returns A Promise that resolves when the manifest is successfully put in the registry.
+     * @returns The digest (`sha256:<hex>`) of the exact bytes sent — the
+     *   digest of the version the registry creates for this PUT.
      */
     async putManifest(tag, manifest, multiArch) {
+        // Serialize once and send exactly these bytes, so the returned digest
+        // is the one the registry stores (a manifest's digest is the sha256 of
+        // its exact bytes). Callers use it to identify the version this PUT
+        // created without trusting whatever the tag later resolves to.
+        const body = Buffer.from(JSON.stringify(manifest), 'utf8');
+        const digest = `sha256:${(0,external_crypto_.createHash)('sha256').update(body).digest('hex')}`;
         if (this.config.dryRun) {
-            return;
+            return digest;
         }
         const contentType = manifest.mediaType;
         // Fast path: a cached push token from a previous PUT this run. Skip
@@ -122331,8 +122382,8 @@ class Registry {
         const cached = this.getCachedPushToken();
         if (cached) {
             try {
-                await this.putManifestWithToken(tag, manifest, contentType, cached);
-                return;
+                await this.putManifestWithToken(tag, body, contentType, cached);
+                return digest;
             }
             catch (error) {
                 if (axios_isAxiosError(error) && error.response?.status === 401) {
@@ -122349,9 +122400,9 @@ class Registry {
         // for a fresh push token, then PUT again with the token. The
         // challenge body carries the realm/service/scope we need.
         try {
-            await this.authClient.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, { headers: { 'Content-Type': contentType } });
+            await this.authClient.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, body, { headers: { 'Content-Type': contentType } });
             // No challenge issued — upload already succeeded
-            return;
+            return digest;
         }
         catch (error) {
             if (axios_isAxiosError(error) && error.response?.status === 401) {
@@ -122370,21 +122421,23 @@ class Registry {
                 if (!token) {
                     throw new Error('failed to obtain push token from authentication challenge', { cause: error });
                 }
+                core_setSecret(token);
                 this.cachePushToken(token, tokenResponse.expires_in);
-                await this.putManifestWithToken(tag, manifest, contentType, token);
+                await this.putManifestWithToken(tag, body, contentType, token);
             }
             else {
                 throw error;
             }
         }
+        return digest;
     }
     /**
      * PUT a manifest body to `<tag>` using the supplied bearer token.
      * Extracted so both the cached-token fast path and the
      * challenge-response cold path share the same call shape.
      */
-    async putManifestWithToken(tag, manifest, contentType, token) {
-        await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, {
+    async putManifestWithToken(tag, body, contentType, token) {
+        await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, body, {
             headers: {
                 'content-type': contentType,
                 Authorization: `Bearer ${token}`
@@ -122943,19 +122996,37 @@ class ImageValidator {
      * `excludeTags` (the expanded exclude list — matched tag and digest
      * strings) is honored here even though orphans are reached outside the
      * top-level filterSet: an orphan is a stand-alone leftover being
-     * independently staged for deletion, so exclude-tags must protect it
-     * (exclude-tags always wins).
+     * independently staged for deletion, so exclude-tags protects it.
+     *
+     * Deleting an image also deletes its children (the cascade ignores
+     * exclude-tags by design: children are parts of their parent's image).
+     * So an orphan with an excluded child is kept too — otherwise staging
+     * the orphan would delete that excluded child along with it.
+     * `digestUsedBy` (child digest → parent digests) supplies that link.
      */
-    findOrphanedImages(subjectReferrers = new Map(), excludeTags = []) {
+    findOrphanedImages(subjectReferrers = new Map(), excludeTags = [], digestUsedBy = new Map()) {
         const orphanedImages = new Set();
         const excluded = new Set(excludeTags);
         const lines = [];
+        // Parents of any excluded image (by digest, or by a matched tag).
+        const parentsOfExcluded = new Set();
+        for (const entry of excluded) {
+            const digest = this.context.packageRepo.getIdByDigest(entry)
+                ? entry
+                : this.context.packageRepo.getDigestByTag(entry);
+            for (const parent of (digest && digestUsedBy.get(digest)) || []) {
+                parentsOfExcluded.add(parent);
+            }
+        }
         // An orphan is protected if the exclude pattern matched its digest or
-        // any of its tags (a referrer may carry more than the sha256-* tag).
+        // any of its tags (a referrer may carry more than the sha256-* tag),
+        // or if one of its children is excluded.
         const isExcluded = (digest, tag) => {
             if (tag && excluded.has(tag))
                 return true;
             if (excluded.has(digest))
+                return true;
+            if (parentsOfExcluded.has(digest))
                 return true;
             const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
             return (ghPackage?.metadata.container.tags.some(t => excluded.has(t)) ?? false);
@@ -123252,7 +123323,7 @@ const UNTAG_WRITE_CONCURRENCY = 5;
 // freshly-created placeholder can lag — and until it appears, the tag
 // still resolves to its SOURCE image. Each attempt is a full reload;
 // between attempts we back off (linearly) to give ghcr time to converge.
-const UNTAG_RELOAD_MAX_ATTEMPTS = 4;
+const UNTAG_RELOAD_MAX_ATTEMPTS = 6;
 const UNTAG_RELOAD_BACKOFF_MS = 1000;
 // Concurrency for child/referrer deletes spawned by a single deleteImage
 // call. The top-level deleteImages loop stays sequential — failures while
@@ -123283,9 +123354,10 @@ class ImageDeleter {
      * Strategy: each tag we want to strip gets a freshly-annotated empty
      * manifest PUT under it. The unique annotation (timestamp + tag name)
      * makes every PUT body byte-distinct, so every PUT lands as its own
-     * package version with its own digest. We can then issue ONE
-     * loadPackages to discover all the new version IDs, and batch the
-     * deletes. This replaces an older per-tag PUT→reload→delete loop that
+     * package version with its own digest. putManifest returns that
+     * digest, so each placeholder is identified exactly — never by what
+     * its tag happens to resolve to. We then reload to discover the new
+     * version IDs and batch the deletes. This replaces an older per-tag PUT→reload→delete loop that
      * paid a full loadPackages round-trip per tag — catastrophic on large
      * repos where each reload is ~600 paginated API calls.
      */
@@ -123324,6 +123396,9 @@ class ImageDeleter {
         await runWithConcurrency(uniqueSourceDigests, UNTAG_WRITE_CONCURRENCY, async (digest) => {
             rawManifestCache.set(digest, await this.context.registry.getRawManifestByDigest(digest));
         });
+        // tag → digest of the placeholder version its PUT created. A tag maps
+        // to exactly one source image, so the tag is a unique job key.
+        const placeholderDigests = new Map();
         await runWithConcurrency(jobs, UNTAG_WRITE_CONCURRENCY, async ({ manifestDigest, tag }) => {
             const manifest = rawManifestCache.get(manifestDigest);
             if (!manifest) {
@@ -123344,67 +123419,74 @@ class ImageDeleter {
                 newManifest.layers = [];
             }
             info(`${tag}`);
-            await this.context.registry.putManifest(tag, newManifest, isMultiArch);
+            placeholderDigests.set(tag, await this.context.registry.putManifest(tag, newManifest, isMultiArch));
         });
         // Dry run: putManifest above was a no-op, so each tag still points
         // at the live image. Reloading and resolving tags here would find
         // the live image digests and log them as being deleted — a
         // misleading preview (a real run deletes only the newly-created
         // placeholder versions). The tag list logged above is the preview.
+        // Instead, record the untags so the caller's reload sees the listing
+        // a live run would see (those tags gone), and its second pass stages
+        // the same deletions a live run would.
         if (this.context.config.dryRun) {
+            this.context.packageRepo.simulateUntag(jobs.map(j => j.tag));
             endGroup();
             return true;
         }
-        // Discover the newly-created placeholder versions so we can delete
-        // them. Because the Packages API list is eventually consistent with
-        // the registry PUTs above, a placeholder may not appear immediately —
-        // and until it does, its tag still resolves to the SOURCE image.
-        // Deleting on that stale view would remove the source image and its
-        // other (unmatched, possibly excluded) tags instead of the empty
-        // placeholder. So reload until every tag resolves to a digest that
-        // differs from its source, retrying a few times; a whole-list reload
-        // re-checks every pending tag at once, since staleness is a property
-        // of the snapshot, not of individual tags.
-        const stillOnSource = ({ manifestDigest, tag }) => {
-            const resolved = this.context.packageRepo.getDigestByTag(tag);
-            return resolved === undefined || resolved === manifestDigest;
-        };
-        let unresolved = jobs;
+        // Discover the placeholder versions so we can delete them. The
+        // Packages API list is eventually consistent with the registry PUTs
+        // above, so a placeholder may not be listed immediately; reload until
+        // every one is, retrying a few times. A whole-list reload re-checks
+        // every pending placeholder at once, since staleness is a property of
+        // the snapshot, not of individual tags.
+        //
+        // A placeholder is matched by its exact digest (returned by the PUT),
+        // never by what its tag resolves to: on a stale or racing listing the
+        // tag can still resolve to the SOURCE image, or to a different image
+        // pushed under the same tag meanwhile — deleting either would remove
+        // an image (and its other, possibly excluded, tags) the user never
+        // asked to delete. Each placeholder's bytes are unique (tag + stamp
+        // annotation), so a version with that digest can only be ours.
+        const placeholderIds = new Map();
+        let pending = jobs;
         for (let attempt = 1;; attempt++) {
             await this.context.packageRepo.loadPackages(this.context.targetPackage, false);
-            unresolved = unresolved.filter(stillOnSource);
-            if (unresolved.length === 0 || attempt >= UNTAG_RELOAD_MAX_ATTEMPTS) {
+            for (const { tag } of pending) {
+                const digest = placeholderDigests.get(tag);
+                const id = digest
+                    ? this.context.packageRepo.getIdByDigest(digest)
+                    : undefined;
+                if (id !== undefined) {
+                    placeholderIds.set(tag, id);
+                }
+            }
+            pending = pending.filter(j => !placeholderIds.has(j.tag));
+            if (pending.length === 0 || attempt >= UNTAG_RELOAD_MAX_ATTEMPTS) {
                 break;
             }
-            info(`Untag: ${unresolved.length} placeholder(s) not yet listed; reloading (attempt ${attempt}/${UNTAG_RELOAD_MAX_ATTEMPTS})`);
+            info(`Untag: ${pending.length} placeholder(s) not yet listed; reloading (attempt ${attempt}/${UNTAG_RELOAD_MAX_ATTEMPTS})`);
             await sleep(UNTAG_RELOAD_BACKOFF_MS * attempt);
         }
-        // Any tag still pointing at its source image never had its placeholder
-        // become visible. Skip its delete rather than remove the source image;
-        // the empty placeholder is harmless and gets reclaimed on a later run.
-        const skipTags = new Set(unresolved.map(j => j.tag));
-        for (const tag of skipTags) {
-            warning(`Untag "${tag}": the empty placeholder never appeared in the package list, so its tag still resolves to the source image. Skipping its delete this run to avoid removing the source image; it will be reclaimed on a subsequent run.`);
-        }
-        // Delete the placeholder versions (those that resolved to a fresh
-        // digest) in parallel.
-        const deletable = jobs.filter(j => !skipTags.has(j.tag));
-        await runWithConcurrency(deletable, UNTAG_WRITE_CONCURRENCY, async ({ manifestDigest, tag }) => {
-            const untaggedDigest = this.context.packageRepo.getDigestByTag(tag);
-            // Belt-and-braces: never delete a version whose tag still resolves
-            // to the source image, even if the map shifted since the filter.
-            if (!untaggedDigest || untaggedDigest === manifestDigest) {
-                info(`couldn't find newly created package for tag ${tag} to delete`);
-                return;
-            }
-            const id = this.context.packageRepo.getIdByDigest(untaggedDigest);
-            if (!id) {
-                info(`couldn't find newly created package with digest ${untaggedDigest} to delete`);
-                return;
-            }
-            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, id, untaggedDigest, [tag]);
+        // Delete the confirmed placeholder versions in parallel. The id was
+        // captured when its digest was listed, so a later stale snapshot
+        // can't redirect the delete.
+        await runWithConcurrency(jobs.filter(j => placeholderIds.has(j.tag)), UNTAG_WRITE_CONCURRENCY, async ({ tag }) => {
+            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, placeholderIds.get(tag), placeholderDigests.get(tag), [tag]);
         });
         endGroup();
+        // A placeholder that never appeared was not deleted: its tag still
+        // exists in the registry (pointing at the empty placeholder), so the
+        // untag this run was asked to do is incomplete. Fail loudly rather
+        // than report success — and rather than leave the rest of the run
+        // (e.g. keep-n-tagged) acting on a listing that is still catching up.
+        // Nothing else was deleted for these tags; the source image is intact.
+        if (pending.length > 0) {
+            const left = pending
+                .map(({ tag }) => `"${tag}" (placeholder ${placeholderDigests.get(tag)})`)
+                .join(', ');
+            throw new Error(`Untag incomplete: the empty placeholder version for ${left} never appeared in the package list after ${UNTAG_RELOAD_MAX_ATTEMPTS} reloads, so it was not deleted. The source image was not touched. The tag still exists and now points at the empty placeholder; re-run the cleanup once the package list has caught up.`);
+        }
         return true;
     }
     /**
@@ -123775,7 +123857,7 @@ class CleanupOrchestrator {
             }
         }
         if (this.config.deleteOrphanedImages) {
-            const orphanedImages = this.imageValidator.findOrphanedImages(this.subjectReferrers, this.excludeTags);
+            const orphanedImages = this.imageValidator.findOrphanedImages(this.subjectReferrers, this.excludeTags, this.digestUsedBy);
             for (const digest of orphanedImages) {
                 this.deleteSet.add(digest);
                 this.filterSet.delete(digest);

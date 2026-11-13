@@ -213,7 +213,8 @@ export class CleanupOrchestrator {
     if (this.config.deleteOrphanedImages) {
       const orphanedImages = this.imageValidator.findOrphanedImages(
         this.subjectReferrers,
-        this.excludeTags
+        this.excludeTags,
+        this.digestUsedBy
       )
       for (const digest of orphanedImages) {
         this.deleteSet.add(digest)

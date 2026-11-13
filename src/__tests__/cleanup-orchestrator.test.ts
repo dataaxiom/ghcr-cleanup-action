@@ -446,6 +446,13 @@ describe('CleanupOrchestrator', () => {
       config.deleteOrphanedImages = true
       mockImageFilter.applyExclusionFilters.mockReturnValue(['sha256-abc.sig'])
       mockImageValidator.findOrphanedImages.mockReturnValue(new Set())
+      // The child -> parents map, so an orphan with an excluded child is
+      // kept rather than cascade-deleting that child.
+      const digestUsedBy = new Map([['sha256:child', new Set(['sha256:p'])]])
+      mockManifestAnalyzer.loadDigestUsedByMap.mockResolvedValue({
+        digestUsedBy,
+        subjectReferrers: new Map()
+      })
       // reload() (run's beforeEach) captured excludeTags before this
       // override; re-run it so the new exclude list is picked up.
       await orchestrator.reload()
@@ -454,7 +461,8 @@ describe('CleanupOrchestrator', () => {
 
       expect(mockImageValidator.findOrphanedImages).toHaveBeenCalledWith(
         expect.any(Map),
-        ['sha256-abc.sig']
+        ['sha256-abc.sig'],
+        digestUsedBy
       )
     })
 

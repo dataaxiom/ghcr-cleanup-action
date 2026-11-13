@@ -3,6 +3,7 @@ import { Config, LogLevel } from './config.js'
 import axios, { AxiosError, AxiosInstance, isAxiosError } from 'axios'
 import axiosRetry from 'axios-retry'
 import * as AxiosLogger from 'axios-logger'
+import { createHash } from 'crypto'
 import { isValidChallenge, parseChallenge, Manifest } from './utils.js'
 import { setGlobalConfig } from 'axios-logger'
 import { PackageRepo } from './package-repo.js'
@@ -144,6 +145,10 @@ export class Registry {
             const tokenResponse = await this.fetchRegistryToken(attributes)
             const token = tokenResponse.token
             if (token) {
+              // Mask the exchanged registry token like the input token: it
+              // rides in the default Authorization header, so any error dump
+              // that includes request config would otherwise print it.
+              core.setSecret(token)
               this.axios.defaults.headers.common['Authorization'] =
                 `Bearer ${token}`
               if (this.config.logLevel === LogLevel.DEBUG) {
@@ -273,15 +278,22 @@ export class Registry {
    * @param tag - The tag of the manifest.
    * @param manifest - The manifest to be put.
    * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
-   * @returns A Promise that resolves when the manifest is successfully put in the registry.
+   * @returns The digest (`sha256:<hex>`) of the exact bytes sent — the
+   *   digest of the version the registry creates for this PUT.
    */
   async putManifest(
     tag: string,
     manifest: Manifest,
     multiArch: boolean
-  ): Promise<void> {
+  ): Promise<string> {
+    // Serialize once and send exactly these bytes, so the returned digest
+    // is the one the registry stores (a manifest's digest is the sha256 of
+    // its exact bytes). Callers use it to identify the version this PUT
+    // created without trusting whatever the tag later resolves to.
+    const body = Buffer.from(JSON.stringify(manifest), 'utf8')
+    const digest = `sha256:${createHash('sha256').update(body).digest('hex')}`
     if (this.config.dryRun) {
-      return
+      return digest
     }
 
     const contentType = manifest.mediaType
@@ -292,8 +304,8 @@ export class Registry {
     const cached = this.getCachedPushToken()
     if (cached) {
       try {
-        await this.putManifestWithToken(tag, manifest, contentType, cached)
-        return
+        await this.putManifestWithToken(tag, body, contentType, cached)
+        return digest
       } catch (error) {
         if (isAxiosError(error) && error.response?.status === 401) {
           // Token rejected (likely server-side revocation or rotation
@@ -311,11 +323,11 @@ export class Registry {
     try {
       await this.authClient.put(
         `${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
-        manifest,
+        body,
         { headers: { 'Content-Type': contentType } }
       )
       // No challenge issued — upload already succeeded
-      return
+      return digest
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 401) {
         const challenge = error.response.headers['www-authenticate']
@@ -339,12 +351,14 @@ export class Registry {
             { cause: error }
           )
         }
+        core.setSecret(token)
         this.cachePushToken(token, tokenResponse.expires_in)
-        await this.putManifestWithToken(tag, manifest, contentType, token)
+        await this.putManifestWithToken(tag, body, contentType, token)
       } else {
         throw error
       }
     }
+    return digest
   }
 
   /**
@@ -354,13 +368,13 @@ export class Registry {
    */
   private async putManifestWithToken(
     tag: string,
-    manifest: Manifest,
+    body: Buffer,
     contentType: string | undefined,
     token: string
   ): Promise<void> {
     await this.axios.put(
       `/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
-      manifest,
+      body,
       {
         headers: {
           'content-type': contentType,

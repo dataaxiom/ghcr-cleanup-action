@@ -1,7 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createHash } from 'crypto'
+import * as core from '@actions/core'
 import axiosRetry from 'axios-retry'
 import { Registry } from '../registry'
 import { Config, LogLevel } from '../config'
+
+// Resolve to the rejection reason of `promise` (fails if it resolves).
+async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise
+  } catch (error) {
+    return error
+  }
+  throw new Error('expected the promise to reject')
+}
 
 // Single shared mock axios instance returned from every axios.create() call.
 // Lets each test override .get/.put behavior per call.
@@ -132,6 +144,8 @@ describe('Registry', () => {
       expect(mockAxiosInstance.defaults.headers.common['Authorization']).toBe(
         'Bearer abc'
       )
+      // The exchanged token is masked like the input token.
+      expect(core.setSecret).toHaveBeenCalledWith('abc')
     })
 
     it('throws when the 401 response lacks a valid challenge', async () => {
@@ -186,13 +200,14 @@ describe('Registry', () => {
     it('throws a clear error when a 401 has no www-authenticate header', async () => {
       // Proxy / misconfigured registry-url can 401 without a challenge;
       // must not crash with an opaque "Cannot read properties of undefined".
-      mockAxiosInstance.get.mockRejectedValueOnce(
-        fakeAxiosError({ status: 401, headers: {} })
-      )
+      const the401 = fakeAxiosError({ status: 401, headers: {} })
+      mockAxiosInstance.get.mockRejectedValueOnce(the401)
 
-      await expect(registry.login('pkg')).rejects.toThrow(
+      const err = await rejectionOf(registry.login('pkg'))
+      expect((err as Error).message).toMatch(
         /401 without a www-authenticate challenge/
       )
+      expect((err as Error).cause).toBe(the401)
     })
 
     it('rethrows non-axios errors', async () => {
@@ -393,11 +408,19 @@ describe('Registry', () => {
       mockAxiosInstance.put.mockClear()
     })
 
-    it('skips entirely in dry-run mode', async () => {
+    const sha256 = (bytes: Buffer): string =>
+      `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+
+    it('skips the network in dry-run mode but still returns the digest', async () => {
       config.dryRun = true
 
-      await registry.putManifest('latest', { mediaType: 'x' }, false)
+      const digest = await registry.putManifest(
+        'latest',
+        { mediaType: 'x' },
+        false
+      )
 
+      expect(digest).toBe(sha256(Buffer.from('{"mediaType":"x"}')))
       expect(mockAxiosInstance.put).not.toHaveBeenCalled()
       expect(mockAxiosInstance.get).not.toHaveBeenCalled()
     })
@@ -407,11 +430,18 @@ describe('Registry', () => {
       // on this path even though the upload succeeded.
       mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
 
-      await expect(
-        registry.putManifest('latest', { mediaType: 'x' }, false)
-      ).resolves.toBeUndefined()
+      const digest = await registry.putManifest(
+        'latest',
+        { mediaType: 'x' },
+        false
+      )
 
       expect(mockAxiosInstance.put).toHaveBeenCalledTimes(1)
+      // It sends one serialized Buffer and returns that Buffer's sha256 —
+      // the digest the registry assigns to the version it creates.
+      const sent = mockAxiosInstance.put.mock.calls[0][1]
+      expect(Buffer.isBuffer(sent)).toBe(true)
+      expect(digest).toBe(sha256(sent))
     })
 
     it('on 401, fetches a push token and retries the PUT with auth', async () => {
@@ -429,12 +459,21 @@ describe('Registry', () => {
       })
       mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
 
-      await registry.putManifest('latest', { mediaType: 'x' }, false)
+      const digest = await registry.putManifest(
+        'latest',
+        { mediaType: 'x' },
+        false
+      )
 
       expect(mockAxiosInstance.put).toHaveBeenCalledTimes(2)
       // Second PUT should carry the push token in its Authorization header
       const secondPutCall = mockAxiosInstance.put.mock.calls[1]
       expect(secondPutCall[2].headers.Authorization).toBe('Bearer push-token')
+      // Both PUTs send the same bytes, and the digest is of those bytes.
+      expect(secondPutCall[1]).toBe(mockAxiosInstance.put.mock.calls[0][1])
+      expect(digest).toBe(sha256(secondPutCall[1]))
+      // The exchanged push token is masked.
+      expect(core.setSecret).toHaveBeenCalledWith('push-token')
     })
 
     it('throws if the 401 challenge produces no token', async () => {
@@ -465,13 +504,16 @@ describe('Registry', () => {
     })
 
     it('throws a clear error when a push 401 has no www-authenticate header', async () => {
-      mockAxiosInstance.put.mockRejectedValueOnce(
-        fakeAxiosError({ status: 401, headers: {} })
-      )
+      const the401 = fakeAxiosError({ status: 401, headers: {} })
+      mockAxiosInstance.put.mockRejectedValueOnce(the401)
 
-      await expect(
+      const err = await rejectionOf(
         registry.putManifest('latest', { mediaType: 'x' }, false)
-      ).rejects.toThrow(/401 without a www-authenticate challenge/)
+      )
+      expect((err as Error).message).toMatch(
+        /401 without a www-authenticate challenge/
+      )
+      expect((err as Error).cause).toBe(the401)
     })
 
     it('reuses a cached push token across calls without re-exchanging on 401', async () => {
@@ -494,7 +536,11 @@ describe('Registry', () => {
 
       // Second PUT: should use the cached token and skip the challenge.
       mockAxiosInstance.put.mockResolvedValueOnce({ status: 201 })
-      await registry.putManifest('tag2', { mediaType: 'x' }, false)
+      const digest2 = await registry.putManifest(
+        'tag2',
+        { mediaType: 'y' },
+        false
+      )
 
       // Only one token-exchange GET across both putManifest calls.
       expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
@@ -504,6 +550,9 @@ describe('Registry', () => {
       // tag2's PUT carried the cached bearer token from the start.
       const tag2Call = mockAxiosInstance.put.mock.calls[2]
       expect(tag2Call[2].headers.Authorization).toBe('Bearer push-token')
+      // The fast path also sends exactly the bytes whose digest it returns.
+      expect(tag2Call[1]).toEqual(Buffer.from('{"mediaType":"y"}'))
+      expect(digest2).toBe(sha256(tag2Call[1]))
     })
 
     it('drops a cached token that the server later rejects and re-exchanges', async () => {

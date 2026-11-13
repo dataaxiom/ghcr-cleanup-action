@@ -22,7 +22,7 @@ const UNTAG_WRITE_CONCURRENCY = 5
 // freshly-created placeholder can lag — and until it appears, the tag
 // still resolves to its SOURCE image. Each attempt is a full reload;
 // between attempts we back off (linearly) to give ghcr time to converge.
-const UNTAG_RELOAD_MAX_ATTEMPTS = 4
+const UNTAG_RELOAD_MAX_ATTEMPTS = 6
 const UNTAG_RELOAD_BACKOFF_MS = 1000
 
 // Concurrency for child/referrer deletes spawned by a single deleteImage
@@ -61,9 +61,10 @@ export class ImageDeleter {
    * Strategy: each tag we want to strip gets a freshly-annotated empty
    * manifest PUT under it. The unique annotation (timestamp + tag name)
    * makes every PUT body byte-distinct, so every PUT lands as its own
-   * package version with its own digest. We can then issue ONE
-   * loadPackages to discover all the new version IDs, and batch the
-   * deletes. This replaces an older per-tag PUT→reload→delete loop that
+   * package version with its own digest. putManifest returns that
+   * digest, so each placeholder is identified exactly — never by what
+   * its tag happens to resolve to. We then reload to discover the new
+   * version IDs and batch the deletes. This replaces an older per-tag PUT→reload→delete loop that
    * paid a full loadPackages round-trip per tag — catastrophic on large
    * repos where each reload is ~600 paginated API calls.
    */
@@ -135,6 +136,9 @@ export class ImageDeleter {
       }
     )
 
+    // tag → digest of the placeholder version its PUT created. A tag maps
+    // to exactly one source image, so the tag is a unique job key.
+    const placeholderDigests = new Map<string, string>()
     await runWithConcurrency(
       jobs,
       UNTAG_WRITE_CONCURRENCY,
@@ -162,7 +166,10 @@ export class ImageDeleter {
         }
 
         core.info(`${tag}`)
-        await this.context.registry.putManifest(tag, newManifest, isMultiArch)
+        placeholderDigests.set(
+          tag,
+          await this.context.registry.putManifest(tag, newManifest, isMultiArch)
+        )
       }
     )
 
@@ -171,85 +178,89 @@ export class ImageDeleter {
     // the live image digests and log them as being deleted — a
     // misleading preview (a real run deletes only the newly-created
     // placeholder versions). The tag list logged above is the preview.
+    // Instead, record the untags so the caller's reload sees the listing
+    // a live run would see (those tags gone), and its second pass stages
+    // the same deletions a live run would.
     if (this.context.config.dryRun) {
+      this.context.packageRepo.simulateUntag(jobs.map(j => j.tag))
       core.endGroup()
       return true
     }
 
-    // Discover the newly-created placeholder versions so we can delete
-    // them. Because the Packages API list is eventually consistent with
-    // the registry PUTs above, a placeholder may not appear immediately —
-    // and until it does, its tag still resolves to the SOURCE image.
-    // Deleting on that stale view would remove the source image and its
-    // other (unmatched, possibly excluded) tags instead of the empty
-    // placeholder. So reload until every tag resolves to a digest that
-    // differs from its source, retrying a few times; a whole-list reload
-    // re-checks every pending tag at once, since staleness is a property
-    // of the snapshot, not of individual tags.
-    const stillOnSource = ({ manifestDigest, tag }: UntagJob): boolean => {
-      const resolved = this.context.packageRepo.getDigestByTag(tag)
-      return resolved === undefined || resolved === manifestDigest
-    }
-
-    let unresolved = jobs
+    // Discover the placeholder versions so we can delete them. The
+    // Packages API list is eventually consistent with the registry PUTs
+    // above, so a placeholder may not be listed immediately; reload until
+    // every one is, retrying a few times. A whole-list reload re-checks
+    // every pending placeholder at once, since staleness is a property of
+    // the snapshot, not of individual tags.
+    //
+    // A placeholder is matched by its exact digest (returned by the PUT),
+    // never by what its tag resolves to: on a stale or racing listing the
+    // tag can still resolve to the SOURCE image, or to a different image
+    // pushed under the same tag meanwhile — deleting either would remove
+    // an image (and its other, possibly excluded, tags) the user never
+    // asked to delete. Each placeholder's bytes are unique (tag + stamp
+    // annotation), so a version with that digest can only be ours.
+    const placeholderIds = new Map<string, number>()
+    let pending = jobs
     for (let attempt = 1; ; attempt++) {
       await this.context.packageRepo.loadPackages(
         this.context.targetPackage,
         false
       )
-      unresolved = unresolved.filter(stillOnSource)
-      if (unresolved.length === 0 || attempt >= UNTAG_RELOAD_MAX_ATTEMPTS) {
+      for (const { tag } of pending) {
+        const digest = placeholderDigests.get(tag)
+        const id = digest
+          ? this.context.packageRepo.getIdByDigest(digest)
+          : undefined
+        if (id !== undefined) {
+          placeholderIds.set(tag, id)
+        }
+      }
+      pending = pending.filter(j => !placeholderIds.has(j.tag))
+      if (pending.length === 0 || attempt >= UNTAG_RELOAD_MAX_ATTEMPTS) {
         break
       }
       core.info(
-        `Untag: ${unresolved.length} placeholder(s) not yet listed; reloading (attempt ${attempt}/${UNTAG_RELOAD_MAX_ATTEMPTS})`
+        `Untag: ${pending.length} placeholder(s) not yet listed; reloading (attempt ${attempt}/${UNTAG_RELOAD_MAX_ATTEMPTS})`
       )
       await sleep(UNTAG_RELOAD_BACKOFF_MS * attempt)
     }
 
-    // Any tag still pointing at its source image never had its placeholder
-    // become visible. Skip its delete rather than remove the source image;
-    // the empty placeholder is harmless and gets reclaimed on a later run.
-    const skipTags = new Set(unresolved.map(j => j.tag))
-    for (const tag of skipTags) {
-      core.warning(
-        `Untag "${tag}": the empty placeholder never appeared in the package list, so its tag still resolves to the source image. Skipping its delete this run to avoid removing the source image; it will be reclaimed on a subsequent run.`
-      )
-    }
-
-    // Delete the placeholder versions (those that resolved to a fresh
-    // digest) in parallel.
-    const deletable = jobs.filter(j => !skipTags.has(j.tag))
+    // Delete the confirmed placeholder versions in parallel. The id was
+    // captured when its digest was listed, so a later stale snapshot
+    // can't redirect the delete.
     await runWithConcurrency(
-      deletable,
+      jobs.filter(j => placeholderIds.has(j.tag)),
       UNTAG_WRITE_CONCURRENCY,
-      async ({ manifestDigest, tag }) => {
-        const untaggedDigest = this.context.packageRepo.getDigestByTag(tag)
-        // Belt-and-braces: never delete a version whose tag still resolves
-        // to the source image, even if the map shifted since the filter.
-        if (!untaggedDigest || untaggedDigest === manifestDigest) {
-          core.info(
-            `couldn't find newly created package for tag ${tag} to delete`
-          )
-          return
-        }
-        const id = this.context.packageRepo.getIdByDigest(untaggedDigest)
-        if (!id) {
-          core.info(
-            `couldn't find newly created package with digest ${untaggedDigest} to delete`
-          )
-          return
-        }
+      async ({ tag }) => {
         await this.context.packageRepo.deletePackageVersion(
           this.context.targetPackage,
-          id,
-          untaggedDigest,
+          placeholderIds.get(tag) as number,
+          placeholderDigests.get(tag) as string,
           [tag]
         )
       }
     )
 
     core.endGroup()
+
+    // A placeholder that never appeared was not deleted: its tag still
+    // exists in the registry (pointing at the empty placeholder), so the
+    // untag this run was asked to do is incomplete. Fail loudly rather
+    // than report success — and rather than leave the rest of the run
+    // (e.g. keep-n-tagged) acting on a listing that is still catching up.
+    // Nothing else was deleted for these tags; the source image is intact.
+    if (pending.length > 0) {
+      const left = pending
+        .map(
+          ({ tag }) => `"${tag}" (placeholder ${placeholderDigests.get(tag)})`
+        )
+        .join(', ')
+      throw new Error(
+        `Untag incomplete: the empty placeholder version for ${left} never appeared in the package list after ${UNTAG_RELOAD_MAX_ATTEMPTS} reloads, so it was not deleted. The source image was not touched. The tag still exists and now points at the empty placeholder; re-run the cleanup once the package list has caught up.`
+      )
+    }
     return true
   }
 

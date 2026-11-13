@@ -402,6 +402,27 @@ describe('Config', () => {
       )
     })
 
+    it('warns when a regex-mode exclude-tags pattern is unanchored', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'exclude-tags': 'latest',
+          'use-regex': 'true'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name === 'use-regex'
+      )
+
+      await buildConfig()
+
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/^exclude-tags:.*unanchored/)
+      )
+    })
+
     it('warns about an unanchored package pattern (expand-packages + regex)', async () => {
       // The third wired branch: config.expandPackages && config.package.
       process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'

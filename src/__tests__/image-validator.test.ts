@@ -475,6 +475,86 @@ describe('ImageValidator', () => {
       expect(result).toContain('orphan-swept')
     })
 
+    it('keeps an orphaned index whose child is excluded (deleting it would cascade into the child)', () => {
+      // sha256-<missing>-tagged fallback index O lists attestation att,
+      // which the user excluded by digest. att isn't staged (excluded),
+      // and O mustn't be either: the cascade would delete att with it. A
+      // second orphan with no excluded child is still collected.
+      const missing =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      const other =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+      mockPackageRepo.getTags.mockReturnValue([
+        `sha256-${missing}`,
+        `sha256-${other}.sig`
+      ])
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) =>
+        digest === 'sha256:att' ? 7 : undefined
+      )
+      mockPackageRepo.getDigestByTag.mockImplementation((tag: string) => {
+        if (tag === `sha256-${missing}`) return 'sha256:index'
+        if (tag === `sha256-${other}.sig`) return 'sha256:other-orphan'
+        return undefined
+      })
+      mockPackageRepo.getPackageByDigest.mockReturnValue(undefined)
+
+      const result = validator.findOrphanedImages(
+        new Map(),
+        ['sha256:att'],
+        new Map([['sha256:att', new Set(['sha256:index'])]])
+      )
+
+      expect(result).not.toContain('sha256:index')
+      expect(result).toContain('sha256:other-orphan')
+    })
+
+    it('keeps an orphaned index whose child is excluded by one of its tags', () => {
+      const missing =
+        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+      mockPackageRepo.getTags.mockReturnValue([`sha256-${missing}`, 'keep-att'])
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) =>
+        digest === 'sha256:att' ? 7 : undefined
+      )
+      mockPackageRepo.getDigestByTag.mockImplementation((tag: string) => {
+        if (tag === `sha256-${missing}`) return 'sha256:index'
+        if (tag === 'keep-att') return 'sha256:att'
+        return undefined
+      })
+      mockPackageRepo.getPackageByDigest.mockReturnValue(undefined)
+
+      const result = validator.findOrphanedImages(
+        new Map(),
+        ['keep-att'],
+        new Map([['sha256:att', new Set(['sha256:index'])]])
+      )
+
+      expect(result).not.toContain('sha256:index')
+    })
+
+    it('does not orphan-delete a subject-referrer one of whose tags is excluded', () => {
+      const missingSubject = 'sha256:missing-subject'
+      const referrerDigest = 'sha256:referrer'
+      mockPackageRepo.getTags.mockReturnValue([])
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) =>
+        digest === missingSubject ? undefined : 'referrer-id'
+      )
+      mockPackageRepo.getPackageByDigest.mockImplementation((digest: string) =>
+        digest === referrerDigest
+          ? {
+              name: referrerDigest,
+              metadata: { container: { tags: ['keep-me'] } }
+            }
+          : undefined
+      )
+
+      const result = validator.findOrphanedImages(
+        new Map([[missingSubject, new Set([referrerDigest])]]),
+        ['keep-me']
+      )
+
+      expect(result.size).toBe(0)
+    })
+
     it('does not orphan-delete a subject-referrer whose digest is excluded', () => {
       const missingSubject = 'sha256:missing-subject'
       const referrerDigest = 'sha256:referrer'

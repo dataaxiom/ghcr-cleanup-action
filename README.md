@@ -162,15 +162,15 @@ when the target package isn't linked to any repository at all.
 
 ### Other
 
-| Option              | Default                  | Description                                                                                                                                                                                                                                              |
-| ------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `use-regex`         | `false`                  | Treat `delete-tags`, `exclude-tags`, and `package(s)` as regular expression patterns. Unlike wildcard mode, patterns are unanchored: they match anywhere in the value (`1.0` also matches `21.0.5`). Use `^...$` to match the whole tag or package name. |
-| `skip-regex-checks` | `false`                  | Skip the length and ReDoS safety checks on regular expression patterns. Use only for intentionally large/complex patterns.                                                                                                                               |
-| `dry-run`           | `false`                  | Log everything that would be deleted without making changes.                                                                                                                                                                                             |
-| `validate`          | `false`                  | After cleanup, verify all multi-arch images have their platform children.                                                                                                                                                                                |
-| `registry-url`      | `https://ghcr.io/`       | Container registry URL.                                                                                                                                                                                                                                  |
-| `github-api-url`    | `https://api.github.com` | GitHub API URL.                                                                                                                                                                                                                                          |
-| `log-level`         | `info`                   | One of `error`, `warn`, `info`, `debug`.                                                                                                                                                                                                                 |
+| Option              | Default                  | Description                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `use-regex`         | `false`                  | Treat `delete-tags`, `exclude-tags`, and `package(s)` as regular expression patterns. Unlike wildcard mode, patterns are unanchored: they match anywhere in the value (`1.0` also matches `21.0.5`). Use `^...$` to match the whole tag or package name, and escape dots in version tags (`^v1\.0$`): an unescaped `.` matches any character, so `^v1.0$` also matches `v1x0`. See [Regular expression patterns](#regular-expression-patterns). |
+| `skip-regex-checks` | `false`                  | Skip the length and ReDoS safety checks on regular expression patterns. Use only for intentionally large/complex patterns.                                                                                                                                                                                                                                                                                                                      |
+| `dry-run`           | `false`                  | Log everything that would be deleted without making changes.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `validate`          | `false`                  | After cleanup, verify all multi-arch images have their platform children.                                                                                                                                                                                                                                                                                                                                                                       |
+| `registry-url`      | `https://ghcr.io/`       | Container registry URL.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `github-api-url`    | `https://api.github.com` | GitHub API URL.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `log-level`         | `info`                   | One of `error`, `warn`, `info`, `debug`.                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ### Conventions
 
@@ -189,12 +189,21 @@ when the target package isn't linked to any repository at all.
 
 Deletes the matching tags. If a tag points to an image that also has other tags,
 the action unlinks the tag without deleting the underlying image — the image is
-removed only once all its tags are gone.
+removed only once all its tags are gone. Unlinking moves the tag to an empty
+placeholder version and then deletes that placeholder; if GitHub's package list
+hasn't caught up within a few seconds, the run fails without deleting anything
+else for that tag, and re-running finishes the job.
 
 ### `exclude-tags`
 
 Tags listed here are excluded from every other rule. Useful as a safety net
 alongside `keep-n-tagged` or `older-than`.
+
+Exclusion protects whole images: exclude a multi-arch image, or a signed image,
+by its own tag and its platform images, signatures and attestations are kept
+with it. Those parts are not protected on their own — when an image is deleted,
+its platform images and referrers are deleted with it, even if one of them
+matches `exclude-tags`.
 
 ```yaml
 with:
@@ -244,6 +253,30 @@ Clean up multi-architecture images whose platform children are missing. Run with
 
 Finds tagged images named `sha256-…` whose corresponding `sha256:` digest no
 longer exists, and deletes them. Catches stranded referrer and cosign artifacts.
+An orphan that matches `exclude-tags`, or contains an attestation or platform
+image that does, is kept.
+
+### Regular expression patterns
+
+With `use-regex: true`, `delete-tags`, `exclude-tags` and `package(s)` are
+JavaScript regular expressions, tested against each tag (and each image digest)
+with no implicit anchoring. Two things catch people out:
+
+- **Anchor the pattern.** `1.0` matches anywhere, including `21.0.5`. Write
+  `^...$` to match the whole tag.
+- **Escape dots.** `.` matches any character, so `^v1.0$` also matches `v1x0`,
+  and a loose pattern can even match inside a `sha256:` digest. Write `\.` for a
+  literal dot: `^v1\.0$`.
+
+Use a plain or single-quoted YAML value so the backslash reaches the action
+unchanged (in a double-quoted value, write `\\.`):
+
+```yaml
+with:
+  use-regex: true
+  exclude-tags: '^(latest|v1\.0)$'
+  delete-tags: '^pr-\d+$'
+```
 
 ## Token setup
 

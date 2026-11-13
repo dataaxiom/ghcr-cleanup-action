@@ -49899,7 +49899,15 @@ async function run() {
         }
     }
 }
-await run();
+// Report only the message: an uncaught error would be printed by Node's
+// inspector with its whole cause chain, and an AxiosError cause carries
+// request config, including the Authorization header.
+try {
+    await run();
+}
+catch (error) {
+    _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(error instanceof Error ? error.message : String(error));
+}
 
 __webpack_async_result__();
 } catch(e) { __webpack_async_result__(e); } }, 1);
@@ -49969,8 +49977,10 @@ class Config {
 async function buildConfig() {
     const token = core.getInput('token', { required: true });
     // Register the token with the runner's log masker. Values arriving via
-    // ${{ secrets.* }} are masked already; this covers any that didn't
-    // (hardcoded, or passed through an env/output chain that broke the taint).
+    // ${{ secrets.* }} are masked already; this masks any later occurrence in
+    // the job log of one that wasn't (hardcoded, or passed through an
+    // env/output chain that broke the taint). It can't retroactively mask the
+    // step's `with:` echo, which the runner prints before the action starts.
     core.setSecret(token);
     const config = new Config();
     config.token = token;
@@ -55649,6 +55659,10 @@ class PackageRepo {
     // Populated by loadPackages so the analyzer/deleter don't have to do
     // an O(N×T) scan over every tag for every digest they process.
     referrerTagsByParent = new Map();
+    // Dry-run only: tags a simulated untag removed. Re-applied after every
+    // load so the preview sees the listing a live run would see once its
+    // untag landed (see simulateUntag).
+    simulatedUntags = new Set();
     /**
      * Constructor
      *
@@ -55748,6 +55762,7 @@ class PackageRepo {
                     ingestPage(response.data);
                 });
             }
+            this.applySimulatedUntags();
             // Build the fallback-tag-by-parent reverse index in one pass after
             // the maps are populated. The three call sites that need this
             // (image-deleter cascade, manifest-analyzer initFilterSet /
@@ -55817,6 +55832,38 @@ class PackageRepo {
      * Return all tags in use for the package
      * @returns The tags for the package
      */
+    /**
+     * Dry run only: record that `tags` were untagged, and drop them from the
+     * current listing. A live untag moves each tag to a placeholder and then
+     * deletes it, so after the follow-up reload those tags are gone from
+     * their images — and a multi-tag image left with only matched tags gets
+     * deleted on the second pass. A dry run makes no PUTs, so without this
+     * the reload would still list the tags and the preview would omit that
+     * deletion. The removal is re-applied on every later load this run.
+     */
+    simulateUntag(tags) {
+        if (!this.config.dryRun) {
+            throw new Error('simulateUntag is only valid in dry-run mode');
+        }
+        for (const tag of tags) {
+            this.simulatedUntags.add(tag);
+        }
+        this.applySimulatedUntags();
+    }
+    applySimulatedUntags() {
+        for (const tag of this.simulatedUntags) {
+            const digest = this.tag2Digest.get(tag);
+            if (digest === undefined)
+                continue;
+            this.tag2Digest.delete(tag);
+            const id = this.digest2Id.get(digest);
+            const ghPackage = id === undefined ? undefined : this.id2Package.get(id);
+            if (ghPackage) {
+                ghPackage.metadata.container.tags =
+                    ghPackage.metadata.container.tags.filter(t => t !== tag);
+            }
+        }
+    }
     getTags() {
         return new Set(this.tag2Digest.keys());
     }
@@ -119629,6 +119676,7 @@ function reconstituteManifest(distilled) {
 
 
 
+
 /**
  * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
  */
@@ -119739,6 +119787,10 @@ class Registry {
                         const tokenResponse = await this.fetchRegistryToken(attributes);
                         const token = tokenResponse.token;
                         if (token) {
+                            // Mask the exchanged registry token like the input token: it
+                            // rides in the default Authorization header, so any error dump
+                            // that includes request config would otherwise print it.
+                            lib_core/* setSecret */.Pq(token);
                             this.axios.defaults.headers.common['Authorization'] =
                                 `Bearer ${token}`;
                             if (this.config.logLevel === src_config/* LogLevel */.$b.DEBUG) {
@@ -119853,11 +119905,18 @@ class Registry {
      * @param tag - The tag of the manifest.
      * @param manifest - The manifest to be put.
      * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
-     * @returns A Promise that resolves when the manifest is successfully put in the registry.
+     * @returns The digest (`sha256:<hex>`) of the exact bytes sent — the
+     *   digest of the version the registry creates for this PUT.
      */
     async putManifest(tag, manifest, multiArch) {
+        // Serialize once and send exactly these bytes, so the returned digest
+        // is the one the registry stores (a manifest's digest is the sha256 of
+        // its exact bytes). Callers use it to identify the version this PUT
+        // created without trusting whatever the tag later resolves to.
+        const body = Buffer.from(JSON.stringify(manifest), 'utf8');
+        const digest = `sha256:${(0,external_crypto_.createHash)('sha256').update(body).digest('hex')}`;
         if (this.config.dryRun) {
-            return;
+            return digest;
         }
         const contentType = manifest.mediaType;
         // Fast path: a cached push token from a previous PUT this run. Skip
@@ -119866,8 +119925,8 @@ class Registry {
         const cached = this.getCachedPushToken();
         if (cached) {
             try {
-                await this.putManifestWithToken(tag, manifest, contentType, cached);
-                return;
+                await this.putManifestWithToken(tag, body, contentType, cached);
+                return digest;
             }
             catch (error) {
                 if (axios_isAxiosError(error) && error.response?.status === 401) {
@@ -119884,9 +119943,9 @@ class Registry {
         // for a fresh push token, then PUT again with the token. The
         // challenge body carries the realm/service/scope we need.
         try {
-            await this.authClient.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, { headers: { 'Content-Type': contentType } });
+            await this.authClient.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, body, { headers: { 'Content-Type': contentType } });
             // No challenge issued — upload already succeeded
-            return;
+            return digest;
         }
         catch (error) {
             if (axios_isAxiosError(error) && error.response?.status === 401) {
@@ -119905,21 +119964,23 @@ class Registry {
                 if (!token) {
                     throw new Error('failed to obtain push token from authentication challenge', { cause: error });
                 }
+                lib_core/* setSecret */.Pq(token);
                 this.cachePushToken(token, tokenResponse.expires_in);
-                await this.putManifestWithToken(tag, manifest, contentType, token);
+                await this.putManifestWithToken(tag, body, contentType, token);
             }
             else {
                 throw error;
             }
         }
+        return digest;
     }
     /**
      * PUT a manifest body to `<tag>` using the supplied bearer token.
      * Extracted so both the cached-token fast path and the
      * challenge-response cold path share the same call shape.
      */
-    async putManifestWithToken(tag, manifest, contentType, token) {
-        await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, manifest, {
+    async putManifestWithToken(tag, body, contentType, token) {
+        await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, body, {
             headers: {
                 'content-type': contentType,
                 Authorization: `Bearer ${token}`
@@ -120655,11 +120716,12 @@ __nccwpck_require__.d(__webpack_exports__, {
   N4: () => (/* binding */ endGroup),
   pq: () => (/* binding */ info),
   C1: () => (/* binding */ setFailed),
+  Pq: () => (/* binding */ core_setSecret),
   Oh: () => (/* binding */ startGroup),
   $e: () => (/* binding */ warning)
 });
 
-// UNUSED EXPORTS: ExitCode, addPath, debug, error, exportVariable, getBooleanInput, getIDToken, getInput, getMultilineInput, getState, group, isDebug, markdownSummary, notice, platform, saveState, setCommandEcho, setOutput, setSecret, summary, toPlatformPath, toPosixPath, toWin32Path
+// UNUSED EXPORTS: ExitCode, addPath, debug, error, exportVariable, getBooleanInput, getIDToken, getInput, getMultilineInput, getState, group, isDebug, markdownSummary, notice, platform, saveState, setCommandEcho, setOutput, summary, toPlatformPath, toPosixPath, toWin32Path
 
 // EXTERNAL MODULE: external "os"
 var external_os_ = __nccwpck_require__(857);
@@ -121370,7 +121432,7 @@ function exportVariable(name, val) {
  * ```
  */
 function core_setSecret(secret) {
-    issueCommand('add-mask', {}, secret);
+    command_issueCommand('add-mask', {}, secret);
 }
 /**
  * Prepends inputPath to the PATH (for this action and future actions)

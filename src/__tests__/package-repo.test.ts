@@ -12,6 +12,16 @@ import { PackageRepo, parseLastPageFromLinkHeader } from '../package-repo'
 import { Config, LogLevel } from '../config'
 import { OctokitClient } from '../octokit-client'
 
+// Resolve to the rejection reason of `promise` (fails if it resolves).
+async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise
+  } catch (error) {
+    return error
+  }
+  throw new Error('expected the promise to reject')
+}
+
 vi.mock('@actions/core')
 
 interface MockPackages {
@@ -159,6 +169,46 @@ describe('PackageRepo', () => {
       expect(repo.tag2Digest.get('v1')).toBe('sha256:aaa')
       expect(repo.tag2Digest.get('latest')).toBe('sha256:aaa')
       expect(repo.tag2Digest.get('v2')).toBe('sha256:bbb')
+    })
+
+    it('dry-run simulateUntag drops the tags now and re-applies on every later load', async () => {
+      const repo = new PackageRepo(buildConfig({ dryRun: true }), octokitClient)
+      const page = (): unknown[] => [
+        buildPackageVersion(1, 'sha256:s', ['a', 'b']),
+        buildPackageVersion(2, 'sha256:t', ['c'])
+      ]
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: page() }]
+      )
+      await repo.loadPackages('pkg', false)
+
+      repo.simulateUntag(['a'])
+      expect(repo.getDigestByTag('a')).toBeUndefined()
+      expect(
+        repo.getPackageByDigest('sha256:s')?.metadata.container.tags
+      ).toEqual(['b'])
+
+      // A fresh load (the orchestrator's post-untag reload) still lists
+      // 'a' — the dry run never PUT — but the simulation is re-applied.
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [{ data: page() }]
+      )
+      await repo.loadPackages('pkg', false)
+      expect(repo.getDigestByTag('a')).toBeUndefined()
+      expect(repo.getDigestByTag('b')).toBe('sha256:s')
+      expect(
+        repo.getPackageByDigest('sha256:s')?.metadata.container.tags
+      ).toEqual(['b'])
+      expect(
+        repo.getPackageByDigest('sha256:t')?.metadata.container.tags
+      ).toEqual(['c'])
+    })
+
+    it('refuses to simulate an untag outside dry-run', () => {
+      const repo = new PackageRepo(buildConfig(), octokitClient)
+      expect(() => repo.simulateUntag(['a'])).toThrow(/only valid in dry-run/)
     })
 
     it('clears existing maps before loading (re-entrant safe)', async () => {
@@ -756,6 +806,54 @@ describe('PackageRepo', () => {
         expect.stringContaining("wasn't found while trying to delete it")
       )
     })
+
+    it('keeps the DELETE 404 as the cause of the still-exists error', async () => {
+      const the404 = notFound('DELETE')
+      mockOctokit.rest.packages.deletePackageVersionForOrg.mockRejectedValueOnce(
+        the404
+      )
+      mockOctokit.rest.packages.getPackageVersionForOrganization.mockResolvedValueOnce(
+        { data: { id: 42 } }
+      )
+      const err = await rejectionOf(
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
+      )
+      expect(err).toBeInstanceOf(Error)
+      expect((err as Error).cause).toBe(the404)
+    })
+
+    it.each([
+      [
+        'User',
+        false,
+        'deletePackageVersionForUser',
+        'getPackageVersionForUser'
+      ],
+      [
+        'User',
+        true,
+        'deletePackageVersionForAuthenticatedUser',
+        'getPackageVersionForAuthenticatedUser'
+      ]
+    ] as const)(
+      'treats a soft-deleted version as gone on the %s endpoint (tokenOwnsPackage=%s)',
+      async (repoType, tokenOwnsPackage, del, get) => {
+        repo = new PackageRepo(
+          buildConfig({ repoType, tokenOwnsPackage }),
+          octokitClient
+        )
+        mockOctokit.rest.packages[del].mockRejectedValueOnce(notFound('DELETE'))
+        mockOctokit.rest.packages[get].mockResolvedValueOnce({
+          data: { id: 42, deleted_at: '2026-11-13T00:00:00Z' }
+        })
+        await expect(
+          repo.deletePackageVersion('pkg', 42, 'sha256:a')
+        ).resolves.toBeUndefined()
+        expect(core.warning).toHaveBeenCalledWith(
+          expect.stringContaining("wasn't found while trying to delete it")
+        )
+      }
+    )
 
     it('treats a null deleted_at as still existing', async () => {
       mockOctokit.rest.packages.deletePackageVersionForOrg.mockRejectedValueOnce(

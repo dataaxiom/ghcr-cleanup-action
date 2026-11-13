@@ -150,6 +150,19 @@ describe('main.run()', () => {
       expect(core.setFailed).toHaveBeenCalledWith('config blew up')
     })
 
+    it('reports only the message, never the cause chain (which can carry credentials)', async () => {
+      // An AxiosError cause carries request config, including the
+      // Authorization header. setFailed must get exactly the message.
+      const cause = {
+        config: { headers: { Authorization: 'Bearer secret-token' } }
+      }
+      mockBuildConfig.mockRejectedValueOnce(new Error('x', { cause }))
+
+      await run()
+
+      expect(core.setFailed).toHaveBeenCalledWith('x')
+    })
+
     it('does not call setFailed on success', async () => {
       await run()
       expect(core.setFailed).not.toHaveBeenCalled()
@@ -255,6 +268,27 @@ describe('main.run()', () => {
           expandPackages: true,
           useRegex: false,
           package: '*'
+        })
+      )
+      mockPackageRepo.getPackageList.mockResolvedValue([
+        'pkg-a',
+        'pkg-b',
+        'pkg-c'
+      ])
+
+      await run()
+
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining('matched all 3 packages')
+      )
+    })
+
+    it('warns in regex mode too, keyed on the outcome (".*" matches everything)', async () => {
+      mockBuildConfig.mockResolvedValue(
+        defaultConfig({
+          expandPackages: true,
+          useRegex: true,
+          package: '.*'
         })
       )
       mockPackageRepo.getPackageList.mockResolvedValue([

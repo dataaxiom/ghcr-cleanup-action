@@ -467,6 +467,49 @@ describe('utils', () => {
       expect(seen).toEqual([1, 2])
     })
 
+    it('stops peers from starting new items after one fails (concurrency > 1)', async () => {
+      // Worker A fails on item 0 straight away; worker B is busy with
+      // item 1. When B finishes it must see the failure and NOT pull
+      // items 2+ — the core fail-fast property, which concurrency 1 can't
+      // distinguish from the failing worker simply returning.
+      const started: number[] = []
+      await expect(
+        runWithConcurrency([0, 1, 2, 3], 2, async n => {
+          started.push(n)
+          if (n === 0) throw new Error('boom')
+          await new Promise(resolve => setTimeout(resolve, 20))
+        })
+      ).rejects.toThrow('boom')
+      expect(started).toEqual([0, 1])
+    })
+
+    it('rejects even when the worker throws a falsy value', async () => {
+      // Deliberately throwing non-Error values: a falsy rejection must
+      // still fail the batch rather than resolve as success.
+      await expect(
+        runWithConcurrency([1], 1, async () => {
+          // eslint-disable-next-line no-throw-literal
+          throw undefined
+        })
+      ).rejects.toBeUndefined()
+      await expect(
+        runWithConcurrency([1], 1, async () => {
+          // eslint-disable-next-line no-throw-literal
+          throw 0
+        })
+      ).rejects.toBe(0)
+    })
+
+    it('rethrows the first error, not a later one', async () => {
+      await expect(
+        runWithConcurrency([0, 1], 2, async n => {
+          if (n === 0) throw new Error('first')
+          await new Promise(resolve => setTimeout(resolve, 10))
+          throw new Error('second')
+        })
+      ).rejects.toThrow('first')
+    })
+
     it('drains in-flight workers before returning (no detached work)', async () => {
       // item 0 throws immediately; items 1 and 2 are already in flight
       // with a delay. The call must not settle until they finish — so by

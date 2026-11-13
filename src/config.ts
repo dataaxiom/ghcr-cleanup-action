@@ -55,8 +55,10 @@ export class Config {
 export async function buildConfig(): Promise<Config> {
   const token: string = core.getInput('token', { required: true })
   // Register the token with the runner's log masker. Values arriving via
-  // ${{ secrets.* }} are masked already; this covers any that didn't
-  // (hardcoded, or passed through an env/output chain that broke the taint).
+  // ${{ secrets.* }} are masked already; this masks any later occurrence in
+  // the job log of one that wasn't (hardcoded, or passed through an
+  // env/output chain that broke the taint). It can't retroactively mask the
+  // step's `with:` echo, which the runner prints before the action starts.
   core.setSecret(token)
   const config = new Config()
   config.token = token

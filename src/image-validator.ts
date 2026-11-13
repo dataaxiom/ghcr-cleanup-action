@@ -199,22 +199,41 @@ export class ImageValidator {
    * `excludeTags` (the expanded exclude list — matched tag and digest
    * strings) is honored here even though orphans are reached outside the
    * top-level filterSet: an orphan is a stand-alone leftover being
-   * independently staged for deletion, so exclude-tags must protect it
-   * (exclude-tags always wins).
+   * independently staged for deletion, so exclude-tags protects it.
+   *
+   * Deleting an image also deletes its children (the cascade ignores
+   * exclude-tags by design: children are parts of their parent's image).
+   * So an orphan with an excluded child is kept too — otherwise staging
+   * the orphan would delete that excluded child along with it.
+   * `digestUsedBy` (child digest → parent digests) supplies that link.
    */
   findOrphanedImages(
     subjectReferrers: Map<string, Set<string>> = new Map(),
-    excludeTags: string[] = []
+    excludeTags: string[] = [],
+    digestUsedBy: Map<string, Set<string>> = new Map()
   ): Set<string> {
     const orphanedImages = new Set<string>()
     const excluded = new Set(excludeTags)
     const lines: string[] = []
 
+    // Parents of any excluded image (by digest, or by a matched tag).
+    const parentsOfExcluded = new Set<string>()
+    for (const entry of excluded) {
+      const digest = this.context.packageRepo.getIdByDigest(entry)
+        ? entry
+        : this.context.packageRepo.getDigestByTag(entry)
+      for (const parent of (digest && digestUsedBy.get(digest)) || []) {
+        parentsOfExcluded.add(parent)
+      }
+    }
+
     // An orphan is protected if the exclude pattern matched its digest or
-    // any of its tags (a referrer may carry more than the sha256-* tag).
+    // any of its tags (a referrer may carry more than the sha256-* tag),
+    // or if one of its children is excluded.
     const isExcluded = (digest: string, tag?: string): boolean => {
       if (tag && excluded.has(tag)) return true
       if (excluded.has(digest)) return true
+      if (parentsOfExcluded.has(digest)) return true
       const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
       return (
         ghPackage?.metadata.container.tags.some(t => excluded.has(t)) ?? false

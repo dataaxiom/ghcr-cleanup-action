@@ -61,6 +61,11 @@ export class PackageRepo {
   // an O(N×T) scan over every tag for every digest they process.
   referrerTagsByParent = new Map<string, string[]>()
 
+  // Dry-run only: tags a simulated untag removed. Re-applied after every
+  // load so the preview sees the listing a live run would see once its
+  // untag landed (see simulateUntag).
+  private simulatedUntags = new Set<string>()
+
   /**
    * Constructor
    *
@@ -185,6 +190,8 @@ export class PackageRepo {
         )
       }
 
+      this.applySimulatedUntags()
+
       // Build the fallback-tag-by-parent reverse index in one pass after
       // the maps are populated. The three call sites that need this
       // (image-deleter cascade, manifest-analyzer initFilterSet /
@@ -257,6 +264,39 @@ export class PackageRepo {
    * Return all tags in use for the package
    * @returns The tags for the package
    */
+  /**
+   * Dry run only: record that `tags` were untagged, and drop them from the
+   * current listing. A live untag moves each tag to a placeholder and then
+   * deletes it, so after the follow-up reload those tags are gone from
+   * their images — and a multi-tag image left with only matched tags gets
+   * deleted on the second pass. A dry run makes no PUTs, so without this
+   * the reload would still list the tags and the preview would omit that
+   * deletion. The removal is re-applied on every later load this run.
+   */
+  simulateUntag(tags: string[]): void {
+    if (!this.config.dryRun) {
+      throw new Error('simulateUntag is only valid in dry-run mode')
+    }
+    for (const tag of tags) {
+      this.simulatedUntags.add(tag)
+    }
+    this.applySimulatedUntags()
+  }
+
+  private applySimulatedUntags(): void {
+    for (const tag of this.simulatedUntags) {
+      const digest = this.tag2Digest.get(tag)
+      if (digest === undefined) continue
+      this.tag2Digest.delete(tag)
+      const id = this.digest2Id.get(digest)
+      const ghPackage = id === undefined ? undefined : this.id2Package.get(id)
+      if (ghPackage) {
+        ghPackage.metadata.container.tags =
+          ghPackage.metadata.container.tags.filter(t => t !== tag)
+      }
+    }
+  }
+
   getTags(): Set<string> {
     return new Set(this.tag2Digest.keys())
   }
