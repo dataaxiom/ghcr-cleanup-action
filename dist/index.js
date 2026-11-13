@@ -122571,6 +122571,11 @@ class ImageFilter {
                     }
                 }
             }
+            else {
+                // No timestamp: the age is unknown, so it can't be shown to be
+                // older than the cutoff. Keep it rather than treat it as old.
+                filterSet.delete(digest);
+            }
         }
         logListing(`[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`, lines, {
             debug: this.context.config.logLevel >= LogLevel.DEBUG,
@@ -123065,9 +123070,12 @@ class ImageValidator {
 
 
 
+
 class DeletionStrategy {
     context;
     imageFilter;
+    // processTagDeletions runs again after an untag reload; warn once.
+    warnedDigestsIgnoredByKeepN = false;
     constructor(context) {
         this.context = context;
         this.imageFilter = new ImageFilter(context);
@@ -123153,6 +123161,27 @@ class DeletionStrategy {
                 }
             }
             logListing(`[${this.context.targetPackage}] Find tagged images to delete: ${this.context.config.deleteTags}`, lines, { debug: this.context.config.logLevel >= LogLevel.DEBUG });
+        }
+        // keep-n-tagged ranks images by their tags, so a delete-tags match on a
+        // bare digest (an untagged image, or a tagged one matched only by its
+        // digest) never enters its candidate set and is never deleted. Say so
+        // once, with a count, rather than drop it silently.
+        if (this.context.config.keepNtagged != null &&
+            !this.warnedDigestsIgnoredByKeepN) {
+            const viaTags = new Set();
+            for (const tag of matchTags) {
+                if (!tag.startsWith('sha256:')) {
+                    const digest = this.context.packageRepo.getDigestByTag(tag);
+                    if (digest)
+                        viaTags.add(digest);
+                }
+            }
+            const ignored = [...matchTags].filter(t => t.startsWith('sha256:') && !viaTags.has(t) && !excludeTags.includes(t));
+            if (ignored.length > 0) {
+                this.warnedDigestsIgnoredByKeepN = true;
+                const sample = ignored.slice(0, 3).join(', ');
+                warning(`[${this.context.targetPackage}] delete-tags matched ${ignored.length} image digest(s) that keep-n-tagged does not act on (it ranks images by their tags), so they were not deleted: ${sample}${ignored.length > 3 ? ', ...' : ''}`);
+            }
         }
         return plan;
     }

@@ -108,6 +108,10 @@ export class ImageFilter {
             lines.push(digest)
           }
         }
+      } else {
+        // No timestamp: the age is unknown, so it can't be shown to be
+        // older than the cutoff. Keep it rather than treat it as old.
+        filterSet.delete(digest)
       }
     }
 

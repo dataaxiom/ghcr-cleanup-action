@@ -1,3 +1,4 @@
+import * as core from '@actions/core'
 import { CleanupContext, DeletionPlan } from './cleanup-types.js'
 import { ImageFilter } from './image-filter.js'
 import { LogLevel } from './config.js'
@@ -6,6 +7,8 @@ import { GhPackage, logListing } from './utils.js'
 export class DeletionStrategy {
   private context: CleanupContext
   private imageFilter: ImageFilter
+  // processTagDeletions runs again after an untag reload; warn once.
+  private warnedDigestsIgnoredByKeepN = false
 
   constructor(context: CleanupContext) {
     this.context = context
@@ -110,6 +113,34 @@ export class DeletionStrategy {
         lines,
         { debug: this.context.config.logLevel >= LogLevel.DEBUG }
       )
+    }
+
+    // keep-n-tagged ranks images by their tags, so a delete-tags match on a
+    // bare digest (an untagged image, or a tagged one matched only by its
+    // digest) never enters its candidate set and is never deleted. Say so
+    // once, with a count, rather than drop it silently.
+    if (
+      this.context.config.keepNtagged != null &&
+      !this.warnedDigestsIgnoredByKeepN
+    ) {
+      const viaTags = new Set<string>()
+      for (const tag of matchTags) {
+        if (!tag.startsWith('sha256:')) {
+          const digest = this.context.packageRepo.getDigestByTag(tag)
+          if (digest) viaTags.add(digest)
+        }
+      }
+      const ignored = [...matchTags].filter(
+        t =>
+          t.startsWith('sha256:') && !viaTags.has(t) && !excludeTags.includes(t)
+      )
+      if (ignored.length > 0) {
+        this.warnedDigestsIgnoredByKeepN = true
+        const sample = ignored.slice(0, 3).join(', ')
+        core.warning(
+          `[${this.context.targetPackage}] delete-tags matched ${ignored.length} image digest(s) that keep-n-tagged does not act on (it ranks images by their tags), so they were not deleted: ${sample}${ignored.length > 3 ? ', ...' : ''}`
+        )
+      }
     }
 
     return plan

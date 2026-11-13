@@ -295,6 +295,20 @@ describe('ImageFilter', () => {
       expect(core.info).toHaveBeenCalledWith('digest1 v1.0,old')
     })
 
+    it('keeps a version with no updated_at (age unknown) rather than treat it as old', () => {
+      context.config.olderThan = 7 * 24 * 60 * 60 * 1000
+      context.config.olderThanReadable = '7 days'
+      const filterSet = new Set(['digest1'])
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        name: 'digest1',
+        metadata: { container: { tags: ['v1'] } }
+      })
+
+      filter.applyAgeFilter(filterSet)
+
+      expect(filterSet.has('digest1')).toBe(false)
+    })
+
     it('should log untagged images being filtered', () => {
       context.config.olderThan = 7 * 24 * 60 * 60 * 1000
       context.config.olderThanReadable = '7 days'
