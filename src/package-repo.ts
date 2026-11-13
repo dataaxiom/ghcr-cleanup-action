@@ -410,7 +410,8 @@ export class PackageRepo {
    * can mean both "already gone" and "not allowed to delete".
    * @param targetPackage The package name
    * @param id The package version id
-   * @returns true if the version can still be fetched, false on 404
+   * @returns true if the version can still be fetched and is not
+   *   soft-deleted; false on 404 or when `deleted_at` is set
    */
   private async packageVersionExists(
     targetPackage: string,
@@ -418,30 +419,41 @@ export class PackageRepo {
   ): Promise<boolean> {
     const octokit = this.octokitClient.getClient()
     try {
+      let version: { deleted_at?: string | null }
       if (this.config.repoType === 'User') {
         if (this.config.tokenOwnsPackage) {
-          await octokit.rest.packages.getPackageVersionForAuthenticatedUser({
-            package_type: 'container' as const,
-            package_name: targetPackage,
-            package_version_id: id
-          })
+          version = (
+            await octokit.rest.packages.getPackageVersionForAuthenticatedUser({
+              package_type: 'container' as const,
+              package_name: targetPackage,
+              package_version_id: id
+            })
+          ).data
         } else {
-          await octokit.rest.packages.getPackageVersionForUser({
-            package_type: 'container' as const,
-            package_name: targetPackage,
-            username: this.config.owner,
-            package_version_id: id
-          })
+          version = (
+            await octokit.rest.packages.getPackageVersionForUser({
+              package_type: 'container' as const,
+              package_name: targetPackage,
+              username: this.config.owner,
+              package_version_id: id
+            })
+          ).data
         }
       } else {
-        await octokit.rest.packages.getPackageVersionForOrganization({
-          package_type: 'container' as const,
-          package_name: targetPackage,
-          org: this.config.owner,
-          package_version_id: id
-        })
+        version = (
+          await octokit.rest.packages.getPackageVersionForOrganization({
+            package_type: 'container' as const,
+            package_name: targetPackage,
+            org: this.config.owner,
+            package_version_id: id
+          })
+        ).data
       }
-      return true
+      // A deleted version stays restorable for 30 days, so GitHub may
+      // still return it here with `deleted_at` set. That means a DELETE
+      // already landed (stale list, or a concurrent delete), so count it
+      // as gone rather than failing the run as a permission problem.
+      return !version.deleted_at
     } catch (error) {
       if (error instanceof RequestError && error.status === 404) {
         return false

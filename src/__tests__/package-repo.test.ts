@@ -740,6 +740,35 @@ describe('PackageRepo', () => {
       expect(core.warning).not.toHaveBeenCalled()
     })
 
+    it('treats a soft-deleted version (deleted_at set) as already gone', async () => {
+      // A deleted version stays restorable for 30 days and may still be
+      // returned by GET; it must not be mistaken for a permission failure.
+      mockOctokit.rest.packages.deletePackageVersionForOrg.mockRejectedValueOnce(
+        notFound('DELETE')
+      )
+      mockOctokit.rest.packages.getPackageVersionForOrganization.mockResolvedValueOnce(
+        { data: { id: 42, deleted_at: '2026-11-13T00:00:00Z' } }
+      )
+      await expect(
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
+      ).resolves.toBeUndefined()
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining("wasn't found while trying to delete it")
+      )
+    })
+
+    it('treats a null deleted_at as still existing', async () => {
+      mockOctokit.rest.packages.deletePackageVersionForOrg.mockRejectedValueOnce(
+        notFound('DELETE')
+      )
+      mockOctokit.rest.packages.getPackageVersionForOrganization.mockResolvedValueOnce(
+        { data: { id: 42, deleted_at: null } }
+      )
+      await expect(
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
+      ).rejects.toThrow(/still exists/)
+    })
+
     it('checks a User-owned version through the matching endpoint', async () => {
       repo = new PackageRepo(
         buildConfig({ repoType: 'User', tokenOwnsPackage: false }),
