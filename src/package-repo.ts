@@ -61,14 +61,6 @@ export class PackageRepo {
   // an O(N×T) scan over every tag for every digest they process.
   referrerTagsByParent = new Map<string, string[]>()
 
-  // Delete accounting for the run. `deleteAttempts` counts real (non
-  // dry-run) DELETE calls issued; `deleteNotFound` counts those that came
-  // back 404. When every attempt 404s, the token almost certainly lacks
-  // delete:packages (GitHub returns 404 not 403) — the caller uses this
-  // to fail the run rather than silently report success.
-  deleteAttempts = 0
-  deleteNotFound = 0
-
   /**
    * Constructor
    *
@@ -346,7 +338,6 @@ export class PackageRepo {
         logger.info(` deleting package id: ${id} digest: ${digest}`)
       }
       if (!this.config.dryRun) {
-        this.deleteAttempts++
         const octokit = this.octokitClient.getClient()
         if (this.config.repoType === 'User') {
           if (this.config.tokenOwnsPackage) {
@@ -376,7 +367,6 @@ export class PackageRepo {
       }
     } catch (error) {
       if (error instanceof RequestError && error.status === 404) {
-        this.deleteNotFound++
         // 404 on DELETE means the package version is already gone — which
         // is the outcome we wanted. We only ever call this with IDs that
         // loadPackages just returned (state=active), so a 404 indicates

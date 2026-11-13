@@ -51471,20 +51471,13 @@ class CleanupTaskStatistics {
     name;
     numberMultiImagesDeleted;
     numberImagesDeleted;
-    // Delete accounting, folded up across packages so main can detect a
-    // run where every deletion 404'd (a token that can't delete).
-    deleteAttempts = 0;
-    deleteNotFound = 0;
     constructor(name, numberMultiImagesDeleted, numberImagesDeleted) {
         this.name = name;
         this.numberMultiImagesDeleted = numberMultiImagesDeleted;
         this.numberImagesDeleted = numberImagesDeleted;
     }
     add(other) {
-        const combined = new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
-        combined.deleteAttempts = this.deleteAttempts + other.deleteAttempts;
-        combined.deleteNotFound = this.deleteNotFound + other.deleteNotFound;
-        return combined;
+        return new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
     }
     print() {
         startGroup(`[${this.name}] Cleanup statistics`);
@@ -57293,13 +57286,6 @@ class PackageRepo {
     // Populated by loadPackages so the analyzer/deleter don't have to do
     // an O(N×T) scan over every tag for every digest they process.
     referrerTagsByParent = new Map();
-    // Delete accounting for the run. `deleteAttempts` counts real (non
-    // dry-run) DELETE calls issued; `deleteNotFound` counts those that came
-    // back 404. When every attempt 404s, the token almost certainly lacks
-    // delete:packages (GitHub returns 404 not 403) — the caller uses this
-    // to fail the run rather than silently report success.
-    deleteAttempts = 0;
-    deleteNotFound = 0;
     /**
      * Constructor
      *
@@ -57537,7 +57523,6 @@ class PackageRepo {
                 logger.info(` deleting package id: ${id} digest: ${digest}`);
             }
             if (!this.config.dryRun) {
-                this.deleteAttempts++;
                 const octokit = this.octokitClient.getClient();
                 if (this.config.repoType === 'User') {
                     if (this.config.tokenOwnsPackage) {
@@ -57568,7 +57553,6 @@ class PackageRepo {
         }
         catch (error) {
             if (error instanceof RequestError && error.status === 404) {
-                this.deleteNotFound++;
                 // 404 on DELETE means the package version is already gone — which
                 // is the outcome we wanted. We only ever call this with IDs that
                 // loadPackages just returned (state=active), so a 404 indicates
@@ -121995,8 +121979,6 @@ class CleanupOrchestrator {
         });
         this.statistics.numberImagesDeleted = result.numberImagesDeleted;
         this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
-        this.statistics.deleteAttempts = this.packageRepo.deleteAttempts;
-        this.statistics.deleteNotFound = this.packageRepo.deleteNotFound;
         // Print statistics
         this.statistics.print();
         // Run validation if requested
@@ -122139,19 +122121,6 @@ class CleanupAction {
         }
         const durationMs = Date.now() - startedAt;
         await this.writeJobSummary(targetPackages, perPackageStats, globalStatistics, durationMs, cacheStats);
-        // If every deletion this run came back 404 and none succeeded, the
-        // token almost certainly can't delete packages — GitHub returns 404
-        // (not 403) for a missing delete permission, so each delete was
-        // silently tolerated as "already gone" and the job would otherwise
-        // report success. Fail loudly with an actionable message instead.
-        // (Concurrent runs are unsupported, and an all-entries-stale list is
-        // far rarer than a mis-scoped token, so all-404 is a reliable signal.)
-        if (globalStatistics.deleteAttempts > 0 &&
-            globalStatistics.deleteNotFound === globalStatistics.deleteAttempts) {
-            setFailed(`All ${globalStatistics.deleteAttempts} package version deletion(s) returned 404 (not found) and none succeeded. ` +
-                `This almost always means the token cannot delete packages: GitHub returns 404 instead of 403 for a missing delete permission. ` +
-                `Grant 'delete:packages' to your classic Personal Access Token, or 'packages: write' to the workflow GITHUB_TOKEN, then re-run.`);
-        }
     }
     async writeJobSummary(targetPackages, perPackageStats, globalStats, durationMs, cacheStats) {
         const summary = summary_summary;

@@ -164,37 +164,6 @@ describe('main.run()', () => {
     })
   })
 
-  describe('delete-permission detection (issue #147)', () => {
-    it('fails the run when every deletion returned 404', async () => {
-      globalStats.deleteAttempts = 4
-      globalStats.deleteNotFound = 4
-
-      await run()
-
-      expect(core.setFailed).toHaveBeenCalledWith(
-        expect.stringContaining('cannot delete packages')
-      )
-    })
-
-    it('does not fail when some deletions succeeded', async () => {
-      globalStats.deleteAttempts = 4
-      globalStats.deleteNotFound = 1
-
-      await run()
-
-      expect(core.setFailed).not.toHaveBeenCalled()
-    })
-
-    it('does not fail when nothing needed deleting', async () => {
-      globalStats.deleteAttempts = 0
-      globalStats.deleteNotFound = 0
-
-      await run()
-
-      expect(core.setFailed).not.toHaveBeenCalled()
-    })
-  })
-
   describe('package selection', () => {
     it('splits comma-separated package list when expandPackages=false', async () => {
       mockBuildConfig.mockResolvedValue(

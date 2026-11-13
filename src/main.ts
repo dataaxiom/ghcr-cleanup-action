@@ -162,24 +162,6 @@ class CleanupAction {
       durationMs,
       cacheStats
     )
-
-    // If every deletion this run came back 404 and none succeeded, the
-    // token almost certainly can't delete packages — GitHub returns 404
-    // (not 403) for a missing delete permission, so each delete was
-    // silently tolerated as "already gone" and the job would otherwise
-    // report success. Fail loudly with an actionable message instead.
-    // (Concurrent runs are unsupported, and an all-entries-stale list is
-    // far rarer than a mis-scoped token, so all-404 is a reliable signal.)
-    if (
-      globalStatistics.deleteAttempts > 0 &&
-      globalStatistics.deleteNotFound === globalStatistics.deleteAttempts
-    ) {
-      core.setFailed(
-        `All ${globalStatistics.deleteAttempts} package version deletion(s) returned 404 (not found) and none succeeded. ` +
-          `This almost always means the token cannot delete packages: GitHub returns 404 instead of 403 for a missing delete permission. ` +
-          `Grant 'delete:packages' to your classic Personal Access Token, or 'packages: write' to the workflow GITHUB_TOKEN, then re-run.`
-      )
-    }
   }
 
   private async writeJobSummary(

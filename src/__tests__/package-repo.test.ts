@@ -717,26 +717,6 @@ describe('PackageRepo', () => {
         String(m).includes("wasn't found while trying to delete it")
       )
       expect(tolerated.length).toBe(3)
-      // Every attempt 404'd — the run-level check uses this to detect a
-      // token that can't delete (issue #147).
-      expect(repo.deleteAttempts).toBe(3)
-      expect(repo.deleteNotFound).toBe(3)
-    })
-
-    it('counts a successful delete as an attempt but not as not-found', async () => {
-      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
-      expect(repo.deleteAttempts).toBe(1)
-      expect(repo.deleteNotFound).toBe(0)
-    })
-
-    it('does not count attempts in dry-run mode', async () => {
-      repo = new PackageRepo(buildConfig({ dryRun: true }), octokitClient)
-      await repo.deletePackageVersion('pkg', 42, 'sha256:a')
-      expect(
-        mockOctokit.rest.packages.deletePackageVersionForOrg
-      ).not.toHaveBeenCalled()
-      expect(repo.deleteAttempts).toBe(0)
-      expect(repo.deleteNotFound).toBe(0)
     })
 
     it('fails when the version still exists after a 404 on delete (#147)', async () => {
