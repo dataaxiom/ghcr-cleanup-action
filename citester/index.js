@@ -55745,7 +55745,18 @@ class PackageRepo {
             // required-field GhPackage type without scattering `?.` guards.
             const ingestPage = (data) => {
                 const packages = data;
-                for (const packageVersion of packages) {
+                for (const apiVersion of packages) {
+                    // Keep only the fields the action uses. The API objects carry
+                    // many more (urls, license, description, ...), which adds up to
+                    // 100-200 MB on registries with tens of thousands of versions.
+                    const packageVersion = {
+                        id: apiVersion.id,
+                        name: apiVersion.name,
+                        updated_at: apiVersion.updated_at,
+                        metadata: {
+                            container: { tags: [...apiVersion.metadata.container.tags] }
+                        }
+                    };
                     this.digest2Id.set(packageVersion.name, packageVersion.id);
                     this.id2Package.set(packageVersion.id, packageVersion);
                     for (const tag of packageVersion.metadata.container.tags) {

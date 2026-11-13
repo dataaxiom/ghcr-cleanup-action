@@ -164,8 +164,8 @@ describe('PackageRepo', () => {
 
       expect(repo.digest2Id.get('sha256:aaa')).toBe(101)
       expect(repo.digest2Id.get('sha256:bbb')).toBe(102)
-      expect(repo.id2Package.get(101)).toBe(v1)
-      expect(repo.id2Package.get(102)).toBe(v2)
+      expect(repo.id2Package.get(101)).toEqual(v1)
+      expect(repo.id2Package.get(102)).toEqual(v2)
       expect(repo.tag2Digest.get('v1')).toBe('sha256:aaa')
       expect(repo.tag2Digest.get('latest')).toBe('sha256:aaa')
       expect(repo.tag2Digest.get('v2')).toBe('sha256:bbb')
@@ -209,6 +209,36 @@ describe('PackageRepo', () => {
     it('refuses to simulate an untag outside dry-run', () => {
       const repo = new PackageRepo(buildConfig(), octokitClient)
       expect(() => repo.simulateUntag(['a'])).toThrow(/only valid in dry-run/)
+    })
+
+    it('keeps only the fields the action uses from each API version object', async () => {
+      const repo = new PackageRepo(buildConfig(), octokitClient)
+      mockPaginatedPages(
+        mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+        [
+          {
+            data: [
+              {
+                ...buildPackageVersion(7, 'sha256:x', ['v1']),
+                updated_at: '2026-01-01T00:00:00Z',
+                url: 'https://api.github.com/...',
+                html_url: 'https://github.com/...',
+                license: 'MIT',
+                description: 'big'
+              }
+            ]
+          }
+        ]
+      )
+
+      await repo.loadPackages('pkg', false)
+
+      expect(repo.id2Package.get(7)).toStrictEqual({
+        id: 7,
+        name: 'sha256:x',
+        updated_at: '2026-01-01T00:00:00Z',
+        metadata: { container: { tags: ['v1'] } }
+      })
     })
 
     it('clears existing maps before loading (re-entrant safe)', async () => {

@@ -12,11 +12,13 @@ export default defineConfig({
       exclude: ['src/**/*.test.ts', 'src/index.ts', 'src/ci-tester.ts'],
       all: true,
       clean: true,
+      // A few points under current coverage (95 / 89 / 98 / 95 on
+      // 2026-11-13) so a real drop fails CI without flaking on small edits.
       thresholds: {
-        statements: 0,
-        branches: 0,
-        functions: 0,
-        lines: 0
+        statements: 92,
+        branches: 85,
+        functions: 95,
+        lines: 92
       }
     },
     mockReset: true,

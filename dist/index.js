@@ -58214,7 +58214,18 @@ class PackageRepo {
             // required-field GhPackage type without scattering `?.` guards.
             const ingestPage = (data) => {
                 const packages = data;
-                for (const packageVersion of packages) {
+                for (const apiVersion of packages) {
+                    // Keep only the fields the action uses. The API objects carry
+                    // many more (urls, license, description, ...), which adds up to
+                    // 100-200 MB on registries with tens of thousands of versions.
+                    const packageVersion = {
+                        id: apiVersion.id,
+                        name: apiVersion.name,
+                        updated_at: apiVersion.updated_at,
+                        metadata: {
+                            container: { tags: [...apiVersion.metadata.container.tags] }
+                        }
+                    };
                     this.digest2Id.set(packageVersion.name, packageVersion.id);
                     this.id2Package.set(packageVersion.id, packageVersion);
                     for (const tag of packageVersion.metadata.container.tags) {
@@ -124160,12 +124171,18 @@ class CleanupAction {
         if (this.config.useRegex !== undefined) {
             configPairs.push(['use-regex', `${this.config.useRegex}`]);
         }
-        configPairs.push(['log-level', `${this.config.logLevel}`]);
+        configPairs.push(['log-level', LogLevel[this.config.logLevel]]);
         // Build an HTML table so it renders correctly inside <details>
+        // Cells hold user-supplied patterns (e.g. `<v1&v2>`), so escape them.
+        const escapeHtml = (value) => value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
         const buildHtmlTable = (headers, rows) => {
-            const thead = `<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`;
+            const thead = `<tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
             const tbody = rows
-                .map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`)
+                .map(r => `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`)
                 .join('');
             return `<table>${thead}${tbody}</table>`;
         };

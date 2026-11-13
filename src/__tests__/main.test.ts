@@ -513,6 +513,20 @@ describe('main.run()', () => {
       expect(anyMentionsDryRun).toBe(false)
     })
 
+    it('escapes user patterns and names the log level in the config table', async () => {
+      mockBuildConfig.mockResolvedValue(
+        defaultConfig({ deleteTags: '<v1&v2>', logLevel: 3 })
+      )
+      await run()
+
+      const html = vi
+        .mocked(core.summary.addDetails)
+        .mock.calls.find(c => c[0] === 'Configuration')?.[1] as string
+      expect(html).toContain('<td>&lt;v1&amp;v2&gt;</td>')
+      expect(html).not.toContain('<v1&v2>')
+      expect(html).toContain('<td>log-level</td><td>INFO</td>')
+    })
+
     it('includes set config options in the config details block', async () => {
       mockBuildConfig.mockResolvedValue(
         defaultConfig({

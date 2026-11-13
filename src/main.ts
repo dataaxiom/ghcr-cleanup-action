@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { Config, buildConfig } from './config.js'
+import { Config, LogLevel, buildConfig } from './config.js'
 import { PackageRepo } from './package-repo.js'
 import { OctokitClient } from './octokit-client.js'
 import wcmatch from 'wildcard-match'
@@ -256,13 +256,22 @@ class CleanupAction {
     if (this.config.useRegex !== undefined) {
       configPairs.push(['use-regex', `${this.config.useRegex}`])
     }
-    configPairs.push(['log-level', `${this.config.logLevel}`])
+    configPairs.push(['log-level', LogLevel[this.config.logLevel]])
 
     // Build an HTML table so it renders correctly inside <details>
+    // Cells hold user-supplied patterns (e.g. `<v1&v2>`), so escape them.
+    const escapeHtml = (value: string): string =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
     const buildHtmlTable = (headers: string[], rows: string[][]): string => {
-      const thead = `<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`
+      const thead = `<tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`
       const tbody = rows
-        .map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`)
+        .map(
+          r => `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`
+        )
         .join('')
       return `<table>${thead}${tbody}</table>`
     }
