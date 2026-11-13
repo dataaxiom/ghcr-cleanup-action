@@ -338,7 +338,10 @@ export class ImageDeleter {
     > = []
 
     if (manifest.manifests) {
-      multiImagesDeleted += 1
+      // An empty index (e.g. an untag placeholder) isn't a multi-arch image.
+      if (manifest.manifests.length > 0) {
+        multiImagesDeleted += 1
+      }
       for (const imageManifest of manifest.manifests) {
         childJobs.push(
           async () =>

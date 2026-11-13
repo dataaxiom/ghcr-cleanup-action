@@ -18,55 +18,12 @@ export interface CleanupContext {
 }
 
 /**
- * Result of applying filters to the package repository.
- * Contains the filtered set of images and metadata about excluded items.
- */
-export interface FilterResult {
-  /** Set of image digests that passed all filters and are candidates for processing */
-  filterSet: Set<string>
-  /** Array of tag names that were explicitly excluded from deletion */
-  excludeTags: string[]
-  /** Set of all tags currently in use in the repository */
-  tagsInUse: Set<string>
-}
-
-/**
- * Result of analyzing image manifests and their relationships.
- * Maps parent-child relationships for multi-architecture images.
- */
-export interface ManifestAnalysis {
-  /**
-   * Map of child digest to parent digests.
-   * Key: Child image digest (e.g., platform-specific image)
-   * Value: Set of parent digests that reference this child
-   */
-  digestUsedBy: Map<string, Set<string>>
-  /** Set of top-level image digests (excludes child platform images) */
-  filterSet: Set<string>
-}
-
-/**
- * Result of validating image integrity in the repository.
- * Identifies various types of broken or orphaned images.
+ * Result of validating image integrity in the repository. Validation is
+ * informational: problems are logged as warnings, never deleted.
  */
 export interface ValidationResult {
   /** Whether any validation errors were found */
   hasErrors: boolean
-  /**
-   * Ghost images: multi-arch images where ALL platform images are missing.
-   * These are completely broken and cannot be pulled.
-   */
-  ghostImages: Set<string>
-  /**
-   * Partial images: multi-arch images where SOME platform images are missing.
-   * These are partially broken and may fail for certain platforms.
-   */
-  partialImages: Set<string>
-  /**
-   * Orphaned images: images with tags like 'sha256-...' whose parent image no longer exists.
-   * Common with attestation/signature images that lost their parent.
-   */
-  orphanedImages: Set<string>
 }
 
 /**

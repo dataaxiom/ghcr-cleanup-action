@@ -57,11 +57,12 @@ export class DeletionStrategy {
     }
 
     // Separate untagging events and standard deletions
+    const excluded = new Set(excludeTags)
     const untaggingTags = new Set<string>()
     const standardTags = new Set<string>()
 
     for (const tag of matchTags) {
-      if (!excludeTags.includes(tag)) {
+      if (!excluded.has(tag)) {
         if (tag.startsWith('sha256:')) {
           standardTags.add(tag)
         } else {
@@ -131,8 +132,7 @@ export class DeletionStrategy {
         }
       }
       const ignored = [...matchTags].filter(
-        t =>
-          t.startsWith('sha256:') && !viaTags.has(t) && !excludeTags.includes(t)
+        t => t.startsWith('sha256:') && !viaTags.has(t) && !excluded.has(t)
       )
       if (ignored.length > 0) {
         this.warnedDigestsIgnoredByKeepN = true

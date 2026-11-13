@@ -89,10 +89,7 @@ export class ImageValidator {
 
     // Return basic result - can be extended later
     return {
-      hasErrors,
-      ghostImages: new Set<string>(),
-      partialImages: new Set<string>(),
-      orphanedImages: new Set<string>()
+      hasErrors
     }
   }
 

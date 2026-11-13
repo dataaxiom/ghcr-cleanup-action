@@ -459,6 +459,16 @@ describe('ImageDeleter', () => {
       )
     })
 
+    it('does not count an empty index (e.g. an untag placeholder) as a multi-arch delete', async () => {
+      mockRegistry.getManifestByDigest.mockResolvedValue({ manifests: [] })
+      mockPackageRepo.getPackageByDigest.mockReturnValue(mockPackage)
+
+      const result = await deleter.deleteImage(mockPackage)
+
+      expect(result.deleted).toBe(1)
+      expect(result.multiDeleted).toBe(0)
+    })
+
     it('should skip child images used by other parents', async () => {
       const childPackage = {
         id: 'child-id',

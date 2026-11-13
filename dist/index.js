@@ -122943,10 +122943,7 @@ class ImageValidator {
         endGroup();
         // Return basic result - can be extended later
         return {
-            hasErrors,
-            ghostImages: new Set(),
-            partialImages: new Set(),
-            orphanedImages: new Set()
+            hasErrors
         };
     }
     /**
@@ -123144,10 +123141,11 @@ class DeletionStrategy {
             return plan;
         }
         // Separate untagging events and standard deletions
+        const excluded = new Set(excludeTags);
         const untaggingTags = new Set();
         const standardTags = new Set();
         for (const tag of matchTags) {
-            if (!excludeTags.includes(tag)) {
+            if (!excluded.has(tag)) {
                 if (tag.startsWith('sha256:')) {
                     standardTags.add(tag);
                 }
@@ -123209,7 +123207,7 @@ class DeletionStrategy {
                         viaTags.add(digest);
                 }
             }
-            const ignored = [...matchTags].filter(t => t.startsWith('sha256:') && !viaTags.has(t) && !excludeTags.includes(t));
+            const ignored = [...matchTags].filter(t => t.startsWith('sha256:') && !viaTags.has(t) && !excluded.has(t));
             if (ignored.length > 0) {
                 this.warnedDigestsIgnoredByKeepN = true;
                 const sample = ignored.slice(0, 3).join(', ');
@@ -123607,7 +123605,10 @@ class ImageDeleter {
         //       through the JS event loop without an explicit lock.
         const childJobs = [];
         if (manifest.manifests) {
-            multiImagesDeleted += 1;
+            // An empty index (e.g. an untag placeholder) isn't a multi-arch image.
+            if (manifest.manifests.length > 0) {
+                multiImagesDeleted += 1;
+            }
             for (const imageManifest of manifest.manifests) {
                 childJobs.push(async () => await this.deletePlatformChild(ghPackage, imageManifest, logger));
             }
