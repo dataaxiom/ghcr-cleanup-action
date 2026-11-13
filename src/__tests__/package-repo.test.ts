@@ -23,6 +23,9 @@ interface MockPackages {
   deletePackageVersionForOrg: ReturnType<typeof vi.fn>
   deletePackageVersionForUser: ReturnType<typeof vi.fn>
   deletePackageVersionForAuthenticatedUser: ReturnType<typeof vi.fn>
+  getPackageVersionForOrganization: ReturnType<typeof vi.fn>
+  getPackageVersionForUser: ReturnType<typeof vi.fn>
+  getPackageVersionForAuthenticatedUser: ReturnType<typeof vi.fn>
   listPackagesForOrganization: ReturnType<typeof vi.fn>
   listPackagesForUser: ReturnType<typeof vi.fn>
   listPackagesForAuthenticatedUser: ReturnType<typeof vi.fn>
@@ -32,6 +35,12 @@ interface MockOctokit {
   rest: { packages: MockPackages }
   paginate: { iterator: ReturnType<typeof vi.fn> }
 }
+
+const notFound = (method: string): RequestError =>
+  new RequestError('Not Found', 404, {
+    request: { method, url: 'x', headers: {} },
+    response: { status: 404, url: '', headers: {}, data: {}, retryCount: 0 }
+  })
 
 const makeMockOctokit = (): MockOctokit => ({
   rest: {
@@ -44,6 +53,14 @@ const makeMockOctokit = (): MockOctokit => ({
       deletePackageVersionForAuthenticatedUser: vi
         .fn()
         .mockResolvedValue(undefined),
+      // A version is gone by default, so a 404 on DELETE reads as stale list output.
+      getPackageVersionForOrganization: vi
+        .fn()
+        .mockRejectedValue(notFound('GET')),
+      getPackageVersionForUser: vi.fn().mockRejectedValue(notFound('GET')),
+      getPackageVersionForAuthenticatedUser: vi
+        .fn()
+        .mockRejectedValue(notFound('GET')),
       listPackagesForOrganization: vi.fn(),
       listPackagesForUser: vi.fn(),
       listPackagesForAuthenticatedUser: vi.fn()
@@ -700,6 +717,80 @@ describe('PackageRepo', () => {
         String(m).includes("wasn't found while trying to delete it")
       )
       expect(tolerated.length).toBe(3)
+    })
+
+    it('fails when the version still exists after a 404 on delete (#147)', async () => {
+      mockOctokit.rest.packages.deletePackageVersionForOrg.mockRejectedValueOnce(
+        notFound('DELETE')
+      )
+      mockOctokit.rest.packages.getPackageVersionForOrganization.mockResolvedValueOnce(
+        { data: { id: 42 } }
+      )
+      await expect(
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
+      ).rejects.toThrow(/still exists.*Manage Actions access/)
+      expect(
+        mockOctokit.rest.packages.getPackageVersionForOrganization
+      ).toHaveBeenCalledWith({
+        package_type: 'container',
+        package_name: 'pkg',
+        org: 'test-owner',
+        package_version_id: 42
+      })
+      expect(core.warning).not.toHaveBeenCalled()
+    })
+
+    it('checks a User-owned version through the matching endpoint', async () => {
+      repo = new PackageRepo(
+        buildConfig({ repoType: 'User', tokenOwnsPackage: false }),
+        octokitClient
+      )
+      mockOctokit.rest.packages.deletePackageVersionForUser.mockRejectedValueOnce(
+        notFound('DELETE')
+      )
+      mockOctokit.rest.packages.getPackageVersionForUser.mockResolvedValueOnce({
+        data: { id: 42 }
+      })
+      await expect(
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
+      ).rejects.toThrow(/still exists/)
+      expect(
+        mockOctokit.rest.packages.getPackageVersionForUser
+      ).toHaveBeenCalledWith({
+        package_type: 'container',
+        package_name: 'pkg',
+        username: 'test-owner',
+        package_version_id: 42
+      })
+    })
+
+    it('checks an own User-owned version through the authenticated endpoint', async () => {
+      repo = new PackageRepo(
+        buildConfig({ repoType: 'User', tokenOwnsPackage: true }),
+        octokitClient
+      )
+      mockOctokit.rest.packages.deletePackageVersionForAuthenticatedUser.mockRejectedValueOnce(
+        notFound('DELETE')
+      )
+      mockOctokit.rest.packages.getPackageVersionForAuthenticatedUser.mockResolvedValueOnce(
+        { data: { id: 42 } }
+      )
+      await expect(
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
+      ).rejects.toThrow(/still exists/)
+    })
+
+    it('rethrows a non-404 error from the existence check', async () => {
+      const err = new Error('network blip')
+      mockOctokit.rest.packages.deletePackageVersionForOrg.mockRejectedValueOnce(
+        notFound('DELETE')
+      )
+      mockOctokit.rest.packages.getPackageVersionForOrganization.mockRejectedValueOnce(
+        err
+      )
+      await expect(
+        repo.deletePackageVersion('pkg', 42, 'sha256:a')
+      ).rejects.toBe(err)
     })
 
     it('rethrows non-404 RequestError', async () => {
