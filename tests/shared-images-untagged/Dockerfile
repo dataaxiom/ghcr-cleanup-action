@@ -4,6 +4,6 @@ WORKDIR /app
 FROM base-image
 ENV NODE_ENV=production
 ENV PORT=3000
-USER node
-HEALTHCHECK CMD curl --fail http://localhost:3000 || exit 1",
+USER 1000
+HEALTHCHECK CMD ["sh", "-c", "curl --fail http://localhost:3000 || exit 1"]
 EXPOSE 3000

@@ -41,8 +41,6 @@ jobs:
           FILTER_REGEX_EXCLUDE: (dist|citester)/.*
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VALIDATE_ALL_CODEBASE: true
-          VALIDATE_JAVASCRIPT_STANDARD: false
-          VALIDATE_TYPESCRIPT_STANDARD: false
           VALIDATE_JSCPD: false
           VALIDATE_BIOME_FORMAT: false
           VALIDATE_BIOME_LINT: false
