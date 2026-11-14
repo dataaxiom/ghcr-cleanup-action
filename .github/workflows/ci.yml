@@ -1291,3 +1291,37 @@ jobs:
         run: |
           node citester/index.js --token "$GH_TOKEN" --directory \
             tests/bare-oci11-referrer --mode validate
+
+  # One check that sums up the whole workflow, so a ruleset can require it
+  # instead of listing every matrix entry. Runs even when an earlier job
+  # failed (if: always()) and fails unless every job succeeded or was
+  # skipped.
+  ci-result:
+    name: CI result
+    if: always()
+    needs:
+      - general-tests
+      - integration-tests
+      - github-attestation-tests
+      - cosign-test
+      - multi-package-cleanup
+      - shared-image-tagged-test
+      - shared-image-untagged-test
+      - multi-package-cleanup-regex
+      - cosign-oci11-test
+      - bare-oci11-referrer-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail unless every job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "* | *" cancelled "*)
+              echo "::error::At least one CI job failed or was cancelled."
+              exit 1
+              ;;
+          esac
