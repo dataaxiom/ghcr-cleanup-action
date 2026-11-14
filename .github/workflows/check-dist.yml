@@ -22,13 +22,13 @@ jobs:
     steps:
       - name: Checkout
         id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
       - name: Setup Node.js
         id: setup-node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
           cache: npm
@@ -56,13 +56,20 @@ jobs:
             git diff --ignore-space-at-eol --text dist/
             exit 1
           fi
+          # git diff ignores untracked files — e.g. a new chunk ncc emits
+          # for a dynamic import that was never committed.
+          if [ -n "$(git ls-files --others --exclude-standard dist/)" ]; then
+            echo "Detected untracked files in dist/ after build:"
+            git ls-files --others --exclude-standard dist/
+            exit 1
+          fi
 
       # If `dist/` was different than expected, upload the expected version as a
       # workflow artifact.
       - if: ${{ failure() && steps.diff-dist.outcome == 'failure' }}
         name: Upload Artifact
         id: upload-dist
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
@@ -82,12 +89,19 @@ jobs:
             git diff --ignore-space-at-eol --text citester/
             exit 1
           fi
+          # git diff ignores untracked files — e.g. a new chunk ncc emits
+          # for a dynamic import that was never committed.
+          if [ -n "$(git ls-files --others --exclude-standard citester/)" ]; then
+            echo "Detected untracked files in citester/ after build:"
+            git ls-files --others --exclude-standard citester/
+            exit 1
+          fi
       # If `citester/` was different than expected, upload the expected version as a
       # workflow artifact.
       - if: ${{ failure() && steps.diff-citester.outcome == 'failure' }}
         name: Upload Artifact
         id: upload-citester
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: citester
           path: citester/

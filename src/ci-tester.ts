@@ -416,4 +416,11 @@ export async function run(): Promise<void> {
   }
 }
 
-await run()
+// Report only the message: an uncaught error would be printed by Node's
+// inspector with its whole cause chain, and an AxiosError cause carries
+// request config, including the Authorization header.
+try {
+  await run()
+} catch (error) {
+  core.setFailed(error instanceof Error ? error.message : String(error))
+}

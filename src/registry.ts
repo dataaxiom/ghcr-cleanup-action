@@ -3,6 +3,7 @@ import { Config, LogLevel } from './config.js'
 import axios, { AxiosError, AxiosInstance, isAxiosError } from 'axios'
 import axiosRetry from 'axios-retry'
 import * as AxiosLogger from 'axios-logger'
+import { createHash } from 'crypto'
 import { isValidChallenge, parseChallenge, Manifest } from './utils.js'
 import { setGlobalConfig } from 'axios-logger'
 import { PackageRepo } from './package-repo.js'
@@ -133,29 +134,47 @@ export class Registry {
       if (isAxiosError(error) && error.response) {
         if (error.response?.status === 401) {
           const challenge = error.response?.headers['www-authenticate']
+          if (!challenge) {
+            throw new Error(
+              `${this.baseUrl} returned 401 without a www-authenticate challenge; cannot authenticate`,
+              { cause: error }
+            )
+          }
           const attributes = parseChallenge(challenge)
           if (isValidChallenge(attributes)) {
             const tokenResponse = await this.fetchRegistryToken(attributes)
             const token = tokenResponse.token
             if (token) {
+              // Mask the exchanged registry token like the input token: it
+              // rides in the default Authorization header, so any error dump
+              // that includes request config would otherwise print it.
+              core.setSecret(token)
               this.axios.defaults.headers.common['Authorization'] =
                 `Bearer ${token}`
               if (this.config.logLevel === LogLevel.DEBUG) {
                 core.info('authentication challenge succeded')
               }
             } else {
+              // Do not stringify tokenResponse into the message — an
+              // auth-endpoint body can carry a credential, and this
+              // reaches the (possibly public) job log via setFailed.
               throw new Error(
-                `${this.baseUrl} login failed: ${JSON.stringify(tokenResponse)}`
+                `${this.baseUrl} login failed: token service returned no token`,
+                { cause: error }
               )
             }
           } else {
-            throw new Error(`invalid www-authenticate challenge ${challenge}`)
+            throw new Error(`invalid www-authenticate challenge ${challenge}`, {
+              cause: error
+            })
           }
         } else {
-          core.setFailed(
-            `Error logging into registry API with package: ${targetPackage}`
+          // Report through the thrown error only: main's catch calls
+          // setFailed once, with this message.
+          throw new Error(
+            `Error logging into registry API with package: ${targetPackage} (HTTP ${error.response.status})`,
+            { cause: error }
           )
-          throw error
         }
       } else {
         // Non-axios error or error without a response — rethrow so caller sees it
@@ -261,15 +280,22 @@ export class Registry {
    * @param tag - The tag of the manifest.
    * @param manifest - The manifest to be put.
    * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
-   * @returns A Promise that resolves when the manifest is successfully put in the registry.
+   * @returns The digest (`sha256:<hex>`) of the exact bytes sent — the
+   *   digest of the version the registry creates for this PUT.
    */
   async putManifest(
     tag: string,
     manifest: Manifest,
     multiArch: boolean
-  ): Promise<void> {
+  ): Promise<string> {
+    // Serialize once and send exactly these bytes, so the returned digest
+    // is the one the registry stores (a manifest's digest is the sha256 of
+    // its exact bytes). Callers use it to identify the version this PUT
+    // created without trusting whatever the tag later resolves to.
+    const body = Buffer.from(JSON.stringify(manifest), 'utf8')
+    const digest = `sha256:${createHash('sha256').update(body).digest('hex')}`
     if (this.config.dryRun) {
-      return
+      return digest
     }
 
     const contentType = manifest.mediaType
@@ -280,8 +306,8 @@ export class Registry {
     const cached = this.getCachedPushToken()
     if (cached) {
       try {
-        await this.putManifestWithToken(tag, manifest, contentType, cached)
-        return
+        await this.putManifestWithToken(tag, body, contentType, cached, digest)
+        return digest
       } catch (error) {
         if (isAxiosError(error) && error.response?.status === 401) {
           // Token rejected (likely server-side revocation or rotation
@@ -297,33 +323,45 @@ export class Registry {
     // for a fresh push token, then PUT again with the token. The
     // challenge body carries the realm/service/scope we need.
     try {
-      await this.authClient.put(
+      const response = await this.authClient.put(
         `${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
-        manifest,
+        body,
         { headers: { 'Content-Type': contentType } }
       )
       // No challenge issued — upload already succeeded
-      return
+      this.assertStoredDigest(response, digest)
+      return digest
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 401) {
         const challenge = error.response.headers['www-authenticate']
+        if (!challenge) {
+          throw new Error(
+            `${this.baseUrl} returned 401 without a www-authenticate challenge; cannot obtain a push token`,
+            { cause: error }
+          )
+        }
         const attributes = parseChallenge(challenge)
         if (!isValidChallenge(attributes)) {
-          throw new Error(`invalid www-authenticate challenge ${challenge}`)
+          throw new Error(`invalid www-authenticate challenge ${challenge}`, {
+            cause: error
+          })
         }
         const tokenResponse = await this.fetchRegistryToken(attributes)
         const token = tokenResponse.token
         if (!token) {
           throw new Error(
-            'failed to obtain push token from authentication challenge'
+            'failed to obtain push token from authentication challenge',
+            { cause: error }
           )
         }
+        core.setSecret(token)
         this.cachePushToken(token, tokenResponse.expires_in)
-        await this.putManifestWithToken(tag, manifest, contentType, token)
+        await this.putManifestWithToken(tag, body, contentType, token, digest)
       } else {
         throw error
       }
     }
+    return digest
   }
 
   /**
@@ -333,13 +371,14 @@ export class Registry {
    */
   private async putManifestWithToken(
     tag: string,
-    manifest: Manifest,
+    body: Buffer,
     contentType: string | undefined,
-    token: string
+    token: string,
+    expectedDigest: string
   ): Promise<void> {
-    await this.axios.put(
+    const response = await this.axios.put(
       `/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`,
-      manifest,
+      body,
       {
         headers: {
           'content-type': contentType,
@@ -347,6 +386,26 @@ export class Registry {
         }
       }
     )
+    this.assertStoredDigest(response, expectedDigest)
+  }
+
+  /**
+   * The registry reports the digest it stored a manifest under in the
+   * Docker-Content-Digest response header. Untag identifies the version
+   * its PUT created by the digest putManifest computes, so a mismatch
+   * (a registry that re-serialized the manifest) must stop the run rather
+   * than leave untag looking for a version that will never appear.
+   */
+  private assertStoredDigest(
+    response: { headers?: Record<string, unknown> } | undefined,
+    expectedDigest: string
+  ): void {
+    const reported = response?.headers?.['docker-content-digest']
+    if (typeof reported === 'string' && reported !== expectedDigest) {
+      throw new Error(
+        `${this.baseUrl} stored the manifest as ${reported}, not the expected ${expectedDigest}; stopping, since untag identifies the version it created by that digest`
+      )
+    }
   }
 
   /**

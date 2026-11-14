@@ -61,6 +61,11 @@ export class PackageRepo {
   // an O(N×T) scan over every tag for every digest they process.
   referrerTagsByParent = new Map<string, string[]>()
 
+  // Dry-run only: tags a simulated untag removed. Re-applied after every
+  // load so the preview sees the listing a live run would see once its
+  // untag landed (see simulateUntag).
+  private simulatedUntags = new Set<string>()
+
   /**
    * Constructor
    *
@@ -155,7 +160,18 @@ export class PackageRepo {
       // required-field GhPackage type without scattering `?.` guards.
       const ingestPage = (data: unknown[]): void => {
         const packages = data as GhPackage[]
-        for (const packageVersion of packages) {
+        for (const apiVersion of packages) {
+          // Keep only the fields the action uses. The API objects carry
+          // many more (urls, license, description, ...), which adds up to
+          // 100-200 MB on registries with tens of thousands of versions.
+          const packageVersion: GhPackage = {
+            id: apiVersion.id,
+            name: apiVersion.name,
+            updated_at: apiVersion.updated_at,
+            metadata: {
+              container: { tags: [...apiVersion.metadata.container.tags] }
+            }
+          }
           this.digest2Id.set(packageVersion.name, packageVersion.id)
           this.id2Package.set(packageVersion.id, packageVersion)
           for (const tag of packageVersion.metadata.container.tags) {
@@ -184,6 +200,8 @@ export class PackageRepo {
           }
         )
       }
+
+      this.applySimulatedUntags()
 
       // Build the fallback-tag-by-parent reverse index in one pass after
       // the maps are populated. The three call sites that need this
@@ -257,6 +275,39 @@ export class PackageRepo {
    * Return all tags in use for the package
    * @returns The tags for the package
    */
+  /**
+   * Dry run only: record that `tags` were untagged, and drop them from the
+   * current listing. A live untag moves each tag to a placeholder and then
+   * deletes it, so after the follow-up reload those tags are gone from
+   * their images — and a multi-tag image left with only matched tags gets
+   * deleted on the second pass. A dry run makes no PUTs, so without this
+   * the reload would still list the tags and the preview would omit that
+   * deletion. The removal is re-applied on every later load this run.
+   */
+  simulateUntag(tags: string[]): void {
+    if (!this.config.dryRun) {
+      throw new Error('simulateUntag is only valid in dry-run mode')
+    }
+    for (const tag of tags) {
+      this.simulatedUntags.add(tag)
+    }
+    this.applySimulatedUntags()
+  }
+
+  private applySimulatedUntags(): void {
+    for (const tag of this.simulatedUntags) {
+      const digest = this.tag2Digest.get(tag)
+      if (digest === undefined) continue
+      this.tag2Digest.delete(tag)
+      const id = this.digest2Id.get(digest)
+      const ghPackage = id === undefined ? undefined : this.id2Package.get(id)
+      if (ghPackage) {
+        ghPackage.metadata.container.tags =
+          ghPackage.metadata.container.tags.filter(t => t !== tag)
+      }
+    }
+  }
+
   getTags(): Set<string> {
     return new Set(this.tag2Digest.keys())
   }
@@ -392,7 +443,8 @@ export class PackageRepo {
         // its DELETE returned 404 tells the two cases apart (#147).
         if (await this.packageVersionExists(targetPackage, id)) {
           throw new Error(
-            `The package "${targetPackage}" version id ${id} still exists after deleting it returned 404, which GitHub reports when the token lacks permission to delete it. For the GITHUB_TOKEN, give the workflow's repository the Admin role under the package's "Manage Actions access" settings; for a personal access token, add the delete:packages scope.`
+            `The package "${targetPackage}" version id ${id} still exists after deleting it returned 404, which GitHub reports when the token lacks permission to delete it. For the GITHUB_TOKEN, give the workflow's repository the Admin role under the package's "Manage Actions access" settings; for a personal access token, add the delete:packages scope.`,
+            { cause: error }
           )
         }
         logger.warning(
@@ -409,7 +461,8 @@ export class PackageRepo {
    * can mean both "already gone" and "not allowed to delete".
    * @param targetPackage The package name
    * @param id The package version id
-   * @returns true if the version can still be fetched, false on 404
+   * @returns true if the version can still be fetched and is not
+   *   soft-deleted; false on 404 or when `deleted_at` is set
    */
   private async packageVersionExists(
     targetPackage: string,
@@ -417,30 +470,41 @@ export class PackageRepo {
   ): Promise<boolean> {
     const octokit = this.octokitClient.getClient()
     try {
+      let version: { deleted_at?: string | null }
       if (this.config.repoType === 'User') {
         if (this.config.tokenOwnsPackage) {
-          await octokit.rest.packages.getPackageVersionForAuthenticatedUser({
-            package_type: 'container' as const,
-            package_name: targetPackage,
-            package_version_id: id
-          })
+          version = (
+            await octokit.rest.packages.getPackageVersionForAuthenticatedUser({
+              package_type: 'container' as const,
+              package_name: targetPackage,
+              package_version_id: id
+            })
+          ).data
         } else {
-          await octokit.rest.packages.getPackageVersionForUser({
-            package_type: 'container' as const,
-            package_name: targetPackage,
-            username: this.config.owner,
-            package_version_id: id
-          })
+          version = (
+            await octokit.rest.packages.getPackageVersionForUser({
+              package_type: 'container' as const,
+              package_name: targetPackage,
+              username: this.config.owner,
+              package_version_id: id
+            })
+          ).data
         }
       } else {
-        await octokit.rest.packages.getPackageVersionForOrganization({
-          package_type: 'container' as const,
-          package_name: targetPackage,
-          org: this.config.owner,
-          package_version_id: id
-        })
+        version = (
+          await octokit.rest.packages.getPackageVersionForOrganization({
+            package_type: 'container' as const,
+            package_name: targetPackage,
+            org: this.config.owner,
+            package_version_id: id
+          })
+        ).data
       }
-      return true
+      // A deleted version stays restorable for 30 days, so GitHub may
+      // still return it here with `deleted_at` set. That means a DELETE
+      // already landed (stale list, or a concurrent delete), so count it
+      // as gone rather than failing the run as a permission problem.
+      return !version.deleted_at
     } catch (error) {
       if (error instanceof RequestError && error.status === 404) {
         return false

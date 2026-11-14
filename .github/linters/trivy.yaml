@@ -1,0 +1,19 @@
+# Trivy config for super-linter (see .github/workflows/linter.yml).
+#
+# super-linter's FILTER_REGEX_EXCLUDE does NOT apply to Trivy — Trivy scans
+# the whole workspace filesystem, not super-linter's filtered file list. So
+# the generated, committed bundles must be excluded here instead.
+#
+# dist/ and citester/ are ncc-bundled output containing third-party code
+# (e.g. the Azure Storage SDK pulled in by @actions/cache). Trivy's secret
+# scanner raises false positives on strings inside that minified vendor
+# code. These directories are not our source — every other super-linter
+# validator already excludes them via FILTER_REGEX_EXCLUDE: (dist|citester)/.*
+#
+# Skipping the dirs drops only the bundle scan; the package-lock.json
+# vulnerability scan and the tests/**/Dockerfile misconfiguration scans are
+# unaffected.
+scan:
+  skip-dirs:
+    - dist
+    - citester

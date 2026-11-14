@@ -15,8 +15,10 @@ import {
   parentDigestFromReferrerTag,
   SHA256_DIGEST_LENGTH,
   validateUserRegex,
+  warnIfUnanchoredRegex,
   MAX_USER_REGEX_LENGTH,
-  runWithConcurrency
+  runWithConcurrency,
+  sleep
 } from '../utils'
 
 // Mock @actions/core
@@ -92,6 +94,13 @@ describe('utils', () => {
       const result = parseChallenge(challenge)
 
       expect(result.get('scope')).toBe('repository:user/test:pull=encoded==')
+    })
+
+    it('returns an empty map for an undefined challenge instead of throwing', () => {
+      // A 401 with no www-authenticate header yields undefined here; the
+      // parser must not blow up on .startsWith.
+      expect(() => parseChallenge(undefined)).not.toThrow()
+      expect(parseChallenge(undefined).size).toBe(0)
     })
   })
 
@@ -393,6 +402,26 @@ describe('utils', () => {
     })
   })
 
+  describe('warnIfUnanchoredRegex', () => {
+    it('warns for a fully unanchored pattern', () => {
+      warnIfUnanchoredRegex('1.0', 'delete-tags')
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/^delete-tags:.*unanchored/)
+      )
+    })
+
+    it('warns when only one end is anchored', () => {
+      warnIfUnanchoredRegex('^v1.*', 'delete-tags')
+      warnIfUnanchoredRegex('.*-rc$', 'exclude-tags')
+      expect(core.warning).toHaveBeenCalledTimes(2)
+    })
+
+    it('stays silent for an anchored pattern', () => {
+      warnIfUnanchoredRegex('^release-[0-9]+$', 'package')
+      expect(core.warning).not.toHaveBeenCalled()
+    })
+  })
+
   describe('runWithConcurrency', () => {
     it('processes every item exactly once', async () => {
       const items = Array.from({ length: 25 }, (_, i) => i)
@@ -425,6 +454,78 @@ describe('utils', () => {
       ).rejects.toThrow('boom')
     })
 
+    it('stops starting new items after the first failure', async () => {
+      // concurrency 1 makes ordering deterministic: item 2 throws, so
+      // items 3-5 must never be started.
+      const seen: number[] = []
+      await expect(
+        runWithConcurrency([1, 2, 3, 4, 5], 1, async n => {
+          seen.push(n)
+          if (n === 2) throw new Error('boom')
+        })
+      ).rejects.toThrow('boom')
+      expect(seen).toEqual([1, 2])
+    })
+
+    it('stops peers from starting new items after one fails (concurrency > 1)', async () => {
+      // Worker A fails on item 0 straight away; worker B is busy with
+      // item 1. When B finishes it must see the failure and NOT pull
+      // items 2+ — the core fail-fast property, which concurrency 1 can't
+      // distinguish from the failing worker simply returning.
+      const started: number[] = []
+      await expect(
+        runWithConcurrency([0, 1, 2, 3], 2, async n => {
+          started.push(n)
+          if (n === 0) throw new Error('boom')
+          await new Promise(resolve => setTimeout(resolve, 20))
+        })
+      ).rejects.toThrow('boom')
+      expect(started).toEqual([0, 1])
+    })
+
+    it('rejects even when the worker throws a falsy value', async () => {
+      // Deliberately throwing non-Error values: a falsy rejection must
+      // still fail the batch rather than resolve as success.
+      await expect(
+        runWithConcurrency([1], 1, async () => {
+          // eslint-disable-next-line no-throw-literal
+          throw undefined
+        })
+      ).rejects.toBeUndefined()
+      await expect(
+        runWithConcurrency([1], 1, async () => {
+          // eslint-disable-next-line no-throw-literal
+          throw 0
+        })
+      ).rejects.toBe(0)
+    })
+
+    it('rethrows the first error, not a later one', async () => {
+      await expect(
+        runWithConcurrency([0, 1], 2, async n => {
+          if (n === 0) throw new Error('first')
+          await new Promise(resolve => setTimeout(resolve, 10))
+          throw new Error('second')
+        })
+      ).rejects.toThrow('first')
+    })
+
+    it('drains in-flight workers before returning (no detached work)', async () => {
+      // item 0 throws immediately; items 1 and 2 are already in flight
+      // with a delay. The call must not settle until they finish — so by
+      // the time it rejects, both have completed (not left running in the
+      // background as the old Promise.all-reject behavior did).
+      let completed = 0
+      await expect(
+        runWithConcurrency([0, 1, 2], 3, async n => {
+          if (n === 0) throw new Error('boom')
+          await new Promise(resolve => setTimeout(resolve, 20))
+          completed++
+        })
+      ).rejects.toThrow('boom')
+      expect(completed).toBe(2)
+    })
+
     it('handles empty input', async () => {
       const seen: number[] = []
       await runWithConcurrency([], 5, async n => {
@@ -440,6 +541,25 @@ describe('utils', () => {
         seen.push(n)
       })
       expect(seen.sort((a, b) => a - b)).toEqual([1, 2])
+    })
+  })
+
+  describe('sleep', () => {
+    it('resolves after the given delay', async () => {
+      vi.useFakeTimers()
+      try {
+        let done = false
+        const p = (async (): Promise<void> => {
+          await sleep(1000)
+          done = true
+        })()
+        expect(done).toBe(false)
+        await vi.advanceTimersByTimeAsync(1000)
+        await p
+        expect(done).toBe(true)
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })

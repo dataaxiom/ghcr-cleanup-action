@@ -11,9 +11,11 @@ export const MAX_USER_REGEX_LENGTH = 1000
 
 /**
  * Validate a user-supplied regex pattern. Reject patterns that are
- * suspiciously long or that safe-regex2 flags as ReDoS-prone (nested
- * quantifiers, ambiguous alternation, etc.) before they reach
- * `new RegExp(...)` and run against tag/digest/package strings.
+ * suspiciously long or that safe-regex2 flags as ReDoS-prone before
+ * they reach `new RegExp(...)` and run against tag/digest/package
+ * strings. safe-regex2 only analyses star height (nested quantifiers
+ * like `(a+)+`); it does not catch every dangerous pattern — e.g.
+ * ambiguous alternation such as `(a|a)*` passes.
  *
  * Workflow authors are the effective trust boundary, so the primary
  * goal here is preventing self-foot-shooting (a copy-pasted pattern
@@ -31,7 +33,26 @@ export function validateUserRegex(pattern: string, source: string): void {
   }
   if (!safeRegex(pattern)) {
     throw new Error(
-      `${source}: regex pattern rejected as ReDoS-prone (nested quantifiers or ambiguous alternation). Simplify the pattern or pre-process the input.`
+      `${source}: regex pattern rejected as ReDoS-prone (nested quantifiers). Simplify the pattern or pre-process the input.`
+    )
+  }
+}
+
+/**
+ * Warn when a regex-mode pattern is unanchored. Regex patterns are
+ * applied with `.test()`, which matches anywhere in the value (`1.0`
+ * also matches `21.0.5`) — unlike wildcard mode, which always matches
+ * the whole string. Warn rather than fail: existing workflows may rely
+ * on substring matching deliberately.
+ *
+ * The check is a heuristic (a pattern ending in an escaped `\$` reads
+ * as anchored, `^a|b` anchors only one alternative) — acceptable for
+ * an advisory warning.
+ */
+export function warnIfUnanchoredRegex(pattern: string, source: string): void {
+  if (!pattern.startsWith('^') || !pattern.endsWith('$')) {
+    core.warning(
+      `${source}: regex pattern "${pattern}" is unanchored, so it matches anywhere in the value (e.g. "1.0" also matches "21.0.5"). Use ^...$ to match the whole tag or package name.`
     )
   }
 }
@@ -53,9 +74,11 @@ export function parentDigestFromReferrerTag(tag: string): string | null {
   return digest.slice(0, SHA256_DIGEST_LENGTH)
 }
 
-export function parseChallenge(challenge: string): Map<string, string> {
+export function parseChallenge(
+  challenge: string | undefined
+): Map<string, string> {
   const attributes = new Map<string, string>()
-  if (challenge.startsWith('Bearer ')) {
+  if (challenge && challenge.startsWith('Bearer ')) {
     challenge = challenge.replace('Bearer ', '')
     const parts = challenge.split(',')
     for (const part of parts) {
@@ -310,7 +333,14 @@ export interface ManifestSubject {
 
 /**
  * Run `worker` over `items` with bounded concurrency. Workers pull from a
- * shared index; ordering of completion is unspecified. Errors propagate.
+ * shared index; ordering of completion is unspecified.
+ *
+ * Fail-fast semantics: on the first worker error no new items are started
+ * (in-flight workers finish their current item), the whole batch is drained
+ * before returning, and the first error is rethrown. This matters because
+ * callers here delete images and flush a per-tree audit log in a `finally`
+ * — letting stray workers keep deleting/logging after the caller has moved
+ * on would corrupt that log and hide later failures.
  *
  * Used to parallelize registry manifest fetches — the registry is on
  * ghcr.io, separate rate budget from api.github.com, and axios-retry
@@ -324,14 +354,35 @@ export async function runWithConcurrency<T>(
 ): Promise<void> {
   const limit = Math.max(1, Math.min(concurrency, items.length))
   let next = 0
+  let failed = false
+  let firstError: unknown
   const launchOne = async (): Promise<void> => {
-    while (true) {
+    while (!failed) {
       const idx = next++
       if (idx >= items.length) return
-      await worker(items[idx], idx)
+      try {
+        await worker(items[idx], idx)
+      } catch (err) {
+        // Record the first error and stop this worker. Peers finish
+        // their current in-flight item, then see the flag and return —
+        // so no new work starts, but nothing is left detached.
+        if (!failed) {
+          failed = true
+          firstError = err
+        }
+        return
+      }
     }
   }
   await Promise.all(Array.from({ length: limit }, launchOne))
+  if (failed) {
+    throw firstError
+  }
+}
+
+/** Resolve after `ms` milliseconds. */
+export async function sleep(ms: number): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, ms))
 }
 
 export interface Manifest {

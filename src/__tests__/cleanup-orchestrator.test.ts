@@ -407,6 +407,27 @@ describe('CleanupOrchestrator', () => {
       )
     })
 
+    it('processes BOTH partial and ghost images when both options are set', async () => {
+      // Regression: these used to be if/else, so enabling both silently
+      // dropped every ghost image. The two finders return disjoint sets,
+      // so both must run and both sets must be deleted.
+      config.deletePartialImages = true
+      config.deleteGhostImages = true
+      mockImageValidator.findPartialImages.mockResolvedValue(
+        new Set(['partial1'])
+      )
+      mockImageValidator.findGhostImages.mockResolvedValue(new Set(['ghost1']))
+
+      await orchestrator.run()
+
+      expect(mockImageValidator.findPartialImages).toHaveBeenCalled()
+      expect(mockImageValidator.findGhostImages).toHaveBeenCalled()
+      expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
+        new Set(['partial1', 'ghost1']),
+        expect.any(Function)
+      )
+    })
+
     it('should process orphaned images when deleteOrphanedImages is true', async () => {
       config.deleteOrphanedImages = true
       const orphanedImages = new Set(['orphan1', 'orphan2'])
@@ -418,6 +439,30 @@ describe('CleanupOrchestrator', () => {
       expect(mockImageDeleter.deleteImages).toHaveBeenCalledWith(
         orphanedImages,
         expect.any(Function)
+      )
+    })
+
+    it('passes the exclude list to findOrphanedImages so exclude-tags can veto orphans', async () => {
+      config.deleteOrphanedImages = true
+      mockImageFilter.applyExclusionFilters.mockReturnValue(['sha256-abc.sig'])
+      mockImageValidator.findOrphanedImages.mockReturnValue(new Set())
+      // The child -> parents map, so an orphan with an excluded child is
+      // kept rather than cascade-deleting that child.
+      const digestUsedBy = new Map([['sha256:child', new Set(['sha256:p'])]])
+      mockManifestAnalyzer.loadDigestUsedByMap.mockResolvedValue({
+        digestUsedBy,
+        subjectReferrers: new Map()
+      })
+      // reload() (run's beforeEach) captured excludeTags before this
+      // override; re-run it so the new exclude list is picked up.
+      await orchestrator.reload()
+
+      await orchestrator.run()
+
+      expect(mockImageValidator.findOrphanedImages).toHaveBeenCalledWith(
+        expect.any(Map),
+        ['sha256-abc.sig'],
+        digestUsedBy
       )
     })
 

@@ -1,5 +1,9 @@
 import * as core from '@actions/core'
-import { MapPrinter, validateUserRegex } from './utils.js'
+import {
+  MapPrinter,
+  validateUserRegex,
+  warnIfUnanchoredRegex
+} from './utils.js'
 import { OctokitClient } from './octokit-client.js'
 import humanInterval from 'human-interval'
 
@@ -50,6 +54,12 @@ export class Config {
 
 export async function buildConfig(): Promise<Config> {
   const token: string = core.getInput('token', { required: true })
+  // Register the token with the runner's log masker. Values arriving via
+  // ${{ secrets.* }} are masked already; this masks any later occurrence in
+  // the job log of one that wasn't (hardcoded, or passed through an
+  // env/output chain that broke the taint). It can't retroactively mask the
+  // step's `with:` echo, which the runner prints before the action starts.
+  core.setSecret(token)
   const config = new Config()
   config.token = token
   config.owner = core.getInput('owner')
@@ -239,6 +249,22 @@ export async function buildConfig(): Promise<Config> {
     }
     if (config.expandPackages && config.package) {
       validateUserRegex(config.package, 'package')
+    }
+  }
+
+  // Separate from the safety checks above (and not silenced by
+  // skip-regex-checks): substring matching is a semantics footgun, not
+  // a resource-safety issue, so the heads-up stays on even for authors
+  // who opted out of the ReDoS/length guards.
+  if (config.useRegex) {
+    if (config.deleteTags) {
+      warnIfUnanchoredRegex(config.deleteTags, 'delete-tags')
+    }
+    if (config.excludeTags) {
+      warnIfUnanchoredRegex(config.excludeTags, 'exclude-tags')
+    }
+    if (config.expandPackages && config.package) {
+      warnIfUnanchoredRegex(config.package, 'package')
     }
   }
 

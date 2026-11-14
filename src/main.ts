@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { Config, buildConfig } from './config.js'
+import { Config, LogLevel, buildConfig } from './config.js'
 import { PackageRepo } from './package-repo.js'
 import { OctokitClient } from './octokit-client.js'
 import wcmatch from 'wildcard-match'
@@ -27,8 +27,10 @@ export async function run(): Promise<void> {
     const action = new CleanupAction(config, octokitClient)
     await action.run()
   } catch (error) {
-    // Fail the workflow run if an error occurs
-    if (error instanceof Error) core.setFailed(error.message)
+    // Fail the workflow run if an error occurs. Handle non-Error throws
+    // too (string/object rejections, cross-realm Errors) — swallowing
+    // them would leave an aborted cleanup reporting success.
+    core.setFailed(error instanceof Error ? error.message : String(error))
   }
 }
 
@@ -46,7 +48,7 @@ class CleanupAction {
   async run(): Promise<void> {
     const startedAt = Date.now()
 
-    let targetPackages: string[] = []
+    let targetPackages: string[]
     if (this.config.expandPackages) {
       // first make sure sure we have PAT
       const auth = createTokenAuth(this.config.token)
@@ -83,6 +85,21 @@ class CleanupAction {
           .filter(Boolean)
         const isTagMatch = wcmatch(patterns)
         targetPackages = packagesInUse.filter(name => isTagMatch(name))
+      }
+
+      // Owner-wide selection deserves a loud callout: delete-untagged
+      // defaults to true when no other rule is set, so a bare "*"
+      // package pattern is one line of config away from deleting
+      // untagged images in every package the PAT can see. Keyed on the
+      // outcome (matched everything) rather than the pattern's
+      // spelling, so ".*" and friends trigger it too.
+      if (
+        targetPackages.length > 1 &&
+        targetPackages.length === packagesInUse.length
+      ) {
+        core.warning(
+          `Package pattern "${this.config.package}" matched all ${targetPackages.length} packages owned by ${this.config.owner}. The configured cleanup rules will run against every one of them — use dry-run: true to preview the result.`
+        )
       }
     } else {
       targetPackages = this.config.package
@@ -239,13 +256,22 @@ class CleanupAction {
     if (this.config.useRegex !== undefined) {
       configPairs.push(['use-regex', `${this.config.useRegex}`])
     }
-    configPairs.push(['log-level', `${this.config.logLevel}`])
+    configPairs.push(['log-level', LogLevel[this.config.logLevel]])
 
     // Build an HTML table so it renders correctly inside <details>
+    // Cells hold user-supplied patterns (e.g. `<v1&v2>`), so escape them.
+    const escapeHtml = (value: string): string =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
     const buildHtmlTable = (headers: string[], rows: string[][]): string => {
-      const thead = `<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`
+      const thead = `<tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`
       const tbody = rows
-        .map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`)
+        .map(
+          r => `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`
+        )
         .join('')
       return `<table>${thead}${tbody}</table>`
     }

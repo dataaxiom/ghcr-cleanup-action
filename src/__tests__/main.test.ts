@@ -150,15 +150,30 @@ describe('main.run()', () => {
       expect(core.setFailed).toHaveBeenCalledWith('config blew up')
     })
 
+    it('reports only the message, never the cause chain (which can carry credentials)', async () => {
+      // An AxiosError cause carries request config, including the
+      // Authorization header. setFailed must get exactly the message.
+      const cause = {
+        config: { headers: { Authorization: 'Bearer secret-token' } }
+      }
+      mockBuildConfig.mockRejectedValueOnce(new Error('x', { cause }))
+
+      await run()
+
+      expect(core.setFailed).toHaveBeenCalledWith('x')
+    })
+
     it('does not call setFailed on success', async () => {
       await run()
       expect(core.setFailed).not.toHaveBeenCalled()
     })
 
-    it('does not call setFailed for non-Error throws', async () => {
+    it('reports non-Error throws via core.setFailed (fail-closed)', async () => {
+      // A string/object rejection must still fail the run — swallowing it
+      // would leave an aborted cleanup reporting success.
       mockBuildConfig.mockRejectedValueOnce('a string, not an Error')
       await run()
-      expect(core.setFailed).not.toHaveBeenCalled()
+      expect(core.setFailed).toHaveBeenCalledWith('a string, not an Error')
     })
   })
 
@@ -245,6 +260,88 @@ describe('main.run()', () => {
         'pkg-a',
         'pkg-b'
       ])
+    })
+
+    it('warns when the package pattern matches every package the token can see', async () => {
+      mockBuildConfig.mockResolvedValue(
+        defaultConfig({
+          expandPackages: true,
+          useRegex: false,
+          package: '*'
+        })
+      )
+      mockPackageRepo.getPackageList.mockResolvedValue([
+        'pkg-a',
+        'pkg-b',
+        'pkg-c'
+      ])
+
+      await run()
+
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining('matched all 3 packages')
+      )
+    })
+
+    it('warns in regex mode too, keyed on the outcome (".*" matches everything)', async () => {
+      mockBuildConfig.mockResolvedValue(
+        defaultConfig({
+          expandPackages: true,
+          useRegex: true,
+          package: '.*'
+        })
+      )
+      mockPackageRepo.getPackageList.mockResolvedValue([
+        'pkg-a',
+        'pkg-b',
+        'pkg-c'
+      ])
+
+      await run()
+
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining('matched all 3 packages')
+      )
+    })
+
+    it('does not warn when the pattern matches only a subset of packages', async () => {
+      mockBuildConfig.mockResolvedValue(
+        defaultConfig({
+          expandPackages: true,
+          useRegex: false,
+          package: 'pkg-*'
+        })
+      )
+      mockPackageRepo.getPackageList.mockResolvedValue([
+        'pkg-a',
+        'pkg-b',
+        'other-c'
+      ])
+
+      await run()
+
+      expect(core.warning).not.toHaveBeenCalledWith(
+        expect.stringContaining('matched all')
+      )
+    })
+
+    it('does not warn when the owner has a single package', async () => {
+      // A one-package owner "matches everything" trivially — warning
+      // there would be pure noise for the common single-repo setup.
+      mockBuildConfig.mockResolvedValue(
+        defaultConfig({
+          expandPackages: true,
+          useRegex: false,
+          package: '*'
+        })
+      )
+      mockPackageRepo.getPackageList.mockResolvedValue(['pkg-a'])
+
+      await run()
+
+      expect(core.warning).not.toHaveBeenCalledWith(
+        expect.stringContaining('matched all')
+      )
     })
 
     it('uses regex when expandPackages=true and useRegex=true', async () => {
@@ -414,6 +511,20 @@ describe('main.run()', () => {
         (s: unknown) => typeof s === 'string' && s.includes('Dry run enabled')
       )
       expect(anyMentionsDryRun).toBe(false)
+    })
+
+    it('escapes user patterns and names the log level in the config table', async () => {
+      mockBuildConfig.mockResolvedValue(
+        defaultConfig({ deleteTags: '<v1&v2>', logLevel: 3 })
+      )
+      await run()
+
+      const html = vi
+        .mocked(core.summary.addDetails)
+        .mock.calls.find(c => c[0] === 'Configuration')?.[1] as string
+      expect(html).toContain('<td>&lt;v1&amp;v2&gt;</td>')
+      expect(html).not.toContain('<v1&v2>')
+      expect(html).toContain('<td>log-level</td><td>INFO</td>')
     })
 
     it('includes set config options in the config details block', async () => {

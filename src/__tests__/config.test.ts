@@ -116,6 +116,14 @@ describe('Config', () => {
       expect(config.repoType).toBe('Organization')
     })
 
+    it('registers the token with the runner log masker', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+
+      await buildConfig()
+
+      expect(core.setSecret).toHaveBeenCalledWith('test-token')
+    })
+
     it('should auto-populate from GITHUB_REPOSITORY env var', async () => {
       process.env.GITHUB_REPOSITORY = 'auto-owner/auto-repo'
       mockGetInput.mockImplementation((name: string) => {
@@ -365,6 +373,101 @@ describe('Config', () => {
       expect(config.useRegex).toBe(true)
       expect(config.skipRegexChecks).toBe(true)
       expect(config.deleteTags).toBe('(a+)+$')
+    })
+
+    it('warns when a regex-mode pattern is unanchored', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'delete-tags': '1.0',
+          'exclude-tags': '^latest$',
+          'use-regex': 'true'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name === 'use-regex'
+      )
+
+      await buildConfig()
+
+      // delete-tags substring-matches (1.0 also hits 21.0.5) → warned;
+      // the anchored exclude-tags must not be.
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/^delete-tags:.*unanchored/)
+      )
+      expect(core.warning).not.toHaveBeenCalledWith(
+        expect.stringMatching(/^exclude-tags:/)
+      )
+    })
+
+    it('warns when a regex-mode exclude-tags pattern is unanchored', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'exclude-tags': 'latest',
+          'use-regex': 'true'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name === 'use-regex'
+      )
+
+      await buildConfig()
+
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/^exclude-tags:.*unanchored/)
+      )
+    })
+
+    it('warns about an unanchored package pattern (expand-packages + regex)', async () => {
+      // The third wired branch: config.expandPackages && config.package.
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          package: 'pkg',
+          'use-regex': 'true',
+          'expand-packages': 'true'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name === 'use-regex' || name === 'expand-packages'
+      )
+
+      await buildConfig()
+
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/^package:.*unanchored/)
+      )
+    })
+
+    it('still warns about unanchored patterns when skip-regex-checks is on', async () => {
+      // The anchoring heads-up is about matching semantics, not regex
+      // safety - opting out of the ReDoS/length guards must not mute it.
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'delete-tags': '1.0',
+          'use-regex': 'true',
+          'skip-regex-checks': 'true'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name === 'use-regex' || name === 'skip-regex-checks'
+      )
+
+      await buildConfig()
+
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/^delete-tags:.*unanchored/)
+      )
     })
 
     it('does NOT validate delete-tags as regex when use-regex is false', async () => {

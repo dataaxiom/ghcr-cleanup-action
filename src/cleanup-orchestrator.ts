@@ -184,7 +184,13 @@ export class CleanupOrchestrator {
       }
     }
 
-    // Process ghost/partial/orphaned images
+    // Process ghost/partial/orphaned images. These are independent `if`
+    // blocks, not an if/else: the two finders return disjoint sets
+    // (findPartialImages excludes the all-children-missing case, which is
+    // exactly what findGhostImages matches), so with both options set a
+    // user asking to delete both categories gets both. An `else if` here
+    // silently dropped every ghost image whenever delete-partial-images
+    // was also on.
     if (this.config.deletePartialImages) {
       const partialImages = await this.imageValidator.findPartialImages(
         this.filterSet
@@ -193,7 +199,8 @@ export class CleanupOrchestrator {
         this.deleteSet.add(digest)
         this.filterSet.delete(digest)
       }
-    } else if (this.config.deleteGhostImages) {
+    }
+    if (this.config.deleteGhostImages) {
       const ghostImages = await this.imageValidator.findGhostImages(
         this.filterSet
       )
@@ -205,7 +212,9 @@ export class CleanupOrchestrator {
 
     if (this.config.deleteOrphanedImages) {
       const orphanedImages = this.imageValidator.findOrphanedImages(
-        this.subjectReferrers
+        this.subjectReferrers,
+        this.excludeTags,
+        this.digestUsedBy
       )
       for (const digest of orphanedImages) {
         this.deleteSet.add(digest)

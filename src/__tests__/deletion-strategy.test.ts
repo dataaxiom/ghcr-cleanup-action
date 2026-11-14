@@ -75,6 +75,42 @@ describe('DeletionStrategy', () => {
       expect(core.info).toHaveBeenCalledWith('no matching tags found')
     })
 
+    it('warns once when keep-n-tagged leaves digest matches undeleted', async () => {
+      // keep-n-tagged ranks images by tag, so bare-digest matches are never
+      // deleted: say so (once, with a count) instead of dropping silently.
+      context.config.deleteTags = 'sha256:*'
+      context.config.keepNtagged = 2
+      mockImageFilter.expandTags.mockReturnValue(
+        new Set(['sha256:aaa', 'sha256:bbb', 'v1'])
+      )
+      // v1 resolves to sha256:aaa, so only sha256:bbb is ignored.
+      mockPackageRepo.getDigestByTag.mockImplementation((tag: string) =>
+        tag === 'v1' ? 'sha256:aaa' : undefined
+      )
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        name: 'sha256:aaa',
+        metadata: { container: { tags: ['v1'] } }
+      })
+
+      await strategy.processTagDeletions(new Set(), [])
+      await strategy.processTagDeletions(new Set(), [])
+
+      expect(core.warning).toHaveBeenCalledTimes(1)
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/matched 1 image digest\(s\).*sha256:bbb$/)
+      )
+    })
+
+    it('does not warn about ignored digests without keep-n-tagged', async () => {
+      context.config.deleteTags = 'sha256:*'
+      context.config.keepNtagged = null
+      mockImageFilter.expandTags.mockReturnValue(new Set(['sha256:bbb']))
+
+      await strategy.processTagDeletions(new Set(), [])
+
+      expect(core.warning).not.toHaveBeenCalled()
+    })
+
     it('should handle single-tagged images for deletion', async () => {
       context.config.deleteTags = 'v1.0'
       context.config.keepNtagged = null

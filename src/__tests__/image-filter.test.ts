@@ -96,6 +96,46 @@ describe('ImageFilter', () => {
       expect(filterSet.has('digest3')).toBe(false)
     })
 
+    it('trims whitespace around comma-separated exclude tags (issue #146)', () => {
+      // A space after a comma must not turn "v1.0.0" into the never-matching
+      // pattern " v1.0.0" — that silently dropped exclusion for all but the
+      // first tag and let keep-n-tagged delete "excluded" images.
+      context.config.excludeTags = 'dev, v1.0.0 , v1.1.1'
+      const filterSet = new Set(['digest1', 'digest2', 'digest3', 'digest4'])
+
+      mockPackageRepo.getTags.mockReturnValue([
+        'dev',
+        'v1.0.0',
+        'v1.1.1',
+        'v2.0.0'
+      ])
+      mockPackageRepo.getDigestByTag.mockImplementation((tag: string) => {
+        const mapping: any = {
+          dev: 'digest1',
+          'v1.0.0': 'digest2',
+          'v1.1.1': 'digest3',
+          'v2.0.0': 'digest4'
+        }
+        return mapping[tag]
+      })
+      mockPackageRepo.getDigests.mockReturnValue([
+        'digest1',
+        'digest2',
+        'digest3',
+        'digest4'
+      ])
+
+      const result = filter.applyExclusionFilters(filterSet)
+
+      expect(result).toEqual(
+        expect.arrayContaining(['dev', 'v1.0.0', 'v1.1.1'])
+      )
+      expect(result).not.toContain('v2.0.0')
+      expect(filterSet.has('digest2')).toBe(false) // v1.0.0 excluded
+      expect(filterSet.has('digest3')).toBe(false) // v1.1.1 excluded
+      expect(filterSet.has('digest4')).toBe(true) // v2.0.0 not excluded
+    })
+
     it('should exclude tags using regex patterns', () => {
       context.config.excludeTags = '^v1\\.\\d+$'
       context.config.useRegex = true
@@ -255,6 +295,20 @@ describe('ImageFilter', () => {
       expect(core.info).toHaveBeenCalledWith('digest1 v1.0,old')
     })
 
+    it('keeps a version with no updated_at (age unknown) rather than treat it as old', () => {
+      context.config.olderThan = 7 * 24 * 60 * 60 * 1000
+      context.config.olderThanReadable = '7 days'
+      const filterSet = new Set(['digest1'])
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        name: 'digest1',
+        metadata: { container: { tags: ['v1'] } }
+      })
+
+      filter.applyAgeFilter(filterSet)
+
+      expect(filterSet.has('digest1')).toBe(false)
+    })
+
     it('should log untagged images being filtered', () => {
       context.config.olderThan = 7 * 24 * 60 * 60 * 1000
       context.config.olderThanReadable = '7 days'
@@ -324,6 +378,34 @@ describe('ImageFilter', () => {
       expect(result).toContain('v1.1')
       expect(result).toContain('old-release')
       expect(result).not.toContain('latest')
+      expect(result).not.toContain('v2.0')
+    })
+
+    it('trims whitespace around comma-separated delete tags (issue #146)', () => {
+      context.config.deleteTags = 'v1.0, old-release'
+      const filterSet = new Set(['digest1', 'digest2', 'digest3'])
+
+      mockPackageRepo.getPackageByDigest.mockImplementation(
+        (digest: string) => ({
+          name: digest,
+          metadata: {
+            container: {
+              tags:
+                digest === 'digest1'
+                  ? ['v1.0']
+                  : digest === 'digest2'
+                    ? ['old-release']
+                    : ['v2.0']
+            }
+          }
+        })
+      )
+
+      const result = filter.expandTags(filterSet)
+
+      // " old-release" (leading space) must still match the tag.
+      expect(result).toContain('v1.0')
+      expect(result).toContain('old-release')
       expect(result).not.toContain('v2.0')
     })
 

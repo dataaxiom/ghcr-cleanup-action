@@ -173,6 +173,22 @@ describe('manifest-cache', () => {
       expect(key).toMatch(/^ghcr-manifest-v1-owner-pkg-.+$/)
     })
 
+    it('sanitizes owner too, so it cannot escape the cache root', async () => {
+      const c = new ManifestCache('../../evil', 'pkg')
+      c.set('sha256:a', { mediaType: 'a' })
+      await c.save()
+
+      const [paths, key] = vi.mocked(cache.saveCache).mock.calls[0]
+      const root = path.join(
+        process.env.RUNNER_TEMP || os.tmpdir(),
+        'ghcr-cleanup-manifest-cache'
+      )
+      // One directory directly under the cache root: the `/`s are gone, so
+      // `..` survives only as plain characters in that directory's name.
+      expect(path.dirname(path.resolve(paths[0]))).toBe(path.resolve(root))
+      expect(key).not.toContain('/')
+    })
+
     it('is a no-op when nothing was fetched (empty map)', async () => {
       const c = new ManifestCache('owner', 'pkg')
       // No set() calls — map is empty.

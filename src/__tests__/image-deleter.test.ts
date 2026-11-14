@@ -28,14 +28,17 @@ describe('ImageDeleter', () => {
       getTags: vi.fn().mockReturnValue([]),
       getReferrerTagsForDigest: vi.fn().mockReturnValue([]),
       loadPackages: vi.fn().mockResolvedValue(undefined),
-      deletePackageVersion: vi.fn().mockResolvedValue(undefined)
+      deletePackageVersion: vi.fn().mockResolvedValue(undefined),
+      simulateUntag: vi.fn()
     }
 
     // Create mock registry
     mockRegistry = {
       getManifestByDigest: vi.fn<(digest: string) => Promise<Manifest>>(),
       getRawManifestByDigest: vi.fn<(digest: string) => Promise<Manifest>>(),
-      putManifest: vi.fn().mockResolvedValue(undefined)
+      // Like the real Registry: returns the digest of the version the PUT
+      // created. Distinct per tag, as the real per-tag annotation makes it.
+      putManifest: vi.fn(async (tag: string) => `sha256:placeholder-${tag}`)
     }
 
     // Create context
@@ -62,31 +65,53 @@ describe('ImageDeleter', () => {
   })
 
   describe('performUntagging', () => {
+    // Run performUntagging with fake timers so the reload backoff sleeps
+    // resolve instantly. Returns the promise's outcome for assertions.
+    const runUntag = async (
+      untagOps: Map<string, string[]>
+    ): Promise<{ result?: boolean; error?: unknown }> => {
+      vi.useFakeTimers()
+      try {
+        const p = (async () => {
+          try {
+            return { result: await deleter.performUntagging(untagOps) }
+          } catch (error) {
+            return { error }
+          }
+        })()
+        await vi.runAllTimersAsync()
+        return await p
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+    // Package listing where each tag's placeholder is listed under `ids`.
+    const listPlaceholders = (ids: Record<string, number>): void => {
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) => {
+        const tag = digest.replace('sha256:placeholder-', '')
+        return digest.startsWith('sha256:placeholder-') ? ids[tag] : undefined
+      })
+    }
+    const sourceWithTags = (tags: string[], manifest: Manifest): void => {
+      mockPackageRepo.getPackageByDigest.mockReturnValue({
+        name: 'digest1',
+        metadata: { container: { tags } }
+      })
+      mockRegistry.getRawManifestByDigest.mockResolvedValue(manifest)
+    }
+
     it('should return false when no untag operations', async () => {
       const result = await deleter.performUntagging(new Map())
       expect(result).toBe(false)
     })
 
-    it('should untag multi-tagged images', async () => {
-      const untagOps = new Map([['digest1', ['v1.0', 'old']]])
-
-      mockPackageRepo.getPackageByDigest.mockReturnValue({
-        name: 'digest1',
-        metadata: { container: { tags: ['v1.0', 'old', 'latest'] } }
-      })
-
-      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+    it('untags multi-tagged images by deleting exactly the placeholders it PUT', async () => {
+      sourceWithTags(['v1.0', 'old', 'latest'], {
         manifests: [{ digest: 'sha256:child1' }]
       })
+      listPlaceholders({ 'v1.0': 11, old: 12 })
 
-      mockPackageRepo.getDigestByTag.mockImplementation(
-        (tag: string) => `sha256:empty-${tag}`
-      )
-      mockPackageRepo.getIdByDigest.mockImplementation(
-        (digest: string) => `id-${digest}`
-      )
-
-      const result = await deleter.performUntagging(untagOps)
+      const { result } = await runUntag(new Map([['digest1', ['v1.0', 'old']]]))
 
       expect(result).toBe(true)
       expect(mockRegistry.putManifest).toHaveBeenCalledTimes(2)
@@ -95,25 +120,29 @@ describe('ImageDeleter', () => {
         expect.objectContaining({ manifests: [] }),
         true
       )
+      expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(1)
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(2)
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
+        'test-package',
+        11,
+        'sha256:placeholder-v1.0',
+        ['v1.0']
+      )
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
+        'test-package',
+        12,
+        'sha256:placeholder-old',
+        ['old']
+      )
     })
 
     it('should handle single layer manifests', async () => {
-      const untagOps = new Map([['digest1', ['v1.0']]])
-
-      mockPackageRepo.getPackageByDigest.mockReturnValue({
-        name: 'digest1',
-        metadata: { container: { tags: ['v1.0', 'latest'] } }
-      })
-
-      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+      sourceWithTags(['v1.0', 'latest'], {
         layers: [{ digest: 'sha256:layer1' }]
       })
+      listPlaceholders({ 'v1.0': 42 })
 
-      mockPackageRepo.getDigestByTag.mockReturnValue('sha256:empty')
-      mockPackageRepo.getIdByDigest.mockReturnValue(42)
-
-      await deleter.performUntagging(untagOps)
+      await runUntag(new Map([['digest1', ['v1.0']]]))
 
       expect(mockRegistry.putManifest).toHaveBeenCalledWith(
         'v1.0',
@@ -122,87 +151,191 @@ describe('ImageDeleter', () => {
       )
     })
 
+    it('under dry-run, skips the reload + delete and simulates the untag for the preview', async () => {
+      // With dry-run on, putManifest is a no-op, so the tags still point
+      // at the live images. Resolving tags after a reload would find the
+      // live digests and log them as being deleted — so no reload or
+      // delete here. Instead the untag is simulated in the listing, so the
+      // caller's reload + second pass stages what a live run would.
+      context.config.dryRun = true
+      sourceWithTags(['v1.0', 'latest'], { manifests: [] })
+
+      const { result } = await runUntag(new Map([['digest1', ['v1.0']]]))
+
+      expect(result).toBe(true)
+      expect(mockRegistry.putManifest).toHaveBeenCalledTimes(1)
+      expect(mockPackageRepo.loadPackages).not.toHaveBeenCalled()
+      expect(mockPackageRepo.deletePackageVersion).not.toHaveBeenCalled()
+      expect(mockPackageRepo.simulateUntag).toHaveBeenCalledWith(['v1.0'])
+    })
+
     it('should skip untagging if only one tag remains', async () => {
-      const untagOps = new Map([['digest1', ['v1.0']]])
+      sourceWithTags(['v1.0'], { manifests: [] })
 
-      mockPackageRepo.getPackageByDigest.mockReturnValue({
-        name: 'digest1',
-        metadata: { container: { tags: ['v1.0'] } }
-      })
-
-      await deleter.performUntagging(untagOps)
+      await runUntag(new Map([['digest1', ['v1.0']]]))
 
       expect(mockRegistry.putManifest).not.toHaveBeenCalled()
       expect(mockPackageRepo.deletePackageVersion).not.toHaveBeenCalled()
     })
 
-    it('should handle missing package id after untagging', async () => {
-      const untagOps = new Map([['digest1', ['v1.0']]])
-
-      mockPackageRepo.getPackageByDigest.mockReturnValue({
-        name: 'digest1',
-        metadata: { container: { tags: ['v1.0', 'latest'] } }
-      })
-
-      mockRegistry.getRawManifestByDigest.mockResolvedValue({
-        manifests: []
-      })
-
-      mockPackageRepo.getDigestByTag.mockReturnValue('sha256:empty')
-      mockPackageRepo.getIdByDigest.mockReturnValue(undefined)
-
-      await deleter.performUntagging(untagOps)
-
-      expect(core.info).toHaveBeenCalledWith(
-        expect.stringContaining("couldn't find newly created package")
-      )
-    })
-
-    it('reloads only once for a multi-tag batch', async () => {
-      // Three untags on one image (4 tags total → 3 strippable).
-      // Previous implementation did 3 reloads (one per tag); the
-      // batched implementation does 1.
-      const untagOps = new Map([['digest1', ['v1.0', 'old', 'beta']]])
-      mockPackageRepo.getPackageByDigest.mockReturnValue({
-        name: 'digest1',
-        metadata: {
-          container: { tags: ['v1.0', 'old', 'beta', 'latest'] }
-        }
-      })
-      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+    it('reloads only once for a multi-tag batch whose placeholders are all listed', async () => {
+      sourceWithTags(['v1.0', 'old', 'beta', 'latest'], {
         manifests: [{ digest: 'sha256:child' }]
       })
-      mockPackageRepo.getDigestByTag.mockImplementation(
-        (tag: string) => `sha256:empty-${tag}`
-      )
-      mockPackageRepo.getIdByDigest.mockImplementation(
-        (digest: string) => `id-${digest}`
-      )
+      listPlaceholders({ 'v1.0': 1, old: 2, beta: 3 })
 
-      await deleter.performUntagging(untagOps)
+      await runUntag(new Map([['digest1', ['v1.0', 'old', 'beta']]]))
 
       expect(mockRegistry.putManifest).toHaveBeenCalledTimes(3)
       expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(1)
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(3)
     })
 
+    it('reloads again when a placeholder is not yet listed, then deletes it', async () => {
+      // Eventual-consistency race: the first reload doesn't list the
+      // placeholder yet, the second does.
+      sourceWithTags(['v1.0', 'latest'], {
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      mockPackageRepo.getIdByDigest
+        .mockReturnValueOnce(undefined)
+        .mockReturnValue(99)
+
+      const { result } = await runUntag(new Map([['digest1', ['v1.0']]]))
+
+      expect(result).toBe(true)
+      expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(2)
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(1)
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
+        'test-package',
+        99,
+        'sha256:placeholder-v1.0',
+        ['v1.0']
+      )
+    })
+
+    it('never deletes what the tag resolves to — not the source, not another image pushed under the tag', async () => {
+      // The tag resolves to a THIRD image (a concurrent push of the same
+      // tag, or a stale listing), which is listed with a real id and
+      // carries other tags. The old "anything but the source" check would
+      // delete it. Only the placeholder's own digest may be deleted, and
+      // it never appears — so nothing is deleted and the run fails.
+      sourceWithTags(['v1.0', 'latest'], {
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      mockPackageRepo.getDigestByTag.mockReturnValue('sha256:someone-else')
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) =>
+        digest === 'sha256:someone-else' || digest === 'digest1'
+          ? 555
+          : undefined
+      )
+
+      const { result, error } = await runUntag(new Map([['digest1', ['v1.0']]]))
+
+      expect(result).toBeUndefined()
+      expect(String(error)).toMatch(/Untag incomplete/)
+      expect(mockPackageRepo.deletePackageVersion).not.toHaveBeenCalled()
+    })
+
+    it('fails the run after the retry budget when a placeholder never appears (source untouched)', async () => {
+      // The listing stays stale for the whole budget. The delete must be
+      // skipped (never the source image), and the incomplete untag must
+      // fail the run instead of reporting success.
+      sourceWithTags(['v1.0', 'latest'], {
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      mockPackageRepo.getDigestByTag.mockReturnValue('digest1')
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) =>
+        digest === 'digest1' ? 999 : undefined
+      )
+
+      const { result, error } = await runUntag(new Map([['digest1', ['v1.0']]]))
+
+      expect(result).toBeUndefined()
+      expect(String(error)).toMatch(
+        /Untag incomplete.*"v1\.0" \(placeholder sha256:placeholder-v1\.0\).*source image was not touched/
+      )
+      expect(mockPackageRepo.deletePackageVersion).not.toHaveBeenCalled()
+      expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(6)
+      expect(core.endGroup).toHaveBeenCalled()
+    })
+
+    it('in a mixed batch, deletes the listed placeholder, then fails for the one that never appears', async () => {
+      // v1's placeholder becomes visible, v2's never does. Only v1's
+      // placeholder is deleted; the source image (real id 999) never is;
+      // and the run still fails for v2.
+      sourceWithTags(['v1', 'v2', 'latest'], {
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      mockPackageRepo.getDigestByTag.mockImplementation((tag: string) =>
+        tag === 'v1' ? 'sha256:placeholder-v1' : 'digest1'
+      )
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) =>
+        digest === 'sha256:placeholder-v1'
+          ? 77
+          : digest === 'digest1'
+            ? 999
+            : undefined
+      )
+
+      const { error } = await runUntag(new Map([['digest1', ['v1', 'v2']]]))
+
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(1)
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
+        'test-package',
+        77,
+        'sha256:placeholder-v1',
+        ['v1']
+      )
+      expect(String(error)).toMatch(/Untag incomplete.*"v2"/)
+      expect(String(error)).not.toMatch(/"v1"/)
+    })
+
+    it('deletes by the id captured when the placeholder was listed, even if a later snapshot is stale', async () => {
+      // Non-monotonic listing: v1's placeholder is listed on reload 1 but
+      // missing again on reload 2 (when v2's finally appears). v1 must
+      // still be deleted, by the id seen on reload 1.
+      sourceWithTags(['v1', 'v2', 'latest'], {
+        manifests: [{ digest: 'sha256:child' }]
+      })
+      let reload = 0
+      mockPackageRepo.loadPackages.mockImplementation(async () => {
+        reload++
+      })
+      mockPackageRepo.getIdByDigest.mockImplementation((digest: string) => {
+        if (digest === 'sha256:placeholder-v1')
+          return reload === 1 ? 71 : undefined
+        if (digest === 'sha256:placeholder-v2')
+          return reload >= 2 ? 72 : undefined
+        return undefined
+      })
+
+      const { result } = await runUntag(new Map([['digest1', ['v1', 'v2']]]))
+
+      expect(result).toBe(true)
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
+        'test-package',
+        71,
+        'sha256:placeholder-v1',
+        ['v1']
+      )
+      expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
+        'test-package',
+        72,
+        'sha256:placeholder-v2',
+        ['v2']
+      )
+    })
+
     it('annotates each PUT uniquely so digests differ', async () => {
       // The whole reason we can batch: byte-distinct manifests produce
       // distinct digests, so the new versions don't conflate.
-      const untagOps = new Map([['digest1', ['a', 'b']]])
-      mockPackageRepo.getPackageByDigest.mockReturnValue({
-        name: 'digest1',
-        metadata: { container: { tags: ['a', 'b', 'keep'] } }
-      })
-      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+      sourceWithTags(['a', 'b', 'keep'], {
         manifests: [{ digest: 'sha256:child' }]
       })
-      mockPackageRepo.getDigestByTag.mockImplementation(
-        (tag: string) => `sha256:empty-${tag}`
-      )
-      mockPackageRepo.getIdByDigest.mockReturnValue(1)
+      listPlaceholders({ a: 1, b: 2 })
 
-      await deleter.performUntagging(untagOps)
+      await runUntag(new Map([['digest1', ['a', 'b']]]))
 
       const putCalls = mockRegistry.putManifest.mock.calls
       const annoA = putCalls.find(c => c[0] === 'a')?.[1]?.annotations
@@ -218,22 +351,12 @@ describe('ImageDeleter', () => {
       // Three tags on the same image — pre-fetch pass should issue
       // exactly ONE getRawManifestByDigest call for the source digest,
       // not one per tag.
-      const untagOps = new Map([['digest1', ['v1.0', 'old', 'beta']]])
-      mockPackageRepo.getPackageByDigest.mockReturnValue({
-        name: 'digest1',
-        metadata: { container: { tags: ['v1.0', 'old', 'beta', 'latest'] } }
-      })
-      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+      sourceWithTags(['v1.0', 'old', 'beta', 'latest'], {
         manifests: [{ digest: 'sha256:child' }]
       })
-      mockPackageRepo.getDigestByTag.mockImplementation(
-        (tag: string) => `sha256:empty-${tag}`
-      )
-      mockPackageRepo.getIdByDigest.mockImplementation(
-        (digest: string) => `id-${digest}`
-      )
+      listPlaceholders({ 'v1.0': 1, old: 2, beta: 3 })
 
-      await deleter.performUntagging(untagOps)
+      await runUntag(new Map([['digest1', ['v1.0', 'old', 'beta']]]))
 
       // One source manifest fetch despite three target tags.
       expect(mockRegistry.getRawManifestByDigest).toHaveBeenCalledTimes(1)
@@ -245,20 +368,12 @@ describe('ImageDeleter', () => {
     it('honors "at least one tag survives" when batch exceeds available tags', async () => {
       // Original image has 3 tags total; batch asks to untag all 3.
       // Only 2 should actually be stripped — leave one behind.
-      const untagOps = new Map([['digest1', ['a', 'b', 'c']]])
-      mockPackageRepo.getPackageByDigest.mockReturnValue({
-        name: 'digest1',
-        metadata: { container: { tags: ['a', 'b', 'c'] } }
-      })
-      mockRegistry.getRawManifestByDigest.mockResolvedValue({
+      sourceWithTags(['a', 'b', 'c'], {
         manifests: [{ digest: 'sha256:child' }]
       })
-      mockPackageRepo.getDigestByTag.mockImplementation(
-        (tag: string) => `sha256:empty-${tag}`
-      )
-      mockPackageRepo.getIdByDigest.mockReturnValue(1)
+      listPlaceholders({ a: 1, b: 2 })
 
-      await deleter.performUntagging(untagOps)
+      await runUntag(new Map([['digest1', ['a', 'b', 'c']]]))
 
       expect(mockRegistry.putManifest).toHaveBeenCalledTimes(2)
     })
@@ -342,6 +457,16 @@ describe('ImageDeleter', () => {
         'label',
         expect.anything() // logger
       )
+    })
+
+    it('does not count an empty index (e.g. an untag placeholder) as a multi-arch delete', async () => {
+      mockRegistry.getManifestByDigest.mockResolvedValue({ manifests: [] })
+      mockPackageRepo.getPackageByDigest.mockReturnValue(mockPackage)
+
+      const result = await deleter.deleteImage(mockPackage)
+
+      expect(result.deleted).toBe(1)
+      expect(result.multiDeleted).toBe(0)
     })
 
     it('should skip child images used by other parents', async () => {

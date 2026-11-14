@@ -10,7 +10,8 @@ rules:
 
   # False positive: zizmor flags any setup-node + docker/build-push-action pair
   # as potential cache-poisoning, but our setup-node invocations in
-  # github-attestation-tests and cosign-test deliberately omit `cache: npm` -
+  # github-attestation-tests, cosign-test, cosign-oci11-test and
+  # bare-oci11-referrer-test deliberately omit `cache: npm` -
   # setup-node does not cache unless explicitly told to. Node is installed in
   # those jobs only to run citester/index.js (already-bundled JS), not to
   # install npm packages. zizmor's own audit confidence is "Low" here.
@@ -24,9 +25,17 @@ rules:
   # read-only for fork PRs - breaking the test design. This repo only uses
   # ghcr.io for ephemeral CI test artifacts; nothing is published from here, so
   # the trade-off favours integration coverage over zizmor's blanket warning.
-  # Safety: the workflow never checks out the PR's HEAD - actions/checkout
-  # defaults to the base ref under pull_request_target, so untrusted PR code
-  # does not execute with secrets.
+  # Safety: the workflow DOES check out and run the PR's HEAD (ref:
+  # head.sha), so the controls are instead:
+  # 1. The pr-integration-tests environment gate - every job that runs
+  #    fork code with packages:write, GHCR_PAT, or id-token waits on
+  #    maintainer approval via pr-integration-tests-gate.
+  # 2. No job runs fork code before approval: general-tests waits on the
+  #    gate too. It holds only a read-only GITHUB_TOKEN and no secrets,
+  #    but under pull_request_target any job can still write to the base
+  #    branch's Actions cache (e.g. via setup-node's npm cache or the
+  #    runner's cache token), which privileged push runs on main restore.
+  #    Every job also checks out with persist-credentials: false.
   dangerous-triggers:
     ignore:
       - ci.yml

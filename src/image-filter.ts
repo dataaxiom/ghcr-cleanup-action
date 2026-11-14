@@ -42,7 +42,12 @@ export class ImageFilter {
         }
       }
     } else {
-      const isTagMatch = wcmatch(this.context.config.excludeTags.split(','))
+      const isTagMatch = wcmatch(
+        this.context.config.excludeTags
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+      )
       // Check all tags for matches first
       for (const tag of tagsInUse) {
         if (isTagMatch(tag)) {
@@ -103,6 +108,10 @@ export class ImageFilter {
             lines.push(digest)
           }
         }
+      } else {
+        // No timestamp: the age is unknown, so it can't be shown to be
+        // older than the cutoff. Keep it rather than treat it as old.
+        filterSet.delete(digest)
       }
     }
 
@@ -149,7 +158,12 @@ export class ImageFilter {
         }
       }
     } else {
-      const isTagMatch = wcmatch(this.context.config.deleteTags.split(','))
+      const isTagMatch = wcmatch(
+        this.context.config.deleteTags
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+      )
       // Build match list from filterSet
       for (const digest of filterSet) {
         const ghPackage = this.context.packageRepo.getPackageByDigest(digest)
