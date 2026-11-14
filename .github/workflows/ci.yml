@@ -56,6 +56,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -306,6 +310,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -415,6 +423,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -542,6 +554,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -618,6 +634,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Run Test - Multi-package Cleanup
@@ -645,6 +665,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Login to GitHub Container Registry
@@ -736,6 +760,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Login to GitHub Container Registry
@@ -809,6 +837,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Run Test - Multi-package Cleanup
@@ -846,6 +878,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -1090,6 +1126,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -1291,3 +1331,37 @@ jobs:
         run: |
           node citester/index.js --token "$GH_TOKEN" --directory \
             tests/bare-oci11-referrer --mode validate
+
+  # One check that sums up the whole workflow, so a ruleset can require it
+  # instead of listing every matrix entry. Runs even when an earlier job
+  # failed (if: always()) and fails unless every job succeeded or was
+  # skipped.
+  ci-result:
+    name: CI result
+    if: always()
+    needs:
+      - general-tests
+      - integration-tests
+      - github-attestation-tests
+      - cosign-test
+      - multi-package-cleanup
+      - shared-image-tagged-test
+      - shared-image-untagged-test
+      - multi-package-cleanup-regex
+      - cosign-oci11-test
+      - bare-oci11-referrer-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail unless every job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "* | *" cancelled "*)
+              echo "::error::At least one CI job failed or was cancelled."
+              exit 1
+              ;;
+          esac

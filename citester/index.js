@@ -59909,7 +59909,7 @@ var follow_redirects = __nccwpck_require__(1573);
 ;// CONCATENATED MODULE: external "zlib"
 const external_zlib_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("zlib");
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/env/data.js
-const VERSION = "1.21.0";
+const VERSION = "1.21.1";
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/parseProtocol.js
 
 
@@ -65121,18 +65121,34 @@ function throwIfCancellationRequested(config) {
 }
 
 /**
- * Milliseconds elapsed since `start`, floored at zero.
+ * Resolve the clock used to time adapter execution.
  *
- * Wall-clock, to match the rest of the codebase (speedometer, throttle,
- * AxiosTransformStream). A backwards clock adjustment mid-request would
- * otherwise produce a negative duration, so the result is clamped.
+ * Prefers the monotonic `performance.now()` so wall-clock adjustments do not
+ * skew the measurement, and so frameworks that forbid reading the current
+ * time during prerendering (e.g. Next.js Cache Components) accept it. Falls
+ * back to `Date.now()` in runtimes without the High Resolution Time API.
  *
- * @param {number} start Timestamp from `Date.now()`
+ * @returns {() => number} Millisecond clock
+ */
+function resolveClock() {
+  return typeof performance !== 'undefined' && lib_utils.isFunction(performance.now)
+    ? () => performance.now()
+    : Date.now;
+}
+
+/**
+ * Whole milliseconds elapsed since `start`, floored at zero.
+ *
+ * Rounded so the value stays an integer as with `Date.now()`. The fallback
+ * wall clock can move backwards mid-request, so the result is clamped.
+ *
+ * @param {() => number} now Clock returned by `resolveClock()`
+ * @param {number} start Timestamp read from `now`
  *
  * @returns {number} Non-negative elapsed milliseconds
  */
-function elapsedSince(start) {
-  return Math.max(0, Date.now() - start);
+function elapsedSince(now, start) {
+  return Math.max(0, Math.round(now() - start));
 }
 
 /**
@@ -65161,13 +65177,14 @@ function dispatchRequest(_config) {
 
   const adapter = adapters.getAdapter(config.adapter || lib_defaults.adapter, config);
 
-  const start = Date.now();
+  const now = resolveClock();
+  const start = now();
 
   return adapter(config).then(
     function onAdapterResolution(response) {
       throwIfCancellationRequested(config);
 
-      response.duration = elapsedSince(start);
+      response.duration = elapsedSince(now, start);
 
       // Expose the current response on config so that transformResponse can
       // attach it to any AxiosError it throws (e.g. on JSON parse failure).
@@ -65189,7 +65206,7 @@ function dispatchRequest(_config) {
 
         // Transform response data
         if (reason && reason.response) {
-          reason.response.duration = elapsedSince(start);
+          reason.response.duration = elapsedSince(now, start);
           config.response = reason.response;
           try {
             reason.response.data = transformData.call(

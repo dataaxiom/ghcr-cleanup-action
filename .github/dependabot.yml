@@ -20,7 +20,10 @@ updates:
       default-days: 7
       semver-major-days: 30
       semver-minor-days: 7
-      semver-patch-days: 3
+      # 7 days for patches too: releases younger than that are the usual
+      # window for hijacked-package attacks, and dist/ ships with users'
+      # package-delete tokens.
+      semver-patch-days: 7
     groups:
       npm-development:
         dependency-type: development
@@ -42,3 +45,7 @@ updates:
       # this action never uses.
       - dependency-name: '@azure/storage-blob'
         versions: ['>=12.34.0']
+      # Stays on 24.x to match the node24 runtime in action.yml: newer
+      # majors would type-check APIs that don't exist at runtime.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
