@@ -56,6 +56,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -306,6 +310,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -415,6 +423,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -542,6 +554,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -618,6 +634,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Run Test - Multi-package Cleanup
@@ -645,6 +665,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Login to GitHub Container Registry
@@ -736,6 +760,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Login to GitHub Container Registry
@@ -809,6 +837,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Run Test - Multi-package Cleanup
@@ -846,6 +878,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -1090,6 +1126,10 @@ jobs:
           # override so PR jobs actually test PR code. The `|| github.sha`
           # fallback covers push events (where pull_request is null).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # actions/checkout >= 6.1 refuses fork PR code under
+          # pull_request_target unless opted in. Deliberate here: every
+          # job that runs PR code waits on pr-integration-tests-gate.
+          allow-unsafe-pr-checkout: true
           persist-credentials: false
 
       - name: Setup Node.js
