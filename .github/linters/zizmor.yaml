@@ -40,6 +40,13 @@ rules:
     ignore:
       - ci.yml
 
+  # zizmor 1.30 suggests GitHub's newer self-repository syntax for `uses: ./`.
+  # The ci.yml steps that run this action against itself keep `./`, which is
+  # long-established and works everywhere the action is tested.
+  self-repository:
+    ignore:
+      - ci.yml
+
   # update-coverage-badge.yml is a manual `workflow_dispatch` that intentionally
   # leaves persist-credentials at its default so it can commit + push the
   # regenerated badges/coverage.svg back to the branch it ran on. Removing
