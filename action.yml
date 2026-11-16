@@ -144,6 +144,13 @@ inputs:
       Log level (error/warn/info/debug) Default: info
     required: false
 
+  write-summary:
+    description: >
+      Write the "GHCR Cleanup Summary" to the workflow run's job summary
+      (true/false). Default: true
+    required: false
+    default: 'true'
+
   registry-url:
     description: >
       Container registry URL (defaults: https://ghcr.io)
@@ -153,6 +160,21 @@ inputs:
     description: >
       GitHub API URL (defaults: https://api.github.com)
     required: false
+
+outputs:
+  deleted-count:
+    description: >
+      Number of package versions deleted, across all packages, including
+      platform images and referrers deleted with their parent. In a dry run, the
+      number that would be deleted.
+  deleted-multi-arch-count:
+    description: >
+      Number of multi-architecture images deleted (included in deleted-count).
+  deleted-digests:
+    description: >
+      JSON object mapping each processed package to the digests deleted from it,
+      e.g. {"my-image": ["sha256:..."]}. Not set if it would exceed GitHub's 1
+      MB output limit.
 
 runs:
   using: node24

@@ -171,6 +171,7 @@ when the target package isn't linked to any repository at all.
 | `registry-url`      | `https://ghcr.io/`       | Container registry URL.                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `github-api-url`    | `https://api.github.com` | GitHub API URL.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `log-level`         | `info`                   | One of `error`, `warn`, `info`, `debug`.                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `write-summary`     | `true`                   | Write the "GHCR Cleanup Summary" to the workflow run's job summary. Set to `false` to keep the output in the logs only.                                                                                                                                                                                                                                                                                                                         |
 
 ### Conventions
 
@@ -393,6 +394,100 @@ REST API to restore one:
   the outer is deleted. Standard ghcr publishers (buildx, cosign,
   attest-build-provenance, etc.) emit single-level indices, so this is
   theoretical for typical workflows — open an issue if you hit it in practice.
+
+## Step outputs
+
+Each run sets these outputs, which later steps can read via
+`steps.<id>.outputs.<name>`. The job summary is separate and can be turned off
+with `write-summary: false`.
+
+| Output                     | Description                                                                                                                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deleted-count`            | Package versions deleted across all packages, including platform images and referrers deleted with their parent. In a dry run, the number that would be deleted.                                  |
+| `deleted-multi-arch-count` | Multi-architecture images deleted (included in `deleted-count`).                                                                                                                                  |
+| `deleted-digests`          | JSON object mapping each processed package to the digests deleted from it, e.g. `{"my-image": ["sha256:..."]}`. Not set if it would exceed GitHub's 1 MB step output limit (a warning is logged). |
+
+If the run fails partway, the outputs still cover the packages that completed.
+
+To run several cleanup steps but keep one summary, turn the action's summary off
+and write your own from the outputs:
+
+```yaml
+steps:
+  - id: untagged
+    uses: dataaxiom/ghcr-cleanup-action@v1
+    with:
+      package: my-image
+      write-summary: false
+  - id: tagged
+    uses: dataaxiom/ghcr-cleanup-action@v1
+    with:
+      package: my-image
+      keep-n-tagged: 10
+      write-summary: false
+  - name: Summary
+    env:
+      UNTAGGED: ${{ steps.untagged.outputs.deleted-count }}
+      TAGGED: ${{ steps.tagged.outputs.deleted-count }}
+    run: |
+      echo "untagged: $UNTAGGED, tagged: $TAGGED" >> "$GITHUB_STEP_SUMMARY"
+```
+
+### Combining results across a matrix
+
+Each matrix leg is a separate job, and step outputs don't leave their job (a
+matrix job's own `outputs:` keep only the last leg's values). To get one summary
+for a whole matrix, have each leg save its results as an artifact and add a job
+that combines them:
+
+```yaml
+jobs:
+  cleanup:
+    strategy:
+      matrix:
+        package: [app, worker, api]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - id: cleanup
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          package: ${{ matrix.package }}
+          write-summary: false
+      - name: Save result
+        env:
+          PACKAGE: ${{ matrix.package }}
+          DELETED: ${{ steps.cleanup.outputs.deleted-count }}
+        run: echo "$PACKAGE $DELETED" > result.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cleanup-${{ matrix.package }}
+          path: result.txt
+
+  summary:
+    needs: cleanup
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cleanup-*
+          path: results
+      - name: Write one summary
+        run: |
+          {
+            echo "| Package | Deleted |"
+            echo "| ------- | ------- |"
+            cat results/*/result.txt | while read -r package deleted; do
+              echo "| $package | $deleted |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+```
+
+If you don't need the packages cleaned in parallel, a single step with
+`packages: app,worker,api` is simpler: it writes one summary with a row per
+package, and its `deleted-digests` output is already keyed by package.
 
 ## Cleanup algorithm
 

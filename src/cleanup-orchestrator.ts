@@ -268,6 +268,7 @@ export class CleanupOrchestrator {
     )
     this.statistics.numberImagesDeleted = result.numberImagesDeleted
     this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted
+    this.statistics.deletedDigests = [...result.deleted]
 
     // Print statistics
     this.statistics.print()

@@ -4,11 +4,14 @@
 
 import stdio from 'stdio'
 import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import * as core from '@actions/core'
 import { Config } from './config.js'
 import { PackageRepo } from './package-repo.js'
 import { OctokitClient } from './octokit-client.js'
 import { Registry } from './registry.js'
+import { sleep } from './utils.js'
 import { SpawnSyncOptionsWithStringEncoding, spawnSync } from 'child_process'
 
 function assertString(input: unknown): asserts input is string {
@@ -115,7 +118,8 @@ async function deleteDigests(
   directory: string,
   targetPackage: string,
   packageRepo: PackageRepo
-): Promise<void> {
+): Promise<string[]> {
+  const deleted: string[] = []
   if (fs.existsSync(`${directory}/prime-delete`)) {
     const fileContents = fs.readFileSync(`${directory}/prime-delete`, 'utf-8')
     for (let line of fileContents.split('\n')) {
@@ -128,10 +132,147 @@ async function deleteDigests(
         const id = packageRepo.getIdByDigest(line)
         if (id) {
           await packageRepo.deletePackageVersion(targetPackage, id, line, [])
+          deleted.push(line)
         }
       }
     }
   }
+  return deleted
+}
+
+// Where `prime` records the package's digests just before the action runs,
+// for `validate` to check the action's step outputs against.
+function snapshotPath(packageName: string): string {
+  const safe = packageName.replace(/[^a-zA-Z0-9._-]/g, '_')
+  return path.join(
+    process.env.RUNNER_TEMP || os.tmpdir(),
+    `ghcr-cleanup-prime-snapshot-${safe}.json`
+  )
+}
+
+// Top-level image digests the prime file pushes (`image@sha256:...|tag`).
+function primedDigests(directory: string): string[] {
+  const digests: string[] = []
+  const fileContents = fs.readFileSync(`${directory}/prime`, 'utf-8')
+  for (let line of fileContents.split('\n')) {
+    if (line.includes('//')) {
+      line = line.substring(0, line.indexOf('//'))
+    }
+    const image = line.trim().split('|')[0]
+    const at = image.indexOf('@sha256:')
+    if (at >= 0) {
+      digests.push(image.substring(at + 1))
+    }
+  }
+  return digests
+}
+
+/**
+ * Record the package's digests once every digest prime pushed is listed.
+ * The Packages API list lags the registry, and versions prime just deleted
+ * can stay listed for minutes, so those are left out rather than waited
+ * for. If the pushed digests never all appear, write no snapshot, and
+ * validate skips the check that needs it.
+ */
+async function saveSnapshot(
+  packageRepo: PackageRepo,
+  packageName: string,
+  mustInclude: string[],
+  deleted: string[]
+): Promise<void> {
+  const file = snapshotPath(packageName)
+  fs.rmSync(file, { force: true })
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    await packageRepo.loadPackages(packageName, false)
+    const digests = packageRepo.getDigests()
+    for (const digest of deleted) {
+      digests.delete(digest)
+    }
+    const missing = mustInclude.filter(d => !digests.has(d))
+    if (missing.length === 0) {
+      fs.writeFileSync(file, JSON.stringify([...digests]))
+      console.info(`snapshot: ${digests.size} digests before cleanup`)
+      return
+    }
+    console.info(
+      `snapshot: package list not settled (${missing.length} pushed digests not listed yet); retrying`
+    )
+    await sleep(2000 * attempt)
+  }
+  core.warning(
+    'snapshot: pushed digests never all listed; skipping the unreported-deletion check'
+  )
+}
+
+/**
+ * Check the action's step outputs (passed in as ACTION_DELETED_COUNT and
+ * ACTION_DELETED_DIGESTS) against the package after the run. Jobs that
+ * don't pass them skip this. Returns false on any mismatch.
+ */
+function validateStepOutputs(
+  packageName: string,
+  remaining: Set<string>
+): boolean {
+  const countRaw = process.env.ACTION_DELETED_COUNT
+  const digestsRaw = process.env.ACTION_DELETED_DIGESTS
+  if (countRaw === undefined && digestsRaw === undefined) {
+    return true
+  }
+  if (!countRaw || !digestsRaw) {
+    core.setFailed(
+      `step outputs missing: deleted-count="${countRaw ?? ''}", deleted-digests set: ${Boolean(digestsRaw)}`
+    )
+    return false
+  }
+
+  let reported: string[]
+  try {
+    const parsed = JSON.parse(digestsRaw) as Record<string, string[]>
+    reported = parsed[packageName] ?? []
+  } catch {
+    core.setFailed(`deleted-digests is not valid JSON: ${digestsRaw}`)
+    return false
+  }
+
+  let ok = true
+  if (Number(countRaw) !== reported.length) {
+    core.setFailed(
+      `deleted-count ${countRaw} != ${reported.length} digests in deleted-digests`
+    )
+    ok = false
+  }
+
+  const dryRun = process.env.DRY_RUN === 'true'
+  for (const digest of reported) {
+    if (dryRun && !remaining.has(digest)) {
+      core.setFailed(`dry run reported ${digest}, but it was deleted`)
+      ok = false
+    } else if (!dryRun && remaining.has(digest)) {
+      core.setFailed(`reported as deleted but still present: ${digest}`)
+      ok = false
+    }
+  }
+
+  // Everything that disappeared since prime's snapshot must have been
+  // reported (a digest missing from a lagging snapshot is tolerated).
+  const file = snapshotPath(packageName)
+  if (!dryRun && fs.existsSync(file)) {
+    const before = JSON.parse(fs.readFileSync(file, 'utf-8')) as string[]
+    const reportedSet = new Set(reported)
+    for (const digest of before) {
+      if (!remaining.has(digest) && !reportedSet.has(digest)) {
+        core.setFailed(`deleted but not reported in deleted-digests: ${digest}`)
+        ok = false
+      }
+    }
+  }
+
+  if (ok) {
+    console.info(
+      `step outputs match: deleted-count ${countRaw}${dryRun ? ' (dry run)' : ''}`
+    )
+  }
+  return ok
 }
 
 export async function run(): Promise<void> {
@@ -242,11 +383,13 @@ export async function run(): Promise<void> {
     await packageRepo.loadPackages(config.package, false)
 
     // remove all the existing images - except for the dummy image
+    const removed: string[] = []
     for (const digest of packageRepo.getDigests()) {
       if (digest !== dummyDigest) {
         const id = packageRepo.getIdByDigest(digest)
         if (id) {
           await packageRepo.deletePackageVersion(config.package, id, digest, [])
+          removed.push(digest)
         }
       }
     }
@@ -264,8 +407,18 @@ export async function run(): Promise<void> {
       await packageRepo.loadPackages(config.package, false)
 
       // make any deletions
-      await deleteDigests(args.directory, config.package, packageRepo)
+      removed.push(
+        ...(await deleteDigests(args.directory, config.package, packageRepo))
+      )
     }
+
+    const gone = new Set(removed)
+    await saveSnapshot(
+      packageRepo,
+      config.package,
+      [dummyDigest, ...primedDigests(args.directory)].filter(d => !gone.has(d)),
+      removed
+    )
   } else if (args.mode === 'validate') {
     // test the repo after the test
     await packageRepo.loadPackages(config.package, false)
@@ -343,6 +496,10 @@ export async function run(): Promise<void> {
         error = true
         core.setFailed(`extra tag found after test: ${regTag}`)
       }
+    }
+
+    if (!validateStepOutputs(config.package, packageRepo.getDigests())) {
+      error = true
     }
 
     if (!error) console.info('test passed!')

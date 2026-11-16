@@ -39,6 +39,7 @@ export class Config {
   keepNuntagged?: number
   keepNtagged?: number
   dryRun?: boolean
+  writeSummary = true
   validate?: boolean
   logLevel: LogLevel
   useRegex?: boolean
@@ -203,6 +204,10 @@ export async function buildConfig(): Promise<Config> {
     config.deleteOrphanedImages = core.getBooleanInput('delete-orphaned-images')
   }
 
+  if (core.getInput('write-summary')) {
+    config.writeSummary = core.getBooleanInput('write-summary')
+  }
+
   if (core.getInput('dry-run')) {
     config.dryRun = core.getBooleanInput('dry-run')
     if (config.dryRun) {
@@ -354,6 +359,9 @@ export async function buildConfig(): Promise<Config> {
     optionsMap.add('validate', `${config.validate}`)
   }
   optionsMap.add('log-level', LogLevel[config.logLevel])
+  if (!config.writeSummary) {
+    optionsMap.add('write-summary', 'false')
+  }
 
   if (config.useRegex !== undefined) {
     optionsMap.add('use-regex', `${config.useRegex}`)

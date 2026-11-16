@@ -49554,16 +49554,24 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var stdio__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2370);
 /* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(9896);
 /* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(fs__WEBPACK_IMPORTED_MODULE_1__);
-/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(3838);
-/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(2973);
-/* harmony import */ var _package_repo_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(8004);
-/* harmony import */ var _octokit_client_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(5742);
-/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(757);
-/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(5317);
-/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_7___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_7__);
+/* harmony import */ var os__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(857);
+/* harmony import */ var os__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__nccwpck_require__.n(os__WEBPACK_IMPORTED_MODULE_2__);
+/* harmony import */ var path__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(6928);
+/* harmony import */ var path__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__nccwpck_require__.n(path__WEBPACK_IMPORTED_MODULE_3__);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(3838);
+/* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(2973);
+/* harmony import */ var _package_repo_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(8004);
+/* harmony import */ var _octokit_client_js__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(5742);
+/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(757);
+/* harmony import */ var _utils_js__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(1798);
+/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_10__ = __nccwpck_require__(5317);
+/* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_10___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_10__);
 /**
  * A utility to prime, setup and test CI use cases
  */
+
+
+
 
 
 
@@ -49578,7 +49586,7 @@ function assertString(input) {
     }
 }
 function processWrapper(command, args, options) {
-    const output = (0,child_process__WEBPACK_IMPORTED_MODULE_7__.spawnSync)(command, args, options);
+    const output = (0,child_process__WEBPACK_IMPORTED_MODULE_10__.spawnSync)(command, args, options);
     if (output.error) {
         throw new Error(`error running command: ${output.error}`);
     }
@@ -49657,6 +49665,7 @@ async function loadImages(directory, owner, packageName, token, delay) {
     }
 }
 async function deleteDigests(directory, targetPackage, packageRepo) {
+    const deleted = [];
     if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${directory}/prime-delete`)) {
         const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${directory}/prime-delete`, 'utf-8');
         for (let line of fileContents.split('\n')) {
@@ -49669,10 +49678,119 @@ async function deleteDigests(directory, targetPackage, packageRepo) {
                 const id = packageRepo.getIdByDigest(line);
                 if (id) {
                     await packageRepo.deletePackageVersion(targetPackage, id, line, []);
+                    deleted.push(line);
                 }
             }
         }
     }
+    return deleted;
+}
+// Where `prime` records the package's digests just before the action runs,
+// for `validate` to check the action's step outputs against.
+function snapshotPath(packageName) {
+    const safe = packageName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return path__WEBPACK_IMPORTED_MODULE_3___default().join(process.env.RUNNER_TEMP || os__WEBPACK_IMPORTED_MODULE_2___default().tmpdir(), `ghcr-cleanup-prime-snapshot-${safe}.json`);
+}
+// Top-level image digests the prime file pushes (`image@sha256:...|tag`).
+function primedDigests(directory) {
+    const digests = [];
+    const fileContents = fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(`${directory}/prime`, 'utf-8');
+    for (let line of fileContents.split('\n')) {
+        if (line.includes('//')) {
+            line = line.substring(0, line.indexOf('//'));
+        }
+        const image = line.trim().split('|')[0];
+        const at = image.indexOf('@sha256:');
+        if (at >= 0) {
+            digests.push(image.substring(at + 1));
+        }
+    }
+    return digests;
+}
+/**
+ * Record the package's digests once every digest prime pushed is listed.
+ * The Packages API list lags the registry, and versions prime just deleted
+ * can stay listed for minutes, so those are left out rather than waited
+ * for. If the pushed digests never all appear, write no snapshot, and
+ * validate skips the check that needs it.
+ */
+async function saveSnapshot(packageRepo, packageName, mustInclude, deleted) {
+    const file = snapshotPath(packageName);
+    fs__WEBPACK_IMPORTED_MODULE_1___default().rmSync(file, { force: true });
+    for (let attempt = 1; attempt <= 6; attempt++) {
+        await packageRepo.loadPackages(packageName, false);
+        const digests = packageRepo.getDigests();
+        for (const digest of deleted) {
+            digests.delete(digest);
+        }
+        const missing = mustInclude.filter(d => !digests.has(d));
+        if (missing.length === 0) {
+            fs__WEBPACK_IMPORTED_MODULE_1___default().writeFileSync(file, JSON.stringify([...digests]));
+            console.info(`snapshot: ${digests.size} digests before cleanup`);
+            return;
+        }
+        console.info(`snapshot: package list not settled (${missing.length} pushed digests not listed yet); retrying`);
+        await (0,_utils_js__WEBPACK_IMPORTED_MODULE_9__/* .sleep */ .yy)(2000 * attempt);
+    }
+    _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .warning */ .$e('snapshot: pushed digests never all listed; skipping the unreported-deletion check');
+}
+/**
+ * Check the action's step outputs (passed in as ACTION_DELETED_COUNT and
+ * ACTION_DELETED_DIGESTS) against the package after the run. Jobs that
+ * don't pass them skip this. Returns false on any mismatch.
+ */
+function validateStepOutputs(packageName, remaining) {
+    const countRaw = process.env.ACTION_DELETED_COUNT;
+    const digestsRaw = process.env.ACTION_DELETED_DIGESTS;
+    if (countRaw === undefined && digestsRaw === undefined) {
+        return true;
+    }
+    if (!countRaw || !digestsRaw) {
+        _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`step outputs missing: deleted-count="${countRaw ?? ''}", deleted-digests set: ${Boolean(digestsRaw)}`);
+        return false;
+    }
+    let reported;
+    try {
+        const parsed = JSON.parse(digestsRaw);
+        reported = parsed[packageName] ?? [];
+    }
+    catch {
+        _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`deleted-digests is not valid JSON: ${digestsRaw}`);
+        return false;
+    }
+    let ok = true;
+    if (Number(countRaw) !== reported.length) {
+        _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`deleted-count ${countRaw} != ${reported.length} digests in deleted-digests`);
+        ok = false;
+    }
+    const dryRun = process.env.DRY_RUN === 'true';
+    for (const digest of reported) {
+        if (dryRun && !remaining.has(digest)) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`dry run reported ${digest}, but it was deleted`);
+            ok = false;
+        }
+        else if (!dryRun && remaining.has(digest)) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`reported as deleted but still present: ${digest}`);
+            ok = false;
+        }
+    }
+    // Everything that disappeared since prime's snapshot must have been
+    // reported (a digest missing from a lagging snapshot is tolerated).
+    const file = snapshotPath(packageName);
+    if (!dryRun && fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(file)) {
+        const before = JSON.parse(fs__WEBPACK_IMPORTED_MODULE_1___default().readFileSync(file, 'utf-8'));
+        const reportedSet = new Set(reported);
+        for (const digest of before) {
+            if (!remaining.has(digest) && !reportedSet.has(digest)) {
+                _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`deleted but not reported in deleted-digests: ${digest}`);
+                ok = false;
+            }
+        }
+    }
+    if (ok) {
+        console.info(`step outputs match: deleted-count ${countRaw}${dryRun ? ' (dry run)' : ''}`);
+    }
+    return ok;
 }
 async function run() {
     const args = stdio__WEBPACK_IMPORTED_MODULE_0__/* ["default"].getopt */ .Ay.getopt({
@@ -49689,7 +49807,7 @@ async function run() {
         throw Error('args is not setup');
     }
     assertString(args.token);
-    const config = new _config_js__WEBPACK_IMPORTED_MODULE_3__/* .Config */ .TS();
+    const config = new _config_js__WEBPACK_IMPORTED_MODULE_5__/* .Config */ .TS();
     config.token = args.token;
     if (args.owner) {
         assertString(args.owner);
@@ -49733,7 +49851,7 @@ async function run() {
     }
     config.owner = config.owner?.toLowerCase();
     // Create Octokit client and fetch repository info
-    const octokitClient = new _octokit_client_js__WEBPACK_IMPORTED_MODULE_5__/* .OctokitClient */ .h(config.token, config.githubApiUrl, config.logLevel);
+    const octokitClient = new _octokit_client_js__WEBPACK_IMPORTED_MODULE_7__/* .OctokitClient */ .h(config.token, config.githubApiUrl, config.logLevel);
     // Mirror production: identify the owner type and whether our token's
     // login matches the package owner. No repository lookup involved.
     config.repoType = await octokitClient.getOwnerType(config.owner);
@@ -49741,8 +49859,8 @@ async function run() {
     config.tokenOwnsPackage =
         tokenLogin !== null &&
             tokenLogin.toLowerCase() === config.owner.toLowerCase();
-    const packageRepo = new _package_repo_js__WEBPACK_IMPORTED_MODULE_4__/* .PackageRepo */ .l(config, octokitClient);
-    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_6__/* .Registry */ .O(config, packageRepo);
+    const packageRepo = new _package_repo_js__WEBPACK_IMPORTED_MODULE_6__/* .PackageRepo */ .l(config, octokitClient);
+    const registry = new _registry_js__WEBPACK_IMPORTED_MODULE_8__/* .Registry */ .O(config, packageRepo);
     await registry.login(config.package);
     const dummyDigest = 'sha256:1a41828fc1a347d7061f7089d6f0c94e5a056a3c674714712a1481a4a33eb56f';
     if (args.mode === 'prime-dummy') {
@@ -49757,11 +49875,13 @@ async function run() {
         // load after dummy to make sure the package exists on first clone/setup
         await packageRepo.loadPackages(config.package, false);
         // remove all the existing images - except for the dummy image
+        const removed = [];
         for (const digest of packageRepo.getDigests()) {
             if (digest !== dummyDigest) {
                 const id = packageRepo.getIdByDigest(digest);
                 if (id) {
                     await packageRepo.deletePackageVersion(config.package, id, digest, []);
+                    removed.push(digest);
                 }
             }
         }
@@ -49770,8 +49890,10 @@ async function run() {
         if (fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/prime-delete`)) {
             await packageRepo.loadPackages(config.package, false);
             // make any deletions
-            await deleteDigests(args.directory, config.package, packageRepo);
+            removed.push(...(await deleteDigests(args.directory, config.package, packageRepo)));
         }
+        const gone = new Set(removed);
+        await saveSnapshot(packageRepo, config.package, [dummyDigest, ...primedDigests(args.directory)].filter(d => !gone.has(d)), removed);
     }
     else if (args.mode === 'validate') {
         // test the repo after the test
@@ -49779,7 +49901,7 @@ async function run() {
         let error = false;
         // load the expected digests
         if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/expected-digests`)) {
-            _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(`file: ${args.directory}/expected-digests doesn't exist`);
+            _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`file: ${args.directory}/expected-digests doesn't exist`);
             error = true;
         }
         else {
@@ -49802,17 +49924,17 @@ async function run() {
                 }
                 else {
                     error = true;
-                    _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(`expected digest not found after test: ${digest}`);
+                    _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`expected digest not found after test: ${digest}`);
                 }
             }
             for (const digest of digests) {
                 error = true;
-                _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(`extra digest found after test: ${digest}`);
+                _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`extra digest found after test: ${digest}`);
             }
         }
         // load the expected tags
         if (!fs__WEBPACK_IMPORTED_MODULE_1___default().existsSync(`${args.directory}/expected-tags`)) {
-            _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(`file: ${args.directory}/expected-tags doesn't exist`);
+            _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`file: ${args.directory}/expected-tags doesn't exist`);
             error = true;
         }
         else {
@@ -49835,13 +49957,16 @@ async function run() {
                 }
                 else {
                     error = true;
-                    _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(`expected tag ${expectedTag} not found after test`);
+                    _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`expected tag ${expectedTag} not found after test`);
                 }
             }
             for (const regTag of regTags) {
                 error = true;
-                _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(`extra tag found after test: ${regTag}`);
+                _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`extra tag found after test: ${regTag}`);
             }
+        }
+        if (!validateStepOutputs(config.package, packageRepo.getDigests())) {
+            error = true;
         }
         if (!error)
             console.info('test passed!');
@@ -49886,16 +50011,16 @@ async function run() {
                         }
                     }
                     else {
-                        _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(`no tag found for referrer digest ${digest}`);
+                        _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`no tag found for referrer digest ${digest}`);
                     }
                 }
             }
             else {
-                _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(`no tag found for digest ${digest}`);
+                _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(`no tag found for digest ${digest}`);
             }
         }
         else {
-            _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1('no tag supplied');
+            _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1('no tag supplied');
         }
     }
 }
@@ -49906,7 +50031,7 @@ try {
     await run();
 }
 catch (error) {
-    _actions_core__WEBPACK_IMPORTED_MODULE_2__/* .setFailed */ .C1(error instanceof Error ? error.message : String(error));
+    _actions_core__WEBPACK_IMPORTED_MODULE_4__/* .setFailed */ .C1(error instanceof Error ? error.message : String(error));
 }
 
 __webpack_async_result__();
@@ -49963,6 +50088,7 @@ class Config {
     keepNuntagged;
     keepNtagged;
     dryRun;
+    writeSummary = true;
     validate;
     logLevel;
     useRegex;
@@ -50109,6 +50235,9 @@ async function buildConfig() {
     if (core.getInput('delete-orphaned-images')) {
         config.deleteOrphanedImages = core.getBooleanInput('delete-orphaned-images');
     }
+    if (core.getInput('write-summary')) {
+        config.writeSummary = core.getBooleanInput('write-summary');
+    }
     if (core.getInput('dry-run')) {
         config.dryRun = core.getBooleanInput('dry-run');
         if (config.dryRun) {
@@ -50250,6 +50379,9 @@ async function buildConfig() {
         optionsMap.add('validate', `${config.validate}`);
     }
     optionsMap.add('log-level', LogLevel[config.logLevel]);
+    if (!config.writeSummary) {
+        optionsMap.add('write-summary', 'false');
+    }
     if (config.useRegex !== undefined) {
         optionsMap.add('use-regex', `${config.useRegex}`);
     }
@@ -120080,9 +120212,10 @@ class Registry {
 /* harmony export */   Pd: () => (/* binding */ runWithConcurrency),
 /* harmony export */   iD: () => (/* binding */ isValidChallenge),
 /* harmony export */   kS: () => (/* binding */ consoleLogger),
-/* harmony export */   xy: () => (/* binding */ parseChallenge)
+/* harmony export */   xy: () => (/* binding */ parseChallenge),
+/* harmony export */   yy: () => (/* binding */ sleep)
 /* harmony export */ });
-/* unused harmony exports SHA256_DIGEST_LENGTH, MAX_USER_REGEX_LENGTH, validateUserRegex, warnIfUnanchoredRegex, BufferedLogger, DEFAULT_LISTING_LIMIT, MapPrinter, CleanupTaskStatistics, sleep */
+/* unused harmony exports SHA256_DIGEST_LENGTH, MAX_USER_REGEX_LENGTH, validateUserRegex, warnIfUnanchoredRegex, BufferedLogger, DEFAULT_LISTING_LIMIT, MapPrinter, CleanupTaskStatistics */
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3838);
 /* harmony import */ var safe_regex2__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(8700);
 /* harmony import */ var safe_regex2__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(safe_regex2__WEBPACK_IMPORTED_MODULE_1__);
@@ -120289,13 +120422,17 @@ class CleanupTaskStatistics {
     name;
     numberMultiImagesDeleted;
     numberImagesDeleted;
+    // Digests of the package versions deleted (or, in a dry run, that would be).
+    deletedDigests = [];
     constructor(name, numberMultiImagesDeleted, numberImagesDeleted) {
         this.name = name;
         this.numberMultiImagesDeleted = numberMultiImagesDeleted;
         this.numberImagesDeleted = numberImagesDeleted;
     }
     add(other) {
-        return new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+        const combined = new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+        combined.deletedDigests = [...this.deletedDigests, ...other.deletedDigests];
+        return combined;
     }
     print() {
         core.startGroup(`[${this.name}] Cleanup statistics`);

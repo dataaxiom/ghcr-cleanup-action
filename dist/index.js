@@ -49306,16 +49306,16 @@ function file_command_issueFileCommand(command, message) {
     if (!filePath) {
         throw new Error(`Unable to find environment variable for file command ${command}`);
     }
-    if (!fs.existsSync(filePath)) {
+    if (!external_fs_.existsSync(filePath)) {
         throw new Error(`Missing file at path: ${filePath}`);
     }
-    fs.appendFileSync(filePath, `${toCommandValue(message)}${os.EOL}`, {
+    external_fs_.appendFileSync(filePath, `${utils_toCommandValue(message)}${external_os_.EOL}`, {
         encoding: 'utf8'
     });
 }
 function file_command_prepareKeyValueMessage(key, value) {
-    const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
-    const convertedValue = toCommandValue(value);
+    const delimiter = `ghadelimiter_${external_crypto_.randomUUID()}`;
+    const convertedValue = utils_toCommandValue(value);
     // These should realistically never happen, but just in case someone finds a
     // way to exploit uuid generation let's not allow keys or values that contain
     // the delimiter.
@@ -49325,7 +49325,7 @@ function file_command_prepareKeyValueMessage(key, value) {
     if (convertedValue.includes(delimiter)) {
         throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
     }
-    return `${key}<<${delimiter}${os.EOL}${convertedValue}${os.EOL}${delimiter}`;
+    return `${key}<<${delimiter}${external_os_.EOL}${convertedValue}${external_os_.EOL}${delimiter}`;
 }
 //# sourceMappingURL=file-command.js.map
 // EXTERNAL MODULE: external "path"
@@ -51949,10 +51949,10 @@ function getBooleanInput(name, options) {
 function setOutput(name, value) {
     const filePath = process.env['GITHUB_OUTPUT'] || '';
     if (filePath) {
-        return issueFileCommand('OUTPUT', prepareKeyValueMessage(name, value));
+        return file_command_issueFileCommand('OUTPUT', file_command_prepareKeyValueMessage(name, value));
     }
-    process.stdout.write(os.EOL);
-    issueCommand('set-output', { name }, toCommandValue(value));
+    process.stdout.write(external_os_.EOL);
+    command_issueCommand('set-output', { name }, utils_toCommandValue(value));
 }
 /**
  * Enables or disables the echoing of commands into stdout for the rest of the step.
@@ -52313,13 +52313,17 @@ class CleanupTaskStatistics {
     name;
     numberMultiImagesDeleted;
     numberImagesDeleted;
+    // Digests of the package versions deleted (or, in a dry run, that would be).
+    deletedDigests = [];
     constructor(name, numberMultiImagesDeleted, numberImagesDeleted) {
         this.name = name;
         this.numberMultiImagesDeleted = numberMultiImagesDeleted;
         this.numberImagesDeleted = numberImagesDeleted;
     }
     add(other) {
-        return new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+        const combined = new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+        combined.deletedDigests = [...this.deletedDigests, ...other.deletedDigests];
+        return combined;
     }
     print() {
         startGroup(`[${this.name}] Cleanup statistics`);
@@ -57779,6 +57783,7 @@ class Config {
     keepNuntagged;
     keepNtagged;
     dryRun;
+    writeSummary = true;
     validate;
     logLevel;
     useRegex;
@@ -57925,6 +57930,9 @@ async function buildConfig() {
     if (getInput('delete-orphaned-images')) {
         config.deleteOrphanedImages = getBooleanInput('delete-orphaned-images');
     }
+    if (getInput('write-summary')) {
+        config.writeSummary = getBooleanInput('write-summary');
+    }
     if (getInput('dry-run')) {
         config.dryRun = getBooleanInput('dry-run');
         if (config.dryRun) {
@@ -58066,6 +58074,9 @@ async function buildConfig() {
         optionsMap.add('validate', `${config.validate}`);
     }
     optionsMap.add('log-level', LogLevel[config.logLevel]);
+    if (!config.writeSummary) {
+        optionsMap.add('write-summary', 'false');
+    }
     if (config.useRegex !== undefined) {
         optionsMap.add('use-regex', `${config.useRegex}`);
     }
@@ -123983,6 +123994,7 @@ class CleanupOrchestrator {
         });
         this.statistics.numberImagesDeleted = result.numberImagesDeleted;
         this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
+        this.statistics.deletedDigests = [...result.deleted];
         // Print statistics
         this.statistics.print();
         // Run validation if requested
@@ -124006,6 +124018,8 @@ class CleanupOrchestrator {
 
 
 
+// GitHub caps a single step output at 1 MB.
+const MAX_STEP_OUTPUT_BYTES = 1024 * 1024;
 /*
  * Main program entrypoint
  */
@@ -124098,6 +124112,31 @@ class CleanupAction {
         let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0);
         const perPackageStats = [];
         const cacheStats = { hits: 0, misses: 0 };
+        // Set the step outputs even if a package fails partway: they then cover
+        // the packages that completed, so an aggregating workflow still sees
+        // what was actually deleted.
+        try {
+            await this.cleanPackages(targetPackages, perPackageStats, cacheStats);
+        }
+        finally {
+            this.setOutputs(perPackageStats);
+        }
+        for (const stats of perPackageStats) {
+            globalStatistics = globalStatistics.add(stats);
+        }
+        if (targetPackages.length > 1) {
+            globalStatistics.print();
+        }
+        const durationMs = Date.now() - startedAt;
+        if (this.config.writeSummary) {
+            await this.writeJobSummary(targetPackages, perPackageStats, globalStatistics, durationMs, cacheStats);
+        }
+    }
+    /**
+     * Clean each target package in turn, appending its statistics to
+     * `perPackageStats` as soon as it completes.
+     */
+    async cleanPackages(targetPackages, perPackageStats, cacheStats) {
         for (const targetPackage of targetPackages) {
             // Manifest cache is keyed per (owner, package, GITHUB_RUN_ID).
             // Restore before reload() so analyzer manifest fetches see the
@@ -124109,9 +124148,7 @@ class CleanupAction {
             try {
                 await orchestrator.init();
                 await orchestrator.reload();
-                const stats = await orchestrator.run();
-                perPackageStats.push(stats);
-                globalStatistics = globalStatistics.add(stats);
+                perPackageStats.push(await orchestrator.run());
             }
             finally {
                 await manifestCache.save();
@@ -124120,11 +124157,29 @@ class CleanupAction {
                 cacheStats.misses += s.misses;
             }
         }
-        if (targetPackages.length > 1) {
-            globalStatistics.print();
+    }
+    /**
+     * Step outputs (see action.yml): totals across the packages that
+     * completed, and the deleted digests per package as JSON.
+     */
+    setOutputs(perPackageStats) {
+        let deleted = 0;
+        let multiArchDeleted = 0;
+        const digests = {};
+        for (const stats of perPackageStats) {
+            deleted += stats.numberImagesDeleted;
+            multiArchDeleted += stats.numberMultiImagesDeleted;
+            digests[stats.name] = stats.deletedDigests;
         }
-        const durationMs = Date.now() - startedAt;
-        await this.writeJobSummary(targetPackages, perPackageStats, globalStatistics, durationMs, cacheStats);
+        setOutput('deleted-count', deleted);
+        setOutput('deleted-multi-arch-count', multiArchDeleted);
+        const json = JSON.stringify(digests);
+        if (Buffer.byteLength(json, 'utf8') > MAX_STEP_OUTPUT_BYTES) {
+            warning(`deleted-digests not set: the list of ${deleted} digests exceeds GitHub's 1 MB step output limit. deleted-count and deleted-multi-arch-count are set.`);
+        }
+        else {
+            setOutput('deleted-digests', json);
+        }
     }
     async writeJobSummary(targetPackages, perPackageStats, globalStats, durationMs, cacheStats) {
         const summary = summary_summary;

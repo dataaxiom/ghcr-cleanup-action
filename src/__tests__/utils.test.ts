@@ -262,6 +262,14 @@ describe('utils', () => {
   })
 
   describe('CleanupTaskStatistics', () => {
+    it('add() concatenates the deleted digests', () => {
+      const a = new CleanupTaskStatistics('a', 0, 1)
+      a.deletedDigests = ['sha256:a']
+      const b = new CleanupTaskStatistics('b', 0, 1)
+      b.deletedDigests = ['sha256:b']
+      expect(a.add(b).deletedDigests).toEqual(['sha256:a', 'sha256:b'])
+    })
+
     it('should initialize with provided values', () => {
       const stats = new CleanupTaskStatistics('test-package', 5, 10)
 

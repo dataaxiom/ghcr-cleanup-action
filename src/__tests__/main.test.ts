@@ -28,6 +28,7 @@ vi.mock('@actions/core', async () => {
     info: vi.fn(),
     warning: vi.fn(),
     error: vi.fn(),
+    setOutput: vi.fn(),
     debug: vi.fn(),
     setFailed: vi.fn(),
     startGroup: vi.fn(),
@@ -73,6 +74,7 @@ const defaultConfig = (overrides: Partial<Config> = {}): Config =>
     useRegex: false,
     token: 'gh-token',
     dryRun: false,
+    writeSummary: true,
     repoType: 'Organization',
     tokenOwnsPackage: false,
     defaultPackageUsed: false,
@@ -458,6 +460,93 @@ describe('main.run()', () => {
       expect(mockOrchestrator.init).toHaveBeenCalledTimes(2)
       expect(mockOrchestrator.reload).toHaveBeenCalledTimes(2)
       expect(mockOrchestrator.run).toHaveBeenCalledTimes(2)
+    })
+
+    describe('step outputs and write-summary (issue #148)', () => {
+      const stats = (
+        name: string,
+        deleted: number,
+        multi: number,
+        digests: string[]
+      ): CleanupTaskStatistics =>
+        ({
+          name,
+          numberImagesDeleted: deleted,
+          numberMultiImagesDeleted: multi,
+          deletedDigests: digests
+        }) as CleanupTaskStatistics
+      const outputs = (): Record<string, unknown> =>
+        Object.fromEntries(vi.mocked(core.setOutput).mock.calls)
+
+      it('sets totals and per-package digests across all packages', async () => {
+        mockBuildConfig.mockResolvedValue(defaultConfig({ package: 'a,b' }))
+        mockOrchestrator.run
+          .mockResolvedValueOnce(
+            stats('a', 3, 1, ['sha256:a1', 'sha256:a2', 'sha256:a3'])
+          )
+          .mockResolvedValueOnce(stats('b', 0, 0, []))
+
+        await run()
+
+        expect(outputs()).toEqual({
+          'deleted-count': 3,
+          'deleted-multi-arch-count': 1,
+          'deleted-digests': JSON.stringify({
+            a: ['sha256:a1', 'sha256:a2', 'sha256:a3'],
+            b: []
+          })
+        })
+      })
+
+      it('still sets outputs for the packages that completed when a later one fails', async () => {
+        mockBuildConfig.mockResolvedValue(defaultConfig({ package: 'a,b' }))
+        mockOrchestrator.run
+          .mockResolvedValueOnce(stats('a', 2, 0, ['sha256:a1', 'sha256:a2']))
+          .mockRejectedValueOnce(new Error('package b blew up'))
+
+        await run()
+
+        expect(core.setFailed).toHaveBeenCalledWith('package b blew up')
+        expect(outputs()).toEqual({
+          'deleted-count': 2,
+          'deleted-multi-arch-count': 0,
+          'deleted-digests': JSON.stringify({ a: ['sha256:a1', 'sha256:a2'] })
+        })
+        // The summary is only written for a run that completed.
+        expect(core.summary.write).not.toHaveBeenCalled()
+      })
+
+      it('skips deleted-digests with a warning when it would exceed the 1 MB output limit', async () => {
+        const many = Array.from(
+          { length: 20000 },
+          (_, i) => `sha256:${String(i).padStart(64, '0')}`
+        )
+        mockOrchestrator.run.mockResolvedValueOnce(
+          stats('a', many.length, 0, many)
+        )
+
+        await run()
+
+        expect(outputs()['deleted-count']).toBe(20000)
+        expect(outputs()).not.toHaveProperty('deleted-digests')
+        expect(core.warning).toHaveBeenCalledWith(
+          expect.stringContaining('deleted-digests not set')
+        )
+      })
+
+      it('does not write the job summary when write-summary is false', async () => {
+        mockBuildConfig.mockResolvedValue(
+          defaultConfig({ writeSummary: false })
+        )
+
+        await run()
+
+        expect(core.summary.addHeading).not.toHaveBeenCalled()
+        expect(core.summary.write).not.toHaveBeenCalled()
+        // Outputs are independent of the summary (the default mock stats
+        // report 5 deletions).
+        expect(core.setOutput).toHaveBeenCalledWith('deleted-count', 5)
+      })
     })
 
     it('accumulates per-package stats into a global stats object', async () => {
