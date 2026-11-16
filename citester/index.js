@@ -14455,52 +14455,6 @@ module.exports = humanInterval;
 
 /***/ }),
 
-/***/ 178:
-/***/ ((module) => {
-
-
-
-const denyList = new Set([
-	'ENOTFOUND',
-	'ENETUNREACH',
-
-	// SSL errors from https://github.com/nodejs/node/blob/fc8e3e2cdc521978351de257030db0076d79e0ab/src/crypto/crypto_common.cc#L301-L328
-	'UNABLE_TO_GET_ISSUER_CERT',
-	'UNABLE_TO_GET_CRL',
-	'UNABLE_TO_DECRYPT_CERT_SIGNATURE',
-	'UNABLE_TO_DECRYPT_CRL_SIGNATURE',
-	'UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY',
-	'CERT_SIGNATURE_FAILURE',
-	'CRL_SIGNATURE_FAILURE',
-	'CERT_NOT_YET_VALID',
-	'CERT_HAS_EXPIRED',
-	'CRL_NOT_YET_VALID',
-	'CRL_HAS_EXPIRED',
-	'ERROR_IN_CERT_NOT_BEFORE_FIELD',
-	'ERROR_IN_CERT_NOT_AFTER_FIELD',
-	'ERROR_IN_CRL_LAST_UPDATE_FIELD',
-	'ERROR_IN_CRL_NEXT_UPDATE_FIELD',
-	'OUT_OF_MEM',
-	'DEPTH_ZERO_SELF_SIGNED_CERT',
-	'SELF_SIGNED_CERT_IN_CHAIN',
-	'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
-	'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
-	'CERT_CHAIN_TOO_LONG',
-	'CERT_REVOKED',
-	'INVALID_CA',
-	'PATH_LENGTH_EXCEEDED',
-	'INVALID_PURPOSE',
-	'CERT_UNTRUSTED',
-	'CERT_REJECTED',
-	'HOSTNAME_MISMATCH'
-]);
-
-// TODO: Use `error?.code` when targeting Node.js 14
-module.exports = error => !denyList.has(error && error.code);
-
-
-/***/ }),
-
 /***/ 5641:
 /***/ ((module) => {
 
@@ -49562,7 +49516,7 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(2973);
 /* harmony import */ var _package_repo_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(8004);
 /* harmony import */ var _octokit_client_js__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(5742);
-/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(757);
+/* harmony import */ var _registry_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(1631);
 /* harmony import */ var _utils_js__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(1798);
 /* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_10__ = __nccwpck_require__(5317);
 /* harmony import */ var child_process__WEBPACK_IMPORTED_MODULE_10___default = /*#__PURE__*/__nccwpck_require__.n(child_process__WEBPACK_IMPORTED_MODULE_10__);
@@ -56239,7 +56193,7 @@ class PackageRepo {
 
 /***/ }),
 
-/***/ 757:
+/***/ 1631:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -66227,216 +66181,163 @@ const {
 
 
 
-// EXTERNAL MODULE: ./node_modules/is-retry-allowed/index.js
-var is_retry_allowed = __nccwpck_require__(178);
-;// CONCATENATED MODULE: ./node_modules/axios-retry/dist/esm/index.js
+// EXTERNAL MODULE: ./src/utils.ts
+var src_utils = __nccwpck_require__(1798);
+;// CONCATENATED MODULE: ./src/http-retry.ts
 
-const namespace = 'axios-retry';
-function isNetworkError(error) {
-    const CODE_EXCLUDE_LIST = ['ERR_CANCELED', 'ECONNABORTED'];
-    if (error.response) {
-        return false;
+
+
+const DEFAULT_RETRY_POLICY = {
+    retries: 3,
+    baseDelayMs: 1000,
+    maxDelayMs: 30_000,
+    maxRetryAfterMs: 5 * 60_000
+};
+/** Per-attempt timeout for registry requests, so a stalled connection becomes a retryable timeout instead of hanging the run. */
+const REGISTRY_REQUEST_TIMEOUT_MS = 60_000;
+const DEFAULT_DEPS = {
+    sleep: src_utils/* sleep */.yy,
+    random: Math.random,
+    now: Date.now
+};
+const IDEMPOTENT_METHODS = new Set(['get', 'head', 'options', 'put', 'delete']);
+// Network error codes that waiting cannot fix (is-retry-allowed's list, as
+// used by axios-retry): name resolution / routing failures and TLS
+// certificate errors.
+const PERMANENT_NETWORK_CODES = new Set([
+    'ENOTFOUND',
+    'ENETUNREACH',
+    'UNABLE_TO_GET_ISSUER_CERT',
+    'UNABLE_TO_GET_CRL',
+    'UNABLE_TO_DECRYPT_CERT_SIGNATURE',
+    'UNABLE_TO_DECRYPT_CRL_SIGNATURE',
+    'UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY',
+    'CERT_SIGNATURE_FAILURE',
+    'CRL_SIGNATURE_FAILURE',
+    'CERT_NOT_YET_VALID',
+    'CERT_HAS_EXPIRED',
+    'CRL_NOT_YET_VALID',
+    'CRL_HAS_EXPIRED',
+    'ERROR_IN_CERT_NOT_BEFORE_FIELD',
+    'ERROR_IN_CERT_NOT_AFTER_FIELD',
+    'ERROR_IN_CRL_LAST_UPDATE_FIELD',
+    'ERROR_IN_CRL_NEXT_UPDATE_FIELD',
+    'OUT_OF_MEM',
+    'DEPTH_ZERO_SELF_SIGNED_CERT',
+    'SELF_SIGNED_CERT_IN_CHAIN',
+    'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+    'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+    'CERT_CHAIN_TOO_LONG',
+    'CERT_REVOKED',
+    'INVALID_CA',
+    'PATH_LENGTH_EXCEEDED',
+    'INVALID_PURPOSE',
+    'CERT_UNTRUSTED',
+    'CERT_REJECTED',
+    'HOSTNAME_MISMATCH',
+    'ERR_TLS_CERT_ALTNAME_INVALID'
+]);
+const TIMEOUT_CODES = new Set(['ECONNABORTED', 'ETIMEDOUT']);
+// Request-config key holding the number of retries made so far.
+const ATTEMPT_KEY = 'ghcrCleanupRetryCount';
+/**
+ * Why `error` is worth retrying (a short reason for the log), or
+ * undefined if it is not.
+ */
+function retryReason(error) {
+    if (lib_axios.isCancel(error) || error.code === 'ERR_CANCELED') {
+        return undefined;
     }
-    if (!error.code) {
-        return false;
+    const method = error.config?.method?.toLowerCase();
+    const idempotent = method !== undefined && IDEMPOTENT_METHODS.has(method);
+    const status = error.response?.status;
+    if (status !== undefined) {
+        if (status === 429)
+            return 'HTTP 429';
+        if (!idempotent)
+            return undefined;
+        if (status === 408)
+            return 'HTTP 408';
+        if (status >= 500 && status <= 599 && status !== 501) {
+            return `HTTP ${status}`;
+        }
+        return undefined;
     }
-    // Prevents retrying timed out & cancelled requests
-    if (CODE_EXCLUDE_LIST.includes(error.code)) {
-        return false;
-    }
-    // Prevents retrying unsafe errors
-    return is_retry_allowed(error);
-}
-const SAFE_HTTP_METHODS = ['get', 'head', 'options'];
-const IDEMPOTENT_HTTP_METHODS = SAFE_HTTP_METHODS.concat(['put', 'delete']);
-function isRetryableError(error) {
-    return (error.code !== 'ECONNABORTED' &&
-        (!error.response ||
-            error.response.status === 429 ||
-            (error.response.status >= 500 && error.response.status <= 599)));
-}
-function isSafeRequestError(error) {
-    if (!error.config?.method) {
-        // Cannot determine if the request can be retried
-        return false;
-    }
-    return isRetryableError(error) && SAFE_HTTP_METHODS.indexOf(error.config.method) !== -1;
-}
-function isIdempotentRequestError(error) {
-    if (!error.config?.method) {
-        // Cannot determine if the request can be retried
-        return false;
-    }
-    return isRetryableError(error) && IDEMPOTENT_HTTP_METHODS.indexOf(error.config.method) !== -1;
-}
-function isNetworkOrIdempotentRequestError(error) {
-    return isNetworkError(error) || isIdempotentRequestError(error);
-}
-function retryAfter(error = undefined) {
-    const retryAfterHeader = error?.response?.headers['retry-after'];
-    if (!retryAfterHeader) {
-        return 0;
-    }
-    // if the retry after header is a number, convert it to milliseconds
-    let retryAfterMs = (Number(retryAfterHeader) || 0) * 1000;
-    // If the retry after header is a date, get the number of milliseconds until that date
-    if (retryAfterMs === 0) {
-        retryAfterMs = (new Date(retryAfterHeader).valueOf() || 0) - Date.now();
-    }
-    return Math.max(0, retryAfterMs);
-}
-function noDelay(_retryNumber = 0, error = undefined) {
-    return Math.max(0, retryAfter(error));
-}
-function exponentialDelay(retryNumber = 0, error = undefined, delayFactor = 100) {
-    const calculatedDelay = 2 ** retryNumber * delayFactor;
-    const delay = Math.max(calculatedDelay, retryAfter(error));
-    const randomSum = delay * 0.2 * Math.random(); // 0-20% of the delay
-    return delay + randomSum;
+    // No response: the request may or may not have reached the server, so
+    // only an idempotent request can safely be sent again.
+    if (!idempotent)
+        return undefined;
+    if (error.code && TIMEOUT_CODES.has(error.code))
+        return 'timeout';
+    if (error.code && PERMANENT_NETWORK_CODES.has(error.code))
+        return undefined;
+    return error.code ? `network error ${error.code}` : 'network error';
 }
 /**
- * Linear delay
- * @param {number | undefined} delayFactor - delay factor in milliseconds (default: 100)
- * @returns {function} (retryNumber: number, error: AxiosError | undefined) => number
+ * Milliseconds requested by a Retry-After header (delta-seconds or an
+ * HTTP date), 0 if already elapsed, or undefined if absent/unparsable.
  */
-function linearDelay(delayFactor = 100) {
-    return (retryNumber = 0, error = undefined) => {
-        const delay = retryNumber * delayFactor;
-        return Math.max(delay, retryAfter(error));
-    };
-}
-const DEFAULT_OPTIONS = {
-    retries: 3,
-    retryCondition: isNetworkOrIdempotentRequestError,
-    retryDelay: noDelay,
-    shouldResetTimeout: false,
-    onRetry: () => { },
-    onMaxRetryTimesExceeded: () => { },
-    validateResponse: null
-};
-function getRequestOptions(config, defaultOptions) {
-    return { ...DEFAULT_OPTIONS, ...defaultOptions, ...config[namespace] };
-}
-function setCurrentState(config, defaultOptions, resetLastRequestTime = false) {
-    const currentState = getRequestOptions(config, defaultOptions || {});
-    currentState.retryCount = currentState.retryCount || 0;
-    if (!currentState.lastRequestTime || resetLastRequestTime) {
-        currentState.lastRequestTime = Date.now();
+function parseRetryAfterMs(header, now) {
+    if (typeof header !== 'string' || header.trim() === '')
+        return undefined;
+    const value = header.trim();
+    if (/^\d+(\.\d+)?$/.test(value)) {
+        return Math.round(Number(value) * 1000);
     }
-    config[namespace] = currentState;
-    return currentState;
+    // An HTTP date always has a day/month name. Requiring a letter stops
+    // Date.parse accepting junk like "-5" (read as the year -5).
+    if (!/[a-z]/i.test(value))
+        return undefined;
+    const date = Date.parse(value);
+    if (Number.isNaN(date))
+        return undefined;
+    return Math.max(0, date - now);
 }
-function fixConfig(axiosInstance, config) {
-    // @ts-ignore
-    if (axiosInstance.defaults.agent === config.agent) {
-        // @ts-ignore
-        delete config.agent;
+/**
+ * Delay before retry number `retry` (1-based), or undefined if the server
+ * asked us to wait longer than the policy allows.
+ */
+function retryDelayMs(retry, error, policy, deps) {
+    const retryAfter = parseRetryAfterMs(error.response?.headers?.['retry-after'], deps.now());
+    if (retryAfter !== undefined && retryAfter > policy.maxRetryAfterMs) {
+        return undefined;
     }
-    if (axiosInstance.defaults.httpAgent === config.httpAgent) {
-        delete config.httpAgent;
-    }
-    if (axiosInstance.defaults.httpsAgent === config.httpsAgent) {
-        delete config.httpsAgent;
-    }
+    const backoff = Math.min(policy.maxDelayMs, policy.baseDelayMs * 2 ** (retry - 1));
+    const jittered = backoff + backoff * 0.2 * deps.random();
+    return Math.max(retryAfter ?? 0, jittered);
 }
-async function shouldRetry(currentState, error) {
-    const { retries, retryCondition } = currentState;
-    const shouldRetryOrPromise = (currentState.retryCount || 0) < retries && retryCondition(error);
-    // This could be a promise
-    if (typeof shouldRetryOrPromise === 'object') {
-        try {
-            const shouldRetryPromiseResult = await shouldRetryOrPromise;
-            // keep return true unless shouldRetryPromiseResult return false for compatibility
-            return shouldRetryPromiseResult !== false;
+/**
+ * Install the retry policy on an axios instance (response interceptor).
+ */
+function installRetry(instance, policy = DEFAULT_RETRY_POLICY, deps = DEFAULT_DEPS) {
+    instance.interceptors.response.use(undefined, async (error) => {
+        if (!lib_axios.isAxiosError(error) || !error.config) {
+            throw error;
         }
-        catch (_err) {
-            return false;
+        const config = error.config;
+        const done = config[ATTEMPT_KEY] ?? 0;
+        const reason = retryReason(error);
+        if (reason === undefined || done >= policy.retries) {
+            throw error;
         }
-    }
-    return shouldRetryOrPromise;
-}
-async function handleRetry(axiosInstance, currentState, error, config) {
-    currentState.retryCount += 1;
-    const { retryDelay, shouldResetTimeout, onRetry } = currentState;
-    const delay = retryDelay(currentState.retryCount, error);
-    // Axios fails merging this configuration to the default configuration because it has an issue
-    // with circular structures: https://github.com/mzabriskie/axios/issues/370
-    fixConfig(axiosInstance, config);
-    if (!shouldResetTimeout && config.timeout && currentState.lastRequestTime) {
-        const lastRequestDuration = Date.now() - currentState.lastRequestTime;
-        const timeout = config.timeout - lastRequestDuration - delay;
-        if (timeout <= 0) {
-            return Promise.reject(error);
+        const retry = done + 1;
+        const delay = retryDelayMs(retry, error, policy, deps);
+        const what = `${config.method?.toUpperCase() ?? 'request'} ${config.url ?? ''}`;
+        if (delay === undefined) {
+            lib_core/* info */.pq(`Registry ${what} failed (${reason}); not retrying: Retry-After exceeds ${policy.maxRetryAfterMs / 1000}s`);
+            throw error;
         }
-        config.timeout = timeout;
-    }
-    config.transformRequest = [(data) => data];
-    await onRetry(currentState.retryCount, error, config);
-    if (config.signal?.aborted) {
-        return Promise.resolve(axiosInstance(config));
-    }
-    return new Promise((resolve) => {
-        const abortListener = () => {
-            clearTimeout(timeout);
-            resolve(axiosInstance(config));
-        };
-        const timeout = setTimeout(() => {
-            resolve(axiosInstance(config));
-            if (config.signal?.removeEventListener) {
-                config.signal.removeEventListener('abort', abortListener);
-            }
-        }, delay);
-        if (config.signal?.addEventListener) {
-            config.signal.addEventListener('abort', abortListener, { once: true });
-        }
+        lib_core/* info */.pq(`Registry ${what} failed (${reason}); retrying in ${(delay / 1000).toFixed(1)}s (retry ${retry}/${policy.retries})`);
+        config[ATTEMPT_KEY] = retry;
+        // The body was serialized on the first attempt; send it as-is.
+        config.transformRequest = [(data) => data];
+        await deps.sleep(delay);
+        return instance.request(config);
     });
 }
-async function handleMaxRetryTimesExceeded(currentState, error) {
-    if (currentState.retryCount >= currentState.retries)
-        await currentState.onMaxRetryTimesExceeded(error, currentState.retryCount);
-}
-const axiosRetry = (axiosInstance, defaultOptions) => {
-    const requestInterceptorId = axiosInstance.interceptors.request.use((config) => {
-        setCurrentState(config, defaultOptions, true);
-        if (config[namespace]?.validateResponse) {
-            // by setting this, all HTTP responses will be go through the error interceptor first
-            config.validateStatus = () => false;
-        }
-        return config;
-    });
-    const responseInterceptorId = axiosInstance.interceptors.response.use(null, async (error) => {
-        const { config } = error;
-        // If we have no information to retry the request
-        if (!config) {
-            return Promise.reject(error);
-        }
-        const currentState = setCurrentState(config, defaultOptions);
-        if (error.response && currentState.validateResponse?.(error.response)) {
-            // no issue with response
-            return error.response;
-        }
-        if (await shouldRetry(currentState, error)) {
-            return handleRetry(axiosInstance, currentState, error, config);
-        }
-        await handleMaxRetryTimesExceeded(currentState, error);
-        return Promise.reject(error);
-    });
-    return { requestInterceptorId, responseInterceptorId };
-};
-// Compatibility with CommonJS
-axiosRetry.isNetworkError = isNetworkError;
-axiosRetry.isSafeRequestError = isSafeRequestError;
-axiosRetry.isIdempotentRequestError = isIdempotentRequestError;
-axiosRetry.isNetworkOrIdempotentRequestError = isNetworkOrIdempotentRequestError;
-axiosRetry.exponentialDelay = exponentialDelay;
-axiosRetry.linearDelay = linearDelay;
-axiosRetry.isRetryableError = isRetryableError;
-/* harmony default export */ const esm = (axiosRetry);
 
 // EXTERNAL MODULE: ./node_modules/axios-logger/lib/index.js
 var lib = __nccwpck_require__(4033);
-// EXTERNAL MODULE: ./src/utils.ts
-var src_utils = __nccwpck_require__(1798);
 // EXTERNAL MODULE: ./node_modules/@actions/exec/lib/exec.js + 2 modules
 var lib_exec = __nccwpck_require__(5260);
 // EXTERNAL MODULE: external "fs"
@@ -117607,7 +117508,7 @@ function getCacheApiUrl(resource) {
 function createAcceptHeader(type, apiVersion) {
     return `${type};api-version=${apiVersion}`;
 }
-function cacheHttpClient_getRequestOptions() {
+function getRequestOptions() {
     const requestOptions = {
         headers: {
             Accept: createAcceptHeader('application/json', '6.0-preview.1')
@@ -117618,7 +117519,7 @@ function cacheHttpClient_getRequestOptions() {
 function createHttpClient() {
     const token = process.env['ACTIONS_RUNTIME_TOKEN'] || '';
     const bearerCredentialHandler = new BearerCredentialHandler(token);
-    return new HttpClient(getUserAgentString(), [bearerCredentialHandler], cacheHttpClient_getRequestOptions());
+    return new HttpClient(getUserAgentString(), [bearerCredentialHandler], getRequestOptions());
 }
 function getCacheEntry(keys, paths, options) {
     return cacheHttpClient_awaiter(this, void 0, void 0, function* () {
@@ -119890,25 +119791,19 @@ class Registry {
             this.baseUrl = 'https://ghcr.io/';
         }
         this.axios = lib_axios.create({
-            baseURL: this.baseUrl
+            baseURL: this.baseUrl,
+            timeout: REGISTRY_REQUEST_TIMEOUT_MS
         });
-        // Retry network errors, 5xx, AND 429 rate limits. The default
-        // axios-retry condition skips 429s, which surface from ghcr.io
-        // under bursty parallel reads (manifest fan-out, untag PUTs).
-        // exponentialDelay honors the Retry-After header automatically when
-        // present, so we honor the server's hint without an extra hook.
-        const retryConfig = {
-            retries: 3,
-            retryCondition: (error) => esm.isNetworkOrIdempotentRequestError(error) ||
-                error.response?.status === 429,
-            retryDelay: (retryNumber, error) => esm.exponentialDelay(retryNumber, error)
-        };
-        esm(this.axios, retryConfig);
-        // The token-exchange client gets the same retry posture — token
-        // endpoint 429s used to slip through with the old `retries: 3`-only
-        // config and surface as bare failures under parallel untag PUTs.
-        this.authClient = lib_axios.create();
-        esm(this.authClient, retryConfig);
+        // Retry 429 rate limits (which surface from ghcr.io under bursty
+        // parallel reads: manifest fan-out, untag PUTs), plus transient
+        // failures of idempotent requests, honouring Retry-After. See
+        // http-retry.ts for the exact rules.
+        installRetry(this.axios);
+        // The token-exchange client gets the same retry posture: token
+        // endpoint 429s would otherwise surface as bare failures under
+        // parallel untag PUTs.
+        this.authClient = lib_axios.create({ timeout: REGISTRY_REQUEST_TIMEOUT_MS });
+        installRetry(this.authClient);
         this.axios.defaults.headers.common['Accept'] =
             'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json';
         (0,lib/* setGlobalConfig */.e1)({
@@ -120456,8 +120351,8 @@ class CleanupTaskStatistics {
  * on would corrupt that log and hide later failures.
  *
  * Used to parallelize registry manifest fetches — the registry is on
- * ghcr.io, separate rate budget from api.github.com, and axios-retry
- * already covers transient 429s, so a small fan-out (default ~10) is a big
+ * ghcr.io, separate rate budget from api.github.com, and the registry
+ * client's retry (http-retry.ts) already covers transient 429s, so a small fan-out (default ~10) is a big
  * win on cold caches without risking secondary rate-limit hits.
  */
 async function runWithConcurrency(items, concurrency, worker) {

@@ -347,8 +347,8 @@ export interface ManifestSubject {
  * on would corrupt that log and hide later failures.
  *
  * Used to parallelize registry manifest fetches — the registry is on
- * ghcr.io, separate rate budget from api.github.com, and axios-retry
- * already covers transient 429s, so a small fan-out (default ~10) is a big
+ * ghcr.io, separate rate budget from api.github.com, and the registry
+ * client's retry (http-retry.ts) already covers transient 429s, so a small fan-out (default ~10) is a big
  * win on cold caches without risking secondary rate-limit hits.
  */
 export async function runWithConcurrency<T>(

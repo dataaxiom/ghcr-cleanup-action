@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import { Config, LogLevel } from './config.js'
-import axios, { AxiosError, AxiosInstance, isAxiosError } from 'axios'
-import axiosRetry from 'axios-retry'
+import axios, { AxiosInstance, isAxiosError } from 'axios'
+import { installRetry, REGISTRY_REQUEST_TIMEOUT_MS } from './http-retry.js'
 import * as AxiosLogger from 'axios-logger'
 import { createHash } from 'crypto'
 import { isValidChallenge, parseChallenge, Manifest } from './utils.js'
@@ -72,27 +72,19 @@ export class Registry {
       this.baseUrl = 'https://ghcr.io/'
     }
     this.axios = axios.create({
-      baseURL: this.baseUrl
+      baseURL: this.baseUrl,
+      timeout: REGISTRY_REQUEST_TIMEOUT_MS
     })
-    // Retry network errors, 5xx, AND 429 rate limits. The default
-    // axios-retry condition skips 429s, which surface from ghcr.io
-    // under bursty parallel reads (manifest fan-out, untag PUTs).
-    // exponentialDelay honors the Retry-After header automatically when
-    // present, so we honor the server's hint without an extra hook.
-    const retryConfig = {
-      retries: 3,
-      retryCondition: (error: AxiosError) =>
-        axiosRetry.isNetworkOrIdempotentRequestError(error) ||
-        error.response?.status === 429,
-      retryDelay: (retryNumber: number, error: AxiosError) =>
-        axiosRetry.exponentialDelay(retryNumber, error)
-    }
-    axiosRetry(this.axios, retryConfig)
-    // The token-exchange client gets the same retry posture — token
-    // endpoint 429s used to slip through with the old `retries: 3`-only
-    // config and surface as bare failures under parallel untag PUTs.
-    this.authClient = axios.create()
-    axiosRetry(this.authClient, retryConfig)
+    // Retry 429 rate limits (which surface from ghcr.io under bursty
+    // parallel reads: manifest fan-out, untag PUTs), plus transient
+    // failures of idempotent requests, honouring Retry-After. See
+    // http-retry.ts for the exact rules.
+    installRetry(this.axios)
+    // The token-exchange client gets the same retry posture: token
+    // endpoint 429s would otherwise surface as bare failures under
+    // parallel untag PUTs.
+    this.authClient = axios.create({ timeout: REGISTRY_REQUEST_TIMEOUT_MS })
+    installRetry(this.authClient)
     this.axios.defaults.headers.common['Accept'] =
       'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json'
 
