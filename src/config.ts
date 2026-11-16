@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import {
   MapPrinter,
+  assertValidRegex,
   validateUserRegex,
   warnIfUnanchoredRegex
 } from './utils.js'
@@ -245,6 +246,21 @@ export async function buildConfig(): Promise<Config> {
   // message rather than burning workflow minutes inside `.test()`. The
   // skip-regex-checks escape hatch lets a workflow author who deliberately
   // needs a very large/complex pattern opt out of these guards.
+  // Syntax first, always: each pattern exactly as it is later compiled
+  // (image-filter.ts uses the tag patterns as given; main.ts trims the
+  // package pattern).
+  if (config.useRegex) {
+    if (config.deleteTags) {
+      assertValidRegex(config.deleteTags, 'delete-tags')
+    }
+    if (config.excludeTags) {
+      assertValidRegex(config.excludeTags, 'exclude-tags')
+    }
+    if (config.expandPackages && config.package) {
+      assertValidRegex(config.package.trim(), 'package')
+    }
+  }
+
   if (config.useRegex && !config.skipRegexChecks) {
     if (config.deleteTags) {
       validateUserRegex(config.deleteTags, 'delete-tags')
