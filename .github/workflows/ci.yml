@@ -375,6 +375,7 @@ jobs:
             --mode prime --delay "$DELAY"
 
       - name: ' > Running Workflow'
+        id: cleanup
         uses: ./
         with:
           delete-tags: ${{ env.DELETE_TAGS }}
@@ -397,6 +398,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEST_FOLDER: ${{ matrix.tests.folder }}
+          # The action's step outputs, checked against the package (see
+          # validateStepOutputs in src/ci-tester.ts).
+          ACTION_DELETED_COUNT: ${{ steps.cleanup.outputs.deleted-count }}
+          ACTION_DELETED_DIGESTS: ${{ steps.cleanup.outputs.deleted-digests }}
         run: |
           node citester/index.js --token "$GH_TOKEN" \
             --directory "tests/$TEST_FOLDER" \
