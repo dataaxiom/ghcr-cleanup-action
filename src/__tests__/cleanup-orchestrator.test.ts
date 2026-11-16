@@ -135,6 +135,7 @@ describe('CleanupOrchestrator', () => {
     mockImageDeleter = {
       performUntagging: vi.fn().mockResolvedValue(false),
       deleteImages: vi.fn().mockResolvedValue({
+        deleted: new Set<string>(),
         numberImagesDeleted: 0,
         numberMultiImagesDeleted: 0
       })
@@ -254,6 +255,18 @@ describe('CleanupOrchestrator', () => {
   describe('run', () => {
     beforeEach(async () => {
       await orchestrator.reload()
+    })
+
+    it('records the deleted digests in the returned statistics', async () => {
+      mockImageDeleter.deleteImages.mockResolvedValueOnce({
+        deleted: new Set(['sha256:x', 'sha256:y']),
+        numberImagesDeleted: 2,
+        numberMultiImagesDeleted: 0
+      })
+
+      const stats = await orchestrator.run()
+
+      expect(stats.deletedDigests).toEqual(['sha256:x', 'sha256:y'])
     })
 
     it('should process tag deletions when deleteTags is configured', async () => {

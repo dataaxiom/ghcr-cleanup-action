@@ -375,6 +375,26 @@ describe('Config', () => {
       expect(config.deleteTags).toBe('(a+)+$')
     })
 
+    it('writes the job summary by default and turns it off with write-summary: false', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) =>
+        name === 'token' ? 'test-token' : ''
+      )
+      expect((await buildConfig()).writeSummary).toBe(true)
+
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'write-summary': 'false'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name !== 'write-summary'
+      )
+      expect((await buildConfig()).writeSummary).toBe(false)
+    })
+
     it('warns when a regex-mode pattern is unanchored', async () => {
       process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
       mockGetInput.mockImplementation((name: string) => {

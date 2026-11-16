@@ -13,6 +13,9 @@ import { ManifestCache } from './manifest-cache.js'
 // the addTable signature so it stays in sync with the runtime API.
 type SummaryTableRow = Parameters<typeof core.summary.addTable>[0][number]
 
+// GitHub caps a single step output at 1 MB.
+const MAX_STEP_OUTPUT_BYTES = 1024 * 1024
+
 /*
  * Main program entrypoint
  */
@@ -122,6 +125,43 @@ class CleanupAction {
     let globalStatistics = new CleanupTaskStatistics('combined-action', 0, 0)
     const perPackageStats: CleanupTaskStatistics[] = []
     const cacheStats = { hits: 0, misses: 0 }
+    // Set the step outputs even if a package fails partway: they then cover
+    // the packages that completed, so an aggregating workflow still sees
+    // what was actually deleted.
+    try {
+      await this.cleanPackages(targetPackages, perPackageStats, cacheStats)
+    } finally {
+      this.setOutputs(perPackageStats)
+    }
+    for (const stats of perPackageStats) {
+      globalStatistics = globalStatistics.add(stats)
+    }
+
+    if (targetPackages.length > 1) {
+      globalStatistics.print()
+    }
+
+    const durationMs = Date.now() - startedAt
+    if (this.config.writeSummary) {
+      await this.writeJobSummary(
+        targetPackages,
+        perPackageStats,
+        globalStatistics,
+        durationMs,
+        cacheStats
+      )
+    }
+  }
+
+  /**
+   * Clean each target package in turn, appending its statistics to
+   * `perPackageStats` as soon as it completes.
+   */
+  private async cleanPackages(
+    targetPackages: string[],
+    perPackageStats: CleanupTaskStatistics[],
+    cacheStats: { hits: number; misses: number }
+  ): Promise<void> {
     for (const targetPackage of targetPackages) {
       // Manifest cache is keyed per (owner, package, GITHUB_RUN_ID).
       // Restore before reload() so analyzer manifest fetches see the
@@ -139,9 +179,7 @@ class CleanupAction {
       try {
         await orchestrator.init()
         await orchestrator.reload()
-        const stats = await orchestrator.run()
-        perPackageStats.push(stats)
-        globalStatistics = globalStatistics.add(stats)
+        perPackageStats.push(await orchestrator.run())
       } finally {
         await manifestCache.save()
         const s = manifestCache.getStats()
@@ -149,19 +187,32 @@ class CleanupAction {
         cacheStats.misses += s.misses
       }
     }
+  }
 
-    if (targetPackages.length > 1) {
-      globalStatistics.print()
+  /**
+   * Step outputs (see action.yml): totals across the packages that
+   * completed, and the deleted digests per package as JSON.
+   */
+  private setOutputs(perPackageStats: CleanupTaskStatistics[]): void {
+    let deleted = 0
+    let multiArchDeleted = 0
+    const digests: Record<string, string[]> = {}
+    for (const stats of perPackageStats) {
+      deleted += stats.numberImagesDeleted
+      multiArchDeleted += stats.numberMultiImagesDeleted
+      digests[stats.name] = stats.deletedDigests
     }
+    core.setOutput('deleted-count', deleted)
+    core.setOutput('deleted-multi-arch-count', multiArchDeleted)
 
-    const durationMs = Date.now() - startedAt
-    await this.writeJobSummary(
-      targetPackages,
-      perPackageStats,
-      globalStatistics,
-      durationMs,
-      cacheStats
-    )
+    const json = JSON.stringify(digests)
+    if (Buffer.byteLength(json, 'utf8') > MAX_STEP_OUTPUT_BYTES) {
+      core.warning(
+        `deleted-digests not set: the list of ${deleted} digests exceeds GitHub's 1 MB step output limit. deleted-count and deleted-multi-arch-count are set.`
+      )
+    } else {
+      core.setOutput('deleted-digests', json)
+    }
   }
 
   private async writeJobSummary(

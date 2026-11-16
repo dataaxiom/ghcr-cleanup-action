@@ -249,6 +249,8 @@ export class CleanupTaskStatistics {
   name: string
   numberMultiImagesDeleted: number
   numberImagesDeleted: number
+  // Digests of the package versions deleted (or, in a dry run, that would be).
+  deletedDigests: string[] = []
 
   constructor(
     name: string,
@@ -261,11 +263,13 @@ export class CleanupTaskStatistics {
   }
 
   add(other: CleanupTaskStatistics): CleanupTaskStatistics {
-    return new CleanupTaskStatistics(
+    const combined = new CleanupTaskStatistics(
       this.name,
       this.numberMultiImagesDeleted + other.numberMultiImagesDeleted,
       this.numberImagesDeleted + other.numberImagesDeleted
     )
+    combined.deletedDigests = [...this.deletedDigests, ...other.deletedDigests]
+    return combined
   }
 
   print(): void {

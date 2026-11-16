@@ -49963,6 +49963,7 @@ class Config {
     keepNuntagged;
     keepNtagged;
     dryRun;
+    writeSummary = true;
     validate;
     logLevel;
     useRegex;
@@ -50109,6 +50110,9 @@ async function buildConfig() {
     if (core.getInput('delete-orphaned-images')) {
         config.deleteOrphanedImages = core.getBooleanInput('delete-orphaned-images');
     }
+    if (core.getInput('write-summary')) {
+        config.writeSummary = core.getBooleanInput('write-summary');
+    }
     if (core.getInput('dry-run')) {
         config.dryRun = core.getBooleanInput('dry-run');
         if (config.dryRun) {
@@ -50250,6 +50254,9 @@ async function buildConfig() {
         optionsMap.add('validate', `${config.validate}`);
     }
     optionsMap.add('log-level', LogLevel[config.logLevel]);
+    if (!config.writeSummary) {
+        optionsMap.add('write-summary', 'false');
+    }
     if (config.useRegex !== undefined) {
         optionsMap.add('use-regex', `${config.useRegex}`);
     }
@@ -120289,13 +120296,17 @@ class CleanupTaskStatistics {
     name;
     numberMultiImagesDeleted;
     numberImagesDeleted;
+    // Digests of the package versions deleted (or, in a dry run, that would be).
+    deletedDigests = [];
     constructor(name, numberMultiImagesDeleted, numberImagesDeleted) {
         this.name = name;
         this.numberMultiImagesDeleted = numberMultiImagesDeleted;
         this.numberImagesDeleted = numberImagesDeleted;
     }
     add(other) {
-        return new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+        const combined = new CleanupTaskStatistics(this.name, this.numberMultiImagesDeleted + other.numberMultiImagesDeleted, this.numberImagesDeleted + other.numberImagesDeleted);
+        combined.deletedDigests = [...this.deletedDigests, ...other.deletedDigests];
+        return combined;
     }
     print() {
         core.startGroup(`[${this.name}] Cleanup statistics`);
