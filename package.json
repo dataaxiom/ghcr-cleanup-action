@@ -52,7 +52,6 @@
     "@octokit/rest": "^22.0.1",
     "axios": "^1.21.1",
     "axios-logger": "^2.8.1",
-    "axios-retry": "^4.5.0",
     "human-interval": "^2.0.1",
     "safe-regex2": "^5.1.2",
     "wildcard-match": "^5.1.6"

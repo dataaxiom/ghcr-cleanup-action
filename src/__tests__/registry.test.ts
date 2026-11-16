@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createHash } from 'crypto'
 import * as core from '@actions/core'
-import axiosRetry from 'axios-retry'
+import axios from 'axios'
 import { Registry } from '../registry'
 import { Config, LogLevel } from '../config'
 
@@ -34,18 +34,6 @@ vi.mock('axios', () => {
     },
     isAxiosError: vi.fn((err: any) => err && err.__isAxiosError === true)
   }
-})
-
-vi.mock('axios-retry', () => {
-  // axios-retry's default export is a function that also carries
-  // utility helpers as properties. registry.ts reads both.
-  const axiosRetryMock = vi.fn() as ReturnType<typeof vi.fn> & {
-    isNetworkOrIdempotentRequestError: ReturnType<typeof vi.fn>
-    exponentialDelay: ReturnType<typeof vi.fn>
-  }
-  axiosRetryMock.isNetworkOrIdempotentRequestError = vi.fn(() => false)
-  axiosRetryMock.exponentialDelay = vi.fn(() => 0)
-  return { default: axiosRetryMock }
 })
 
 vi.mock('axios-logger', () => ({
@@ -103,22 +91,25 @@ describe('Registry', () => {
   })
 
   describe('retry configuration', () => {
-    it('retries on 429 responses (rate limit) in addition to network/5xx', () => {
-      // The Registry constructor in beforeEach already configured
-      // axios-retry. Pull the most recent call's config and exercise
-      // the retryCondition directly.
-      const lastCall = vi.mocked(axiosRetry).mock.calls.at(-1)
-      const cfg = lastCall?.[1]
-      const retryCondition = cfg?.retryCondition
-      expect(retryCondition).toBeDefined()
-      if (!retryCondition) return
-
-      // 429 must retry — that's the new behavior we added on top of
-      // axios-retry's default network/idempotent check.
-      expect(retryCondition({ response: { status: 429 } } as never)).toBe(true)
-      // Non-rate-limit errors fall through to
-      // isNetworkOrIdempotentRequestError (mocked to false here).
-      expect(retryCondition({ response: { status: 400 } } as never)).toBe(false)
+    it('gives both registry clients a request timeout and the retry interceptor', () => {
+      // The constructor (outer beforeEach) builds the manifest client and
+      // the token-exchange client; both need the timeout (so a stalled
+      // connection becomes a retryable timeout) and the retry policy from
+      // http-retry.ts (exercised against real axios in http-retry.test.ts).
+      const created = vi.mocked(axios).create.mock.calls.slice(-2)
+      expect(created).toHaveLength(2)
+      for (const [options] of created) {
+        expect(options).toMatchObject({ timeout: 60_000 })
+      }
+      expect(mockAxiosInstance.interceptors.response.use).toHaveBeenCalledWith(
+        undefined,
+        expect.any(Function)
+      )
+      expect(
+        vi
+          .mocked(mockAxiosInstance.interceptors.response.use)
+          .mock.calls.filter(([ok]) => ok === undefined).length
+      ).toBeGreaterThanOrEqual(2)
     })
   })
 
@@ -705,25 +696,6 @@ describe('Registry', () => {
       // happen if the prior cache had leaked across the login boundary.
       const tag2FirstPut = mockAxiosInstance.put.mock.calls[2]
       expect(tag2FirstPut[2]?.headers?.Authorization).toBeUndefined()
-    })
-  })
-
-  describe('auth client retry configuration', () => {
-    it('applies the same 429 retry condition to the token-exchange client', () => {
-      // Constructor wires axios-retry twice: once for the manifest
-      // client, once for the auth client. Both must accept 429.
-      const calls = vi.mocked(axiosRetry).mock.calls
-      // The two most recent calls correspond to the registry instance
-      // built in the outer beforeEach.
-      const lastTwo = calls.slice(-2)
-      expect(lastTwo).toHaveLength(2)
-      for (const call of lastTwo) {
-        const retryCondition = call[1]?.retryCondition
-        expect(retryCondition).toBeDefined()
-        expect(retryCondition?.({ response: { status: 429 } } as never)).toBe(
-          true
-        )
-      }
     })
   })
 })
