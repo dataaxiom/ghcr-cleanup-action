@@ -54,6 +54,22 @@ export class Config {
   }
 }
 
+/**
+ * Parse a keep-n count. Only a plain whole number is accepted: parseInt
+ * would read "1,000" or "1e2" as 1, and a keep count silently smaller
+ * than intended deletes more than asked.
+ */
+export function parseCount(name: string, raw: string): number {
+  const value = raw.trim()
+  if (/^-\d+$/.test(value)) {
+    throw new Error(`${name} is negative`)
+  }
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    throw new Error(`${name} is not a whole number: "${raw}"`)
+  }
+  return Number(value)
+}
+
 export async function buildConfig(): Promise<Config> {
   const token: string = core.getInput('token', { required: true })
   // Register the token with the runner's log masker. Values arriving via
@@ -151,25 +167,17 @@ export async function buildConfig(): Promise<Config> {
   }
 
   if (core.getInput('keep-n-tagged')) {
-    const value: number = parseInt(core.getInput('keep-n-tagged'))
-    if (isNaN(value)) {
-      throw new Error('keep-n-tagged is not number')
-    } else if (value < 0) {
-      throw new Error('keep-n-tagged is negative')
-    } else {
-      config.keepNtagged = value
-    }
+    config.keepNtagged = parseCount(
+      'keep-n-tagged',
+      core.getInput('keep-n-tagged')
+    )
   }
 
   if (core.getInput('keep-n-untagged')) {
-    const value: number = parseInt(core.getInput('keep-n-untagged'))
-    if (isNaN(value)) {
-      throw new Error('keep-n-untagged is not number')
-    } else if (value < 0) {
-      throw new Error('keep-n-untagged is negative')
-    } else {
-      config.keepNuntagged = value
-    }
+    config.keepNuntagged = parseCount(
+      'keep-n-untagged',
+      core.getInput('keep-n-untagged')
+    )
   }
 
   if (core.getInput('delete-untagged')) {
