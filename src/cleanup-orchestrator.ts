@@ -73,8 +73,6 @@ export class CleanupOrchestrator {
   }
 
   async reload(): Promise<void> {
-    this.deleteSet.clear()
-
     // Prime the list of current packages. The afterLoad callback runs
     // inside the "[Loaded package data]" log group, so the manifest-
     // cache prune's diagnostic line lands inside that group rather than
@@ -88,6 +86,19 @@ export class CleanupOrchestrator {
     await this.packageRepo.loadPackages(this.targetPackage, true, () => {
       this.manifestCache?.prune(this.packageRepo.getDigests())
     })
+
+    await this.analyze()
+  }
+
+  /**
+   * Rebuild everything derived from the package list held in packageRepo:
+   * the relationship maps, the deleter, the filter set, exclusions and the
+   * age filter. reload() runs this after fetching the list; after an
+   * untag it can also run on the list packageRepo already holds (see
+   * run()).
+   */
+  private async analyze(): Promise<void> {
+    this.deleteSet.clear()
 
     // Build digestUsedBy + subjectReferrers maps in one pass
     const analysis = await this.manifestAnalyzer.loadDigestUsedByMap()
@@ -142,12 +153,25 @@ export class CleanupOrchestrator {
             'CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()'
           )
         }
-        const reloadNeeded = await this.imageDeleter.performUntagging(
+        const listedBefore = this.packageRepo.getDigests()
+        const untag = await this.imageDeleter.performUntagging(
           plan.untagOperations
         )
-        if (reloadNeeded) {
-          core.info('Reloading action due to untagging')
-          await this.reload()
+        if (untag) {
+          // performUntagging left packageRepo holding its own post-untag
+          // reload (or, in a dry run, the simulated untag). Reuse it when
+          // it provably reflects the untag; otherwise reload from the API
+          // as before. On large repos this saves a full package listing.
+          if (this.packageRepo.applyUntag(untag, listedBefore)) {
+            core.info(
+              'Untagging done; re-planning from the updated package list'
+            )
+            this.manifestCache?.prune(this.packageRepo.getDigests())
+            await this.analyze()
+          } else {
+            core.info('Reloading action due to untagging')
+            await this.reload()
+          }
           reloadOccurred = true
         }
       }

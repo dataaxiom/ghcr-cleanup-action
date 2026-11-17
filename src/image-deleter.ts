@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { CleanupContext, DeletionResult } from './cleanup-types.js'
+import { CleanupContext, DeletionResult, UntagResult } from './cleanup-types.js'
 import { ManifestAnalyzer } from './manifest-analyzer.js'
 import {
   BufferedLogger,
@@ -67,12 +67,18 @@ export class ImageDeleter {
    * version IDs and batch the deletes. This replaces an older per-tag PUT→reload→delete loop that
    * paid a full loadPackages round-trip per tag — catastrophic on large
    * repos where each reload is ~600 paginated API calls.
+   *
+   * @returns null if nothing was untagged; otherwise what changed (the
+   *   moved tags and the deleted placeholders), which the caller uses to
+   *   bring the package list up to date. On return, the package repo
+   *   holds the listing from this method's own reload (a live run) or
+   *   the simulated untag (a dry run).
    */
   async performUntagging(
     untagOperations: Map<string, string[]>
-  ): Promise<boolean> {
+  ): Promise<UntagResult | null> {
     if (untagOperations.size === 0) {
-      return false
+      return null
     }
 
     // Build the list of (digest, tag) pairs we will actually strip.
@@ -102,10 +108,11 @@ export class ImageDeleter {
     }
 
     if (jobs.length === 0) {
-      return false
+      return null
     }
 
     const allTags = jobs.map(j => j.tag)
+    const movedTags = new Map(jobs.map(j => [j.tag, j.manifestDigest]))
     core.startGroup(
       `[${this.context.targetPackage}] Untagging images: ${allTags}`
     )
@@ -184,7 +191,7 @@ export class ImageDeleter {
     if (this.context.config.dryRun) {
       this.context.packageRepo.simulateUntag(jobs.map(j => j.tag))
       core.endGroup()
-      return true
+      return { movedTags, deletedPlaceholders: [] }
     }
 
     // Discover the placeholder versions so we can delete them. The
@@ -261,7 +268,12 @@ export class ImageDeleter {
         `Untag incomplete: the empty placeholder version for ${left} never appeared in the package list after ${UNTAG_RELOAD_MAX_ATTEMPTS} reloads, so it was not deleted. The source image was not touched. The tag still exists and now points at the empty placeholder; re-run the cleanup once the package list has caught up.`
       )
     }
-    return true
+    return {
+      movedTags,
+      deletedPlaceholders: jobs.map(
+        j => placeholderDigests.get(j.tag) as string
+      )
+    }
   }
 
   /**

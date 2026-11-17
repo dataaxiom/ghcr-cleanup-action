@@ -206,6 +206,120 @@ describe('PackageRepo', () => {
       ).toEqual(['c'])
     })
 
+    describe('applyUntag (reuse the post-untag listing)', () => {
+      // The listing performUntagging's reload would hold after moving tag
+      // 'a' off sha256:src onto placeholder sha256:ph (id 9).
+      const loadAfterUntag = async (
+        repo: PackageRepo,
+        versions: unknown[]
+      ): Promise<void> => {
+        mockPaginatedPages(
+          mockOctokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+          [{ data: versions }]
+        )
+        await repo.loadPackages('pkg', false)
+      }
+      const untag = {
+        movedTags: new Map([['a', 'sha256:src']]),
+        deletedPlaceholders: ['sha256:ph']
+      }
+      const before = new Set(['sha256:src', 'sha256:other'])
+
+      it('drops the deleted placeholders and accepts a consistent listing', async () => {
+        const repo = new PackageRepo(buildConfig(), octokitClient)
+        await loadAfterUntag(repo, [
+          buildPackageVersion(1, 'sha256:src', ['b']),
+          buildPackageVersion(2, 'sha256:other', ['c']),
+          buildPackageVersion(9, 'sha256:ph', ['a'])
+        ])
+
+        expect(repo.applyUntag(untag, before)).toBe(true)
+        expect(repo.getIdByDigest('sha256:ph')).toBeUndefined()
+        expect(repo.getPackageByDigest('sha256:ph')).toBeUndefined()
+        expect(repo.id2Package.has(9)).toBe(false)
+        expect(repo.getDigestByTag('a')).toBeUndefined()
+        expect(repo.getDigests()).toEqual(
+          new Set(['sha256:src', 'sha256:other'])
+        )
+      })
+
+      it('rejects a listing that still shows a moved tag on its source (tag lookup)', async () => {
+        const repo = new PackageRepo(buildConfig(), octokitClient)
+        // Source ingested after the placeholder, so tag 'a' maps to it.
+        await loadAfterUntag(repo, [
+          buildPackageVersion(9, 'sha256:ph', ['a']),
+          buildPackageVersion(1, 'sha256:src', ['a', 'b']),
+          buildPackageVersion(2, 'sha256:other', ['c'])
+        ])
+        expect(repo.applyUntag(untag, before)).toBe(false)
+      })
+
+      it('rejects a listing whose source still carries a moved tag in its own tags', async () => {
+        const repo = new PackageRepo(buildConfig(), octokitClient)
+        // Placeholder ingested last, so the lookup says 'a' moved, but
+        // the stale source record still lists it.
+        await loadAfterUntag(repo, [
+          buildPackageVersion(1, 'sha256:src', ['a', 'b']),
+          buildPackageVersion(2, 'sha256:other', ['c']),
+          buildPackageVersion(9, 'sha256:ph', ['a'])
+        ])
+        expect(repo.applyUntag(untag, before)).toBe(false)
+      })
+
+      it('rejects a listing missing a version that was listed before the untag', async () => {
+        const repo = new PackageRepo(buildConfig(), octokitClient)
+        await loadAfterUntag(repo, [
+          buildPackageVersion(1, 'sha256:src', ['b']),
+          buildPackageVersion(9, 'sha256:ph', ['a'])
+        ])
+        expect(repo.applyUntag(untag, before)).toBe(false)
+      })
+
+      it('rebuilds the referrer index without tags that pointed at a deleted placeholder', async () => {
+        const repo = new PackageRepo(buildConfig(), octokitClient)
+        const parent = 'a'.repeat(64)
+        await loadAfterUntag(repo, [
+          buildPackageVersion(1, 'sha256:src', ['b']),
+          buildPackageVersion(2, 'sha256:other', ['c']),
+          buildPackageVersion(9, 'sha256:ph', [`sha256-${parent}.sig`])
+        ])
+        expect(repo.getReferrerTagsForDigest(`sha256:${parent}`)).toEqual([
+          `sha256-${parent}.sig`
+        ])
+        expect(
+          repo.applyUntag(
+            { movedTags: new Map(), deletedPlaceholders: ['sha256:ph'] },
+            before
+          )
+        ).toBe(true)
+        expect(repo.getReferrerTagsForDigest(`sha256:${parent}`)).toEqual([])
+      })
+
+      it('accepts a dry-run simulated untag (nothing deleted)', async () => {
+        const repo = new PackageRepo(
+          buildConfig({ dryRun: true }),
+          octokitClient
+        )
+        await loadAfterUntag(repo, [
+          buildPackageVersion(1, 'sha256:src', ['a', 'b']),
+          buildPackageVersion(2, 'sha256:other', ['c'])
+        ])
+        repo.simulateUntag(['a'])
+        expect(
+          repo.applyUntag(
+            {
+              movedTags: new Map([['a', 'sha256:src']]),
+              deletedPlaceholders: []
+            },
+            before
+          )
+        ).toBe(true)
+        expect(
+          repo.getPackageByDigest('sha256:src')?.metadata.container.tags
+        ).toEqual(['b'])
+      })
+    })
+
     it('refuses to simulate an untag outside dry-run', () => {
       const repo = new PackageRepo(buildConfig(), octokitClient)
       expect(() => repo.simulateUntag(['a'])).toThrow(/only valid in dry-run/)
