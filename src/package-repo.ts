@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { Config, LogLevel } from './config.js'
 import { OctokitClient } from './octokit-client.js'
+import type { UntagResult } from './cleanup-types.js'
 import { RequestError } from '@octokit/request-error'
 import {
   consoleLogger,
@@ -203,22 +204,7 @@ export class PackageRepo {
 
       this.applySimulatedUntags()
 
-      // Build the fallback-tag-by-parent reverse index in one pass after
-      // the maps are populated. The three call sites that need this
-      // (image-deleter cascade, manifest-analyzer initFilterSet /
-      // primeManifests) used to do O(N×T) scans over every tag per
-      // digest — quadratic on repos with tens of thousands of tags.
-      for (const tag of this.tag2Digest.keys()) {
-        const parent = parentDigestFromReferrerTag(tag)
-        if (parent) {
-          let list = this.referrerTagsByParent.get(parent)
-          if (!list) {
-            list = []
-            this.referrerTagsByParent.set(parent, list)
-          }
-          list.push(tag)
-        }
-      }
+      this.rebuildReferrerIndex()
 
       if (output && this.config.logLevel >= LogLevel.INFO) {
         const lines: string[] = []
@@ -292,6 +278,81 @@ export class PackageRepo {
       this.simulatedUntags.add(tag)
     }
     this.applySimulatedUntags()
+  }
+
+  /**
+   * Build the fallback-tag-by-parent reverse index from tag2Digest. The
+   * three call sites that need it (image-deleter cascade,
+   * manifest-analyzer initFilterSet / primeManifests) used to do O(N×T)
+   * scans over every tag per digest — quadratic on repos with tens of
+   * thousands of tags.
+   */
+  private rebuildReferrerIndex(): void {
+    this.referrerTagsByParent.clear()
+    for (const tag of this.tag2Digest.keys()) {
+      const parent = parentDigestFromReferrerTag(tag)
+      if (parent) {
+        let list = this.referrerTagsByParent.get(parent)
+        if (!list) {
+          list = []
+          this.referrerTagsByParent.set(parent, list)
+        }
+        list.push(tag)
+      }
+    }
+  }
+
+  /**
+   * After an untag, bring the listing up to date without fetching it
+   * again — but only if it provably reflects the untag. The listing is
+   * then the one performUntagging's own reload fetched (or, in a dry run,
+   * the simulated one); this drops the placeholder versions it deleted
+   * and checks:
+   *
+   * - every version listed when the run started (`listedBefore`) is still
+   *   listed, apart from those placeholders: a version missing from a
+   *   stale listing could make its children look orphaned;
+   * - no moved tag is still shown on the image it was moved off.
+   *
+   * If a check fails, return false and leave the listing for the caller
+   * to discard: it must reload from the API, as it always used to.
+   * Staleness of that kind could otherwise only make the second pass
+   * delete less, but the reload keeps the two paths identical.
+   *
+   * @returns true if the listing is now what a fresh load would show for
+   *   the untag; false if the caller must reload
+   */
+  applyUntag(result: UntagResult, listedBefore: Set<string>): boolean {
+    const deleted = new Set(result.deletedPlaceholders)
+    for (const digest of deleted) {
+      const id = this.digest2Id.get(digest)
+      this.digest2Id.delete(digest)
+      if (id !== undefined) {
+        this.id2Package.delete(id)
+      }
+    }
+    for (const [tag, digest] of this.tag2Digest) {
+      if (deleted.has(digest)) {
+        this.tag2Digest.delete(tag)
+      }
+    }
+    this.rebuildReferrerIndex()
+
+    for (const digest of listedBefore) {
+      if (!deleted.has(digest) && !this.digest2Id.has(digest)) {
+        return false
+      }
+    }
+    for (const [tag, source] of result.movedTags) {
+      if (this.tag2Digest.get(tag) === source) {
+        return false
+      }
+      const sourcePackage = this.getPackageByDigest(source)
+      if (sourcePackage?.metadata.container.tags.includes(tag)) {
+        return false
+      }
+    }
+    return true
   }
 
   private applySimulatedUntags(): void {

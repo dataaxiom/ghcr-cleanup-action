@@ -78,7 +78,11 @@ describe('CleanupOrchestrator', () => {
 
     // Mock PackageRepo
     mockPackageRepo = {
-      loadPackages: vi.fn().mockResolvedValue(undefined)
+      loadPackages: vi.fn().mockResolvedValue(undefined),
+      getDigests: vi.fn().mockReturnValue(new Set(['sha256:before'])),
+      // Default: the post-untag listing can't be reused, so the orchestrator
+      // reloads from the API (the behaviour these tests were written for).
+      applyUntag: vi.fn().mockReturnValue(false)
     } as any
     vi.mocked(PackageRepo).mockImplementation(function () {
       return mockPackageRepo
@@ -133,7 +137,7 @@ describe('CleanupOrchestrator', () => {
 
     // Mock ImageDeleter
     mockImageDeleter = {
-      performUntagging: vi.fn().mockResolvedValue(false),
+      performUntagging: vi.fn().mockResolvedValue(null),
       deleteImages: vi.fn().mockResolvedValue({
         deleted: new Set<string>(),
         numberImagesDeleted: 0,
@@ -253,6 +257,11 @@ describe('CleanupOrchestrator', () => {
   })
 
   describe('run', () => {
+    const untagResult = {
+      movedTags: new Map([['v1', 'digest1']]),
+      deletedPlaceholders: ['sha256:placeholder']
+    }
+
     beforeEach(async () => {
       await orchestrator.reload()
     })
@@ -300,7 +309,7 @@ describe('CleanupOrchestrator', () => {
           untagOperations: new Map()
         })
 
-      mockImageDeleter.performUntagging.mockResolvedValue(true)
+      mockImageDeleter.performUntagging.mockResolvedValue(untagResult)
 
       await orchestrator.run()
 
@@ -310,6 +319,63 @@ describe('CleanupOrchestrator', () => {
       )
       expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(2)
       expect(mockDeletionStrategy.processTagDeletions).toHaveBeenCalledTimes(2)
+    })
+
+    it('reuses the post-untag listing instead of fetching it again when it provably reflects the untag', async () => {
+      config.deleteTags = 'v1'
+      mockDeletionStrategy.processTagDeletions
+        .mockResolvedValueOnce({
+          deleteSet: new Set(),
+          untagOperations: new Map([['digest1', ['v1']]])
+        })
+        .mockResolvedValueOnce({
+          deleteSet: new Set(['digest1']),
+          untagOperations: new Map()
+        })
+      mockImageDeleter.performUntagging.mockResolvedValue(untagResult)
+      mockPackageRepo.applyUntag.mockReturnValue(true)
+      const prune = vi.fn()
+      ;(orchestrator as any).manifestCache = { prune }
+
+      await orchestrator.run()
+
+      // applyUntag sees what untag changed and what was listed before it.
+      expect(mockPackageRepo.applyUntag).toHaveBeenCalledWith(
+        untagResult,
+        new Set(['sha256:before'])
+      )
+      // No second fetch: only the reload() in beforeEach listed packages,
+      // but the plan is still rebuilt and re-processed.
+      expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(1)
+      expect(mockManifestAnalyzer.loadDigestUsedByMap).toHaveBeenCalledTimes(2)
+      expect(mockDeletionStrategy.processTagDeletions).toHaveBeenCalledTimes(2)
+      // The cache drops the deleted placeholders, as reload() would.
+      expect(prune).toHaveBeenCalledWith(new Set(['sha256:before']))
+      expect(core.info).not.toHaveBeenCalledWith(
+        'Reloading action due to untagging'
+      )
+    })
+
+    it('falls back to a full reload when the post-untag listing may be stale', async () => {
+      config.deleteTags = 'v1'
+      mockDeletionStrategy.processTagDeletions
+        .mockResolvedValueOnce({
+          deleteSet: new Set(),
+          untagOperations: new Map([['digest1', ['v1']]])
+        })
+        .mockResolvedValueOnce({
+          deleteSet: new Set(),
+          untagOperations: new Map()
+        })
+      mockImageDeleter.performUntagging.mockResolvedValue(untagResult)
+      mockPackageRepo.applyUntag.mockReturnValue(false)
+
+      await orchestrator.run()
+
+      expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(2)
+      expect(core.info).toHaveBeenCalledWith(
+        'Reloading action due to untagging'
+      )
     })
 
     it('drops post-reload untagOperations (gate-kept images would otherwise re-untag)', async () => {
@@ -332,7 +398,7 @@ describe('CleanupOrchestrator', () => {
           deleteSet: new Set(['digest3']),
           untagOperations: new Map([['gate-kept', ['tag1']]])
         })
-      mockImageDeleter.performUntagging.mockResolvedValue(true)
+      mockImageDeleter.performUntagging.mockResolvedValue(untagResult)
 
       const stats = await orchestrator.run()
 
@@ -366,7 +432,7 @@ describe('CleanupOrchestrator', () => {
       mockDeletionStrategy.computeKeepNTaggedDigests.mockReturnValueOnce(
         new Set(['keep-digest'])
       )
-      mockImageDeleter.performUntagging.mockResolvedValue(false)
+      mockImageDeleter.performUntagging.mockResolvedValue(null)
 
       await orchestrator.run()
 

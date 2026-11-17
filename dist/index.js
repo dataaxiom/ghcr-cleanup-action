@@ -58243,22 +58243,7 @@ class PackageRepo {
                 });
             }
             this.applySimulatedUntags();
-            // Build the fallback-tag-by-parent reverse index in one pass after
-            // the maps are populated. The three call sites that need this
-            // (image-deleter cascade, manifest-analyzer initFilterSet /
-            // primeManifests) used to do O(N×T) scans over every tag per
-            // digest — quadratic on repos with tens of thousands of tags.
-            for (const tag of this.tag2Digest.keys()) {
-                const parent = parentDigestFromReferrerTag(tag);
-                if (parent) {
-                    let list = this.referrerTagsByParent.get(parent);
-                    if (!list) {
-                        list = [];
-                        this.referrerTagsByParent.set(parent, list);
-                    }
-                    list.push(tag);
-                }
-            }
+            this.rebuildReferrerIndex();
             if (output && this.config.logLevel >= LogLevel.INFO) {
                 const lines = [];
                 for (const ghPackage of this.id2Package.values()) {
@@ -58329,6 +58314,78 @@ class PackageRepo {
             this.simulatedUntags.add(tag);
         }
         this.applySimulatedUntags();
+    }
+    /**
+     * Build the fallback-tag-by-parent reverse index from tag2Digest. The
+     * three call sites that need it (image-deleter cascade,
+     * manifest-analyzer initFilterSet / primeManifests) used to do O(N×T)
+     * scans over every tag per digest — quadratic on repos with tens of
+     * thousands of tags.
+     */
+    rebuildReferrerIndex() {
+        this.referrerTagsByParent.clear();
+        for (const tag of this.tag2Digest.keys()) {
+            const parent = parentDigestFromReferrerTag(tag);
+            if (parent) {
+                let list = this.referrerTagsByParent.get(parent);
+                if (!list) {
+                    list = [];
+                    this.referrerTagsByParent.set(parent, list);
+                }
+                list.push(tag);
+            }
+        }
+    }
+    /**
+     * After an untag, bring the listing up to date without fetching it
+     * again — but only if it provably reflects the untag. The listing is
+     * then the one performUntagging's own reload fetched (or, in a dry run,
+     * the simulated one); this drops the placeholder versions it deleted
+     * and checks:
+     *
+     * - every version listed when the run started (`listedBefore`) is still
+     *   listed, apart from those placeholders: a version missing from a
+     *   stale listing could make its children look orphaned;
+     * - no moved tag is still shown on the image it was moved off.
+     *
+     * If a check fails, return false and leave the listing for the caller
+     * to discard: it must reload from the API, as it always used to.
+     * Staleness of that kind could otherwise only make the second pass
+     * delete less, but the reload keeps the two paths identical.
+     *
+     * @returns true if the listing is now what a fresh load would show for
+     *   the untag; false if the caller must reload
+     */
+    applyUntag(result, listedBefore) {
+        const deleted = new Set(result.deletedPlaceholders);
+        for (const digest of deleted) {
+            const id = this.digest2Id.get(digest);
+            this.digest2Id.delete(digest);
+            if (id !== undefined) {
+                this.id2Package.delete(id);
+            }
+        }
+        for (const [tag, digest] of this.tag2Digest) {
+            if (deleted.has(digest)) {
+                this.tag2Digest.delete(tag);
+            }
+        }
+        this.rebuildReferrerIndex();
+        for (const digest of listedBefore) {
+            if (!deleted.has(digest) && !this.digest2Id.has(digest)) {
+                return false;
+            }
+        }
+        for (const [tag, source] of result.movedTags) {
+            if (this.tag2Digest.get(tag) === source) {
+                return false;
+            }
+            const sourcePackage = this.getPackageByDigest(source);
+            if (sourcePackage?.metadata.container.tags.includes(tag)) {
+                return false;
+            }
+        }
+        return true;
     }
     applySimulatedUntags() {
         for (const tag of this.simulatedUntags) {
@@ -123375,10 +123432,16 @@ class ImageDeleter {
      * version IDs and batch the deletes. This replaces an older per-tag PUT→reload→delete loop that
      * paid a full loadPackages round-trip per tag — catastrophic on large
      * repos where each reload is ~600 paginated API calls.
+     *
+     * @returns null if nothing was untagged; otherwise what changed (the
+     *   moved tags and the deleted placeholders), which the caller uses to
+     *   bring the package list up to date. On return, the package repo
+     *   holds the listing from this method's own reload (a live run) or
+     *   the simulated untag (a dry run).
      */
     async performUntagging(untagOperations) {
         if (untagOperations.size === 0) {
-            return false;
+            return null;
         }
         const jobs = [];
         for (const [manifestDigest, tags] of untagOperations) {
@@ -123392,9 +123455,10 @@ class ImageDeleter {
             }
         }
         if (jobs.length === 0) {
-            return false;
+            return null;
         }
         const allTags = jobs.map(j => j.tag);
+        const movedTags = new Map(jobs.map(j => [j.tag, j.manifestDigest]));
         startGroup(`[${this.context.targetPackage}] Untagging images: ${allTags}`);
         // Stamp every PUT body uniquely so each lands as a distinct digest.
         // The timestamp resolves at submit time so the suffix is monotonic
@@ -123447,7 +123511,7 @@ class ImageDeleter {
         if (this.context.config.dryRun) {
             this.context.packageRepo.simulateUntag(jobs.map(j => j.tag));
             endGroup();
-            return true;
+            return { movedTags, deletedPlaceholders: [] };
         }
         // Discover the placeholder versions so we can delete them. The
         // Packages API list is eventually consistent with the registry PUTs
@@ -123502,7 +123566,10 @@ class ImageDeleter {
                 .join(', ');
             throw new Error(`Untag incomplete: the empty placeholder version for ${left} never appeared in the package list after ${UNTAG_RELOAD_MAX_ATTEMPTS} reloads, so it was not deleted. The source image was not touched. The tag still exists and now points at the empty placeholder; re-run the cleanup once the package list has caught up.`);
         }
-        return true;
+        return {
+            movedTags,
+            deletedPlaceholders: jobs.map(j => placeholderDigests.get(j.tag))
+        };
     }
     /**
      * Delete a single image and its children.
@@ -123770,7 +123837,6 @@ class CleanupOrchestrator {
         await this.registry.login(this.targetPackage);
     }
     async reload() {
-        this.deleteSet.clear();
         // Prime the list of current packages. The afterLoad callback runs
         // inside the "[Loaded package data]" log group, so the manifest-
         // cache prune's diagnostic line lands inside that group rather than
@@ -123784,6 +123850,17 @@ class CleanupOrchestrator {
         await this.packageRepo.loadPackages(this.targetPackage, true, () => {
             this.manifestCache?.prune(this.packageRepo.getDigests());
         });
+        await this.analyze();
+    }
+    /**
+     * Rebuild everything derived from the package list held in packageRepo:
+     * the relationship maps, the deleter, the filter set, exclusions and the
+     * age filter. reload() runs this after fetching the list; after an
+     * untag it can also run on the list packageRepo already holds (see
+     * run()).
+     */
+    async analyze() {
+        this.deleteSet.clear();
         // Build digestUsedBy + subjectReferrers maps in one pass
         const analysis = await this.manifestAnalyzer.loadDigestUsedByMap();
         this.digestUsedBy = analysis.digestUsedBy;
@@ -123817,10 +123894,22 @@ class CleanupOrchestrator {
                 if (!this.imageDeleter) {
                     throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
                 }
-                const reloadNeeded = await this.imageDeleter.performUntagging(plan.untagOperations);
-                if (reloadNeeded) {
-                    info('Reloading action due to untagging');
-                    await this.reload();
+                const listedBefore = this.packageRepo.getDigests();
+                const untag = await this.imageDeleter.performUntagging(plan.untagOperations);
+                if (untag) {
+                    // performUntagging left packageRepo holding its own post-untag
+                    // reload (or, in a dry run, the simulated untag). Reuse it when
+                    // it provably reflects the untag; otherwise reload from the API
+                    // as before. On large repos this saves a full package listing.
+                    if (this.packageRepo.applyUntag(untag, listedBefore)) {
+                        info('Untagging done; re-planning from the updated package list');
+                        this.manifestCache?.prune(this.packageRepo.getDigests());
+                        await this.analyze();
+                    }
+                    else {
+                        info('Reloading action due to untagging');
+                        await this.reload();
+                    }
                     reloadOccurred = true;
                 }
             }

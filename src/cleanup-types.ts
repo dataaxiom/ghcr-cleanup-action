@@ -53,6 +53,20 @@ export interface DeletionPlan {
 }
 
 /**
+ * What performUntagging changed, so the orchestrator can bring its
+ * in-memory package list up to date instead of fetching it again.
+ */
+export interface UntagResult {
+  /** Each untagged tag -> digest of the image it was moved off. */
+  movedTags: Map<string, string>
+  /**
+   * Digests of the placeholder versions untag created and then deleted
+   * (empty in a dry run, which creates none).
+   */
+  deletedPlaceholders: string[]
+}
+
+/**
  * Result of performing deletion operations.
  * Contains statistics and tracking of what was deleted.
  */

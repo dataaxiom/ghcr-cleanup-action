@@ -102,7 +102,7 @@ describe('ImageDeleter', () => {
 
     it('should return false when no untag operations', async () => {
       const result = await deleter.performUntagging(new Map())
-      expect(result).toBe(false)
+      expect(result).toBeNull()
     })
 
     it('untags multi-tagged images by deleting exactly the placeholders it PUT', async () => {
@@ -113,7 +113,7 @@ describe('ImageDeleter', () => {
 
       const { result } = await runUntag(new Map([['digest1', ['v1.0', 'old']]]))
 
-      expect(result).toBe(true)
+      expect(result).not.toBeNull()
       expect(mockRegistry.putManifest).toHaveBeenCalledTimes(2)
       expect(mockRegistry.putManifest).toHaveBeenCalledWith(
         'v1.0',
@@ -134,6 +134,38 @@ describe('ImageDeleter', () => {
         'sha256:placeholder-old',
         ['old']
       )
+    })
+
+    it('reports the moved tags and deleted placeholders for the caller to apply', async () => {
+      sourceWithTags(['v1.0', 'old', 'latest'], {
+        manifests: [{ digest: 'sha256:child1' }]
+      })
+      listPlaceholders({ 'v1.0': 11, old: 12 })
+
+      const { result } = await runUntag(new Map([['digest1', ['v1.0', 'old']]]))
+
+      expect(result).toEqual({
+        movedTags: new Map([
+          ['v1.0', 'digest1'],
+          ['old', 'digest1']
+        ]),
+        deletedPlaceholders: [
+          'sha256:placeholder-v1.0',
+          'sha256:placeholder-old'
+        ]
+      })
+    })
+
+    it('in a dry run, reports the moved tags and no placeholders', async () => {
+      context.config.dryRun = true
+      sourceWithTags(['v1.0', 'latest'], { manifests: [] })
+
+      const { result } = await runUntag(new Map([['digest1', ['v1.0']]]))
+
+      expect(result).toEqual({
+        movedTags: new Map([['v1.0', 'digest1']]),
+        deletedPlaceholders: []
+      })
     })
 
     it('should handle single layer manifests', async () => {
@@ -162,7 +194,7 @@ describe('ImageDeleter', () => {
 
       const { result } = await runUntag(new Map([['digest1', ['v1.0']]]))
 
-      expect(result).toBe(true)
+      expect(result).not.toBeNull()
       expect(mockRegistry.putManifest).toHaveBeenCalledTimes(1)
       expect(mockPackageRepo.loadPackages).not.toHaveBeenCalled()
       expect(mockPackageRepo.deletePackageVersion).not.toHaveBeenCalled()
@@ -203,7 +235,7 @@ describe('ImageDeleter', () => {
 
       const { result } = await runUntag(new Map([['digest1', ['v1.0']]]))
 
-      expect(result).toBe(true)
+      expect(result).not.toBeNull()
       expect(mockPackageRepo.loadPackages).toHaveBeenCalledTimes(2)
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledTimes(1)
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
@@ -312,7 +344,7 @@ describe('ImageDeleter', () => {
 
       const { result } = await runUntag(new Map([['digest1', ['v1', 'v2']]]))
 
-      expect(result).toBe(true)
+      expect(result).not.toBeNull()
       expect(mockPackageRepo.deletePackageVersion).toHaveBeenCalledWith(
         'test-package',
         71,
