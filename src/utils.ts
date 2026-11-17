@@ -25,6 +25,24 @@ export const MAX_USER_REGEX_LENGTH = 1000
  * Throws an Error with a clear message identifying which input
  * failed; otherwise returns silently.
  */
+/**
+ * Fail if `pattern` is not a valid regular expression, naming the input
+ * and the parser's reason. Run before the safety checks (and even with
+ * skip-regex-checks), so a typo is reported as a syntax error rather than
+ * surfacing as a raw SyntaxError mid-run, or as "ReDoS-prone" (safe-regex2
+ * also rejects anything it cannot parse).
+ */
+export function assertValidRegex(pattern: string, source: string): void {
+  try {
+    new RegExp(pattern)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`${source}: invalid regular expression: ${reason}`, {
+      cause: error
+    })
+  }
+}
+
 export function validateUserRegex(pattern: string, source: string): void {
   if (pattern.length > MAX_USER_REGEX_LENGTH) {
     throw new Error(

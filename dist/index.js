@@ -52088,6 +52088,24 @@ const MAX_USER_REGEX_LENGTH = 1000;
  * Throws an Error with a clear message identifying which input
  * failed; otherwise returns silently.
  */
+/**
+ * Fail if `pattern` is not a valid regular expression, naming the input
+ * and the parser's reason. Run before the safety checks (and even with
+ * skip-regex-checks), so a typo is reported as a syntax error rather than
+ * surfacing as a raw SyntaxError mid-run, or as "ReDoS-prone" (safe-regex2
+ * also rejects anything it cannot parse).
+ */
+function assertValidRegex(pattern, source) {
+    try {
+        new RegExp(pattern);
+    }
+    catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`${source}: invalid regular expression: ${reason}`, {
+            cause: error
+        });
+    }
+}
 function validateUserRegex(pattern, source) {
     if (pattern.length > MAX_USER_REGEX_LENGTH) {
         throw new Error(`${source}: regex pattern exceeds maximum length of ${MAX_USER_REGEX_LENGTH} characters (got ${pattern.length})`);
@@ -57922,6 +57940,20 @@ async function buildConfig() {
     // message rather than burning workflow minutes inside `.test()`. The
     // skip-regex-checks escape hatch lets a workflow author who deliberately
     // needs a very large/complex pattern opt out of these guards.
+    // Syntax first, always: each pattern exactly as it is later compiled
+    // (image-filter.ts uses the tag patterns as given; main.ts trims the
+    // package pattern).
+    if (config.useRegex) {
+        if (config.deleteTags) {
+            assertValidRegex(config.deleteTags, 'delete-tags');
+        }
+        if (config.excludeTags) {
+            assertValidRegex(config.excludeTags, 'exclude-tags');
+        }
+        if (config.expandPackages && config.package) {
+            assertValidRegex(config.package.trim(), 'package');
+        }
+    }
     if (config.useRegex && !config.skipRegexChecks) {
         if (config.deleteTags) {
             validateUserRegex(config.deleteTags, 'delete-tags');

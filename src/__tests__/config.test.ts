@@ -352,6 +352,83 @@ describe('Config', () => {
       await expect(buildConfig()).rejects.toThrow(/exclude-tags.*ReDoS-prone/)
     })
 
+    describe('regex syntax is checked up front', () => {
+      const configWith = async (
+        inputs: Record<string, string>,
+        booleans: string[]
+      ): Promise<unknown> => {
+        process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+        mockGetInput.mockImplementation(
+          (name: string) => ({ token: 'test-token', ...inputs })[name] || ''
+        )
+        mockGetBooleanInput.mockImplementation((name: string) =>
+          booleans.includes(name)
+        )
+        try {
+          await buildConfig()
+        } catch (error) {
+          return error
+        }
+        return undefined
+      }
+
+      it.each([
+        ['delete-tags', '('],
+        ['exclude-tags', '[a-']
+      ])(
+        'reports a syntax error in %s as such, not as ReDoS',
+        async (input, pattern) => {
+          const err = await configWith(
+            { [input]: pattern, 'use-regex': 'true' },
+            ['use-regex']
+          )
+          expect(String(err)).toMatch(
+            new RegExp(`${input}: invalid regular expression: `)
+          )
+          expect(String(err)).not.toMatch(/ReDoS/)
+        }
+      )
+
+      it('still checks syntax when skip-regex-checks is on', async () => {
+        const err = await configWith(
+          {
+            'delete-tags': '(',
+            'use-regex': 'true',
+            'skip-regex-checks': 'true'
+          },
+          ['use-regex', 'skip-regex-checks']
+        )
+        expect(String(err)).toMatch(
+          /delete-tags: invalid regular expression: .*Unterminated group/
+        )
+      })
+
+      it('checks the package pattern when expand-packages is on', async () => {
+        const err = await configWith(
+          {
+            package: '  pkg-(  ',
+            'use-regex': 'true',
+            'expand-packages': 'true'
+          },
+          ['use-regex', 'expand-packages']
+        )
+        expect(String(err)).toMatch(/package: invalid regular expression/)
+      })
+
+      it('still reports a valid but ReDoS-prone pattern as ReDoS', async () => {
+        const err = await configWith(
+          { 'delete-tags': '(a+)+$', 'use-regex': 'true' },
+          ['use-regex']
+        )
+        expect(String(err)).toMatch(/delete-tags: .*ReDoS-prone/)
+      })
+
+      it('does not check syntax outside regex mode (wildcards are not regexes)', async () => {
+        const err = await configWith({ 'delete-tags': '(' }, [])
+        expect(err).toBeUndefined()
+      })
+    })
+
     it('skips regex safety checks when skip-regex-checks is enabled', async () => {
       // A ReDoS-prone pattern that would normally be rejected must pass
       // through untouched when the author opts out via skip-regex-checks.
