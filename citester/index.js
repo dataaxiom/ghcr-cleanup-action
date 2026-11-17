@@ -50000,7 +50000,7 @@ __webpack_async_result__();
 /* harmony export */   $b: () => (/* binding */ LogLevel),
 /* harmony export */   TS: () => (/* binding */ Config)
 /* harmony export */ });
-/* unused harmony export buildConfig */
+/* unused harmony exports parseCount, buildConfig */
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3838);
 /* harmony import */ var _utils_js__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(1798);
 /* harmony import */ var _octokit_client_js__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(5742);
@@ -50053,6 +50053,21 @@ class Config {
     constructor() {
         this.logLevel = LogLevel.INFO;
     }
+}
+/**
+ * Parse a keep-n count. Only a plain whole number is accepted: parseInt
+ * would read "1,000" or "1e2" as 1, and a keep count silently smaller
+ * than intended deletes more than asked.
+ */
+function parseCount(name, raw) {
+    const value = raw.trim();
+    if (/^-\d+$/.test(value)) {
+        throw new Error(`${name} is negative`);
+    }
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+        throw new Error(`${name} is not a whole number: "${raw}"`);
+    }
+    return Number(value);
 }
 async function buildConfig() {
     const token = core.getInput('token', { required: true });
@@ -50139,28 +50154,10 @@ async function buildConfig() {
         }
     }
     if (core.getInput('keep-n-tagged')) {
-        const value = parseInt(core.getInput('keep-n-tagged'));
-        if (isNaN(value)) {
-            throw new Error('keep-n-tagged is not number');
-        }
-        else if (value < 0) {
-            throw new Error('keep-n-tagged is negative');
-        }
-        else {
-            config.keepNtagged = value;
-        }
+        config.keepNtagged = parseCount('keep-n-tagged', core.getInput('keep-n-tagged'));
     }
     if (core.getInput('keep-n-untagged')) {
-        const value = parseInt(core.getInput('keep-n-untagged'));
-        if (isNaN(value)) {
-            throw new Error('keep-n-untagged is not number');
-        }
-        else if (value < 0) {
-            throw new Error('keep-n-untagged is negative');
-        }
-        else {
-            config.keepNuntagged = value;
-        }
+        config.keepNuntagged = parseCount('keep-n-untagged', core.getInput('keep-n-untagged'));
     }
     if (core.getInput('delete-untagged')) {
         config.deleteUntagged = core.getBooleanInput('delete-untagged');

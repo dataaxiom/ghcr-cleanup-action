@@ -262,7 +262,9 @@ describe('Config', () => {
         return inputs[name] || ''
       })
 
-      await expect(buildConfig()).rejects.toThrow('keep-n-tagged is not number')
+      await expect(buildConfig()).rejects.toThrow(
+        'keep-n-tagged is not a whole number: "invalid"'
+      )
     })
 
     it('should throw error for negative keep-n-tagged value', async () => {
@@ -276,6 +278,68 @@ describe('Config', () => {
       })
 
       await expect(buildConfig()).rejects.toThrow('keep-n-tagged is negative')
+    })
+
+    it.each(['1,000', '1e2', '5 images', '2.5', '0x10', '+3', ' '])(
+      'rejects keep-n-untagged %j instead of truncating it',
+      async raw => {
+        process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+        mockGetInput.mockImplementation((name: string) => {
+          const inputs: Record<string, string> = {
+            token: 'test-token',
+            'keep-n-untagged': raw
+          }
+          return inputs[name] || ''
+        })
+
+        await expect(buildConfig()).rejects.toThrow(
+          'keep-n-untagged is not a whole number'
+        )
+      }
+    )
+
+    it('rejects a negative keep-n-untagged', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'keep-n-untagged': '-2'
+        }
+        return inputs[name] || ''
+      })
+
+      await expect(buildConfig()).rejects.toThrow('keep-n-untagged is negative')
+    })
+
+    it('accepts plain whole numbers, including 0 and leading zeros', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'keep-n-tagged': '0',
+          'keep-n-untagged': '010'
+        }
+        return inputs[name] || ''
+      })
+
+      const config = await buildConfig()
+      expect(config.keepNtagged).toBe(0)
+      expect(config.keepNuntagged).toBe(10)
+    })
+
+    it('rejects a count beyond the safe integer range', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'keep-n-tagged': '99999999999999999999'
+        }
+        return inputs[name] || ''
+      })
+
+      await expect(buildConfig()).rejects.toThrow(
+        'keep-n-tagged is not a whole number'
+      )
     })
 
     it('should default deleteUntagged to true when no options are set', async () => {
