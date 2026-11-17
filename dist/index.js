@@ -52148,26 +52148,103 @@ function parentDigestFromReferrerTag(tag) {
         return null;
     return digest.slice(0, SHA256_DIGEST_LENGTH);
 }
+/**
+ * Parse a `WWW-Authenticate: Bearer ...` challenge into its parameters
+ * (RFC 7235 auth-params). Quoted values may contain commas (a scope such
+ * as "repository:o/p:pull,push") and backslash escapes; unquoted values
+ * end at the next comma. Parameter names are case-insensitive and are
+ * returned lower-cased. Anything that is not a Bearer challenge yields an
+ * empty map.
+ */
 function parseChallenge(challenge) {
     const attributes = new Map();
-    if (challenge && challenge.startsWith('Bearer ')) {
-        challenge = challenge.replace('Bearer ', '');
-        const parts = challenge.split(',');
-        for (const part of parts) {
-            // Split on the first '=' only — values may legitimately contain '='
-            // (e.g. base64-encoded scopes from some token services).
-            const idx = part.indexOf('=');
-            if (idx > 0) {
-                const key = part.substring(0, idx);
-                let value = part.substring(idx + 1);
-                if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-                    value = value.substring(1, value.length - 1);
-                }
-                attributes.set(key, value);
+    const scheme = challenge ? /^Bearer\s+/i.exec(challenge) : null;
+    if (!challenge || !scheme) {
+        return attributes;
+    }
+    const s = challenge.slice(scheme[0].length);
+    let i = 0;
+    while (i < s.length) {
+        while (i < s.length && /[\s,]/.test(s[i]))
+            i++;
+        if (i >= s.length)
+            break;
+        const eq = s.indexOf('=', i);
+        const comma = s.indexOf(',', i);
+        if (eq === -1 || (comma !== -1 && comma < eq)) {
+            // A parameter without '=' is malformed: skip it.
+            if (comma === -1)
+                break;
+            i = comma + 1;
+            continue;
+        }
+        const key = s.slice(i, eq).trim().toLowerCase();
+        i = eq + 1;
+        let value = '';
+        if (s[i] === '"') {
+            i++;
+            while (i < s.length && s[i] !== '"') {
+                if (s[i] === '\\' && i + 1 < s.length)
+                    i++;
+                value += s[i];
+                i++;
             }
+            i++; // the closing quote
+        }
+        else {
+            const end = s.indexOf(',', i);
+            value = (end === -1 ? s.slice(i) : s.slice(i, end)).trim();
+            i = end === -1 ? s.length : end;
+        }
+        if (key) {
+            attributes.set(key, value);
         }
     }
     return attributes;
+}
+/**
+ * Build the token-service URL for a parsed challenge, refusing any realm
+ * the token should not be sent to. The token goes to the realm as
+ * basic-auth, so a challenge from a hostile registry-url could otherwise
+ * name its own server and collect it. The realm must be https (or plain
+ * http only on the registry's own http host) and on the registry's host
+ * or the GitHub server's host. service and scope are URL-encoded.
+ *
+ * @param attributes A parsed challenge (see {@link isValidChallenge})
+ * @param registryUrl The registry base URL the challenge came from
+ * @param serverUrl The GitHub server URL (GITHUB_SERVER_URL), if known
+ */
+function buildTokenUrl(attributes, registryUrl, serverUrl) {
+    const realm = attributes.get('realm') ?? '';
+    let url;
+    try {
+        url = new URL(realm);
+    }
+    catch {
+        throw new Error(`the registry's auth challenge names an invalid token service URL "${realm}"`);
+    }
+    const registry = new URL(registryUrl);
+    const hosts = [registry.hostname];
+    if (serverUrl) {
+        try {
+            const server = new URL(serverUrl).hostname;
+            if (!hosts.includes(server))
+                hosts.push(server);
+        }
+        catch {
+            // An unparsable server URL adds no host.
+        }
+    }
+    const secure = url.protocol === 'https:' ||
+        (url.protocol === 'http:' &&
+            registry.protocol === 'http:' &&
+            url.host === registry.host);
+    if (!secure || !hosts.includes(url.hostname)) {
+        throw new Error(`refusing to send the token to ${url.origin}: the registry's auth challenge must name an https token service on ${hosts.join(' or ')}`);
+    }
+    url.searchParams.set('service', attributes.get('service') ?? '');
+    url.searchParams.set('scope', attributes.get('scope') ?? '');
+    return url.toString();
 }
 function isValidChallenge(attributes) {
     let valid = false;
@@ -122313,7 +122390,9 @@ class Registry {
      * Docker token spec: https://distribution.github.io/distribution/spec/auth/token/
      */
     async fetchRegistryToken(attributes) {
-        const response = await this.authClient.get(`${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`, {
+        // Validates the realm before the token is attached (see buildTokenUrl).
+        const tokenUrl = buildTokenUrl(attributes, this.baseUrl, process.env.GITHUB_SERVER_URL);
+        const response = await this.authClient.get(tokenUrl, {
             auth: {
                 username: 'token',
                 password: this.config.token

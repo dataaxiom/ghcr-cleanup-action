@@ -139,6 +139,71 @@ describe('Registry', () => {
       expect(core.setSecret).toHaveBeenCalledWith('abc')
     })
 
+    it('requests the token from the challenge realm with service and scope encoded', async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce(
+        fakeAxiosError({
+          status: 401,
+          headers: {
+            'www-authenticate':
+              'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:test-owner/pkg:pull"'
+          }
+        })
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: { token: 'abc' } })
+
+      await registry.login('pkg')
+
+      const [tokenUrl, options] = mockAxiosInstance.get.mock.calls[1]
+      expect(tokenUrl).toBe(
+        'https://ghcr.io/token?service=ghcr.io&scope=repository%3Atest-owner%2Fpkg%3Apull'
+      )
+      expect(options.auth.password).toBe('test-token')
+    })
+
+    it('never sends the token to a realm on another host', async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce(
+        fakeAxiosError({
+          status: 401,
+          headers: {
+            'www-authenticate':
+              'Bearer realm="https://attacker.example/token",service="ghcr.io",scope="repository:test-owner/pkg:pull"'
+          }
+        })
+      )
+
+      await expect(registry.login('pkg')).rejects.toThrow(
+        /refusing to send the token to https:\/\/attacker\.example/
+      )
+      // Only the challenge request went out; no token request.
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
+    })
+
+    it('accepts a GitHub Enterprise Server realm on the GitHub server host', async () => {
+      vi.stubEnv('GITHUB_SERVER_URL', 'https://ghes.example.com')
+      try {
+        config.registryUrl = 'https://containers.ghes.example.com/'
+        const ghes = new Registry(config, packageRepo)
+        mockAxiosInstance.get.mockRejectedValueOnce(
+          fakeAxiosError({
+            status: 401,
+            headers: {
+              'www-authenticate':
+                'Bearer realm="https://ghes.example.com/token",service="containers.ghes.example.com",scope="repository:test-owner/pkg:pull"'
+            }
+          })
+        )
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: { token: 'abc' } })
+
+        await ghes.login('pkg')
+
+        expect(mockAxiosInstance.get.mock.calls[1][0]).toMatch(
+          /^https:\/\/ghes\.example\.com\/token\?/
+        )
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
     it('throws when the 401 response lacks a valid challenge', async () => {
       mockAxiosInstance.get.mockRejectedValueOnce(
         fakeAxiosError({

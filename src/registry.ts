@@ -4,7 +4,12 @@ import axios, { AxiosInstance, isAxiosError } from 'axios'
 import { installRetry, REGISTRY_REQUEST_TIMEOUT_MS } from './http-retry.js'
 import * as AxiosLogger from 'axios-logger'
 import { createHash } from 'crypto'
-import { isValidChallenge, parseChallenge, Manifest } from './utils.js'
+import {
+  buildTokenUrl,
+  isValidChallenge,
+  parseChallenge,
+  Manifest
+} from './utils.js'
 import { setGlobalConfig } from 'axios-logger'
 import { PackageRepo } from './package-repo.js'
 import {
@@ -185,15 +190,18 @@ export class Registry {
   private async fetchRegistryToken(
     attributes: Map<string, string>
   ): Promise<{ token?: string; expires_in?: number }> {
-    const response = await this.authClient.get(
-      `${attributes.get('realm')}?service=${attributes.get('service')}&scope=${attributes.get('scope')}`,
-      {
-        auth: {
-          username: 'token',
-          password: this.config.token
-        }
-      }
+    // Validates the realm before the token is attached (see buildTokenUrl).
+    const tokenUrl = buildTokenUrl(
+      attributes,
+      this.baseUrl,
+      process.env.GITHUB_SERVER_URL
     )
+    const response = await this.authClient.get(tokenUrl, {
+      auth: {
+        username: 'token',
+        password: this.config.token
+      }
+    })
     return response.data
   }
 
