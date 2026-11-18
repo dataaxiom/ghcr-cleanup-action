@@ -9,6 +9,7 @@ import {
 import * as core from '@actions/core'
 import {
   parseChallenge,
+  buildTokenUrl,
   isValidChallenge,
   MapPrinter,
   CleanupTaskStatistics,
@@ -101,6 +102,143 @@ describe('utils', () => {
       // parser must not blow up on .startsWith.
       expect(() => parseChallenge(undefined)).not.toThrow()
       expect(parseChallenge(undefined).size).toBe(0)
+    })
+
+    it('keeps commas inside a quoted value (multi-action scope)', () => {
+      const result = parseChallenge(
+        'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:o/p:pull,push"'
+      )
+      expect(result.get('scope')).toBe('repository:o/p:pull,push')
+      expect(result.get('service')).toBe('ghcr.io')
+      expect(result.size).toBe(3)
+    })
+
+    it('accepts whitespace between parameters, any scheme case and mixed-case names', () => {
+      const result = parseChallenge(
+        'bearer Realm="https://ghcr.io/token", service="ghcr.io" ,scope=x'
+      )
+      expect(result.get('realm')).toBe('https://ghcr.io/token')
+      expect(result.get('service')).toBe('ghcr.io')
+      expect(result.get('scope')).toBe('x')
+    })
+
+    it('unescapes backslash escapes in quoted values', () => {
+      const result = parseChallenge('Bearer realm="a\\"b",scope="c\\\\d"')
+      expect(result.get('realm')).toBe('a"b')
+      expect(result.get('scope')).toBe('c\\d')
+    })
+
+    it('skips a malformed parameter and keeps the rest', () => {
+      const result = parseChallenge('Bearer junk,realm="r",scope=s')
+      expect(result.has('junk')).toBe(false)
+      expect(result.get('realm')).toBe('r')
+      expect(result.get('scope')).toBe('s')
+    })
+  })
+
+  describe('buildTokenUrl', () => {
+    const challenge = (realm: string): Map<string, string> =>
+      new Map([
+        ['realm', realm],
+        ['service', 'ghcr.io'],
+        ['scope', 'repository:o/p:pull,push']
+      ])
+
+    it('builds the ghcr.io token URL with service and scope encoded', () => {
+      const url = new URL(
+        buildTokenUrl(challenge('https://ghcr.io/token'), 'https://ghcr.io/')
+      )
+      expect(url.origin + url.pathname).toBe('https://ghcr.io/token')
+      expect(url.searchParams.get('service')).toBe('ghcr.io')
+      expect(url.searchParams.get('scope')).toBe('repository:o/p:pull,push')
+      expect(url.search).not.toContain(',')
+    })
+
+    it('cannot be steered into extra query parameters by the scope', () => {
+      const attrs = challenge('https://ghcr.io/token')
+      attrs.set('scope', 'x&service=evil')
+      const url = new URL(buildTokenUrl(attrs, 'https://ghcr.io/'))
+      expect(url.searchParams.getAll('service')).toEqual(['ghcr.io'])
+      expect(url.searchParams.get('scope')).toBe('x&service=evil')
+    })
+
+    it('keeps a query string already on the realm', () => {
+      const url = new URL(
+        buildTokenUrl(
+          challenge('https://ghcr.io/token?x=1'),
+          'https://ghcr.io/'
+        )
+      )
+      expect(url.searchParams.get('x')).toBe('1')
+      expect(url.searchParams.get('service')).toBe('ghcr.io')
+    })
+
+    it('refuses a realm on another host', () => {
+      expect(() =>
+        buildTokenUrl(
+          challenge('https://attacker.example/token'),
+          'https://ghcr.io/'
+        )
+      ).toThrow(/refusing to send the token to https:\/\/attacker\.example/)
+    })
+
+    it('refuses a look-alike host that only shares a suffix', () => {
+      expect(() =>
+        buildTokenUrl(
+          challenge('https://evilghcr.io/token'),
+          'https://ghcr.io/'
+        )
+      ).toThrow(/refusing to send the token/)
+      expect(() =>
+        buildTokenUrl(
+          challenge('https://ghcr.io.attacker.example/token'),
+          'https://ghcr.io/'
+        )
+      ).toThrow(/refusing to send the token/)
+    })
+
+    it('refuses a plain-http realm for an https registry', () => {
+      expect(() =>
+        buildTokenUrl(challenge('http://ghcr.io/token'), 'https://ghcr.io/')
+      ).toThrow(/refusing to send the token/)
+    })
+
+    it('allows plain http only on the http registry host itself', () => {
+      expect(
+        buildTokenUrl(
+          challenge('http://registry.local:5000/token'),
+          'http://registry.local:5000/'
+        )
+      ).toContain('http://registry.local:5000/token?')
+      expect(() =>
+        buildTokenUrl(
+          challenge('http://registry.local:6000/token'),
+          'http://registry.local:5000/'
+        )
+      ).toThrow(/refusing to send the token/)
+    })
+
+    it('allows the GitHub server host (GitHub Enterprise Server)', () => {
+      expect(
+        buildTokenUrl(
+          challenge('https://ghes.example.com/token'),
+          'https://containers.ghes.example.com/',
+          'https://ghes.example.com'
+        )
+      ).toContain('https://ghes.example.com/token?')
+      expect(() =>
+        buildTokenUrl(
+          challenge('https://other.example.com/token'),
+          'https://containers.ghes.example.com/',
+          'https://ghes.example.com'
+        )
+      ).toThrow(/on containers\.ghes\.example\.com or ghes\.example\.com/)
+    })
+
+    it('refuses a realm that is not a URL', () => {
+      expect(() =>
+        buildTokenUrl(challenge('/token'), 'https://ghcr.io/')
+      ).toThrow(/invalid token service URL/)
     })
   })
 
