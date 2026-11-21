@@ -536,6 +536,26 @@ describe('Config', () => {
       expect((await buildConfig()).writeSummary).toBe(false)
     })
 
+    it('uses the manifest cache by default and turns it off with manifest-cache: false', async () => {
+      process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
+      mockGetInput.mockImplementation((name: string) =>
+        name === 'token' ? 'test-token' : ''
+      )
+      expect((await buildConfig()).manifestCache).toBe(true)
+
+      mockGetInput.mockImplementation((name: string) => {
+        const inputs: Record<string, string> = {
+          token: 'test-token',
+          'manifest-cache': 'false'
+        }
+        return inputs[name] || ''
+      })
+      mockGetBooleanInput.mockImplementation(
+        (name: string) => name !== 'manifest-cache'
+      )
+      expect((await buildConfig()).manifestCache).toBe(false)
+    })
+
     it('warns when a regex-mode pattern is unanchored', async () => {
       process.env.GITHUB_REPOSITORY = 'test-owner/test-repo'
       mockGetInput.mockImplementation((name: string) => {

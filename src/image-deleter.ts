@@ -123,9 +123,8 @@ export class ImageDeleter {
     const stampPrefix = new Date().toISOString()
 
     // Pre-fetch each unique source manifest exactly once.
-    // getRawManifestByDigest deliberately bypasses Registry's in-memory
-    // cache (which may hold a reconstituted, field-incomplete entry
-    // from the distilled disk cache) — so without this pre-fetch a
+    // getRawManifestByDigest deliberately bypasses Registry's caches and
+    // always fetches a fresh, verified copy — so without this pre-fetch a
     // multi-tag untag on the same image would re-GET the full body once
     // per tag.
     const uniqueSourceDigests = Array.from(

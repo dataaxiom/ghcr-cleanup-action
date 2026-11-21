@@ -167,8 +167,18 @@ class CleanupAction {
       // Restore before reload() so analyzer manifest fetches see the
       // warm cache from prior workflow runs; save once after run() so
       // newly-fetched manifests are persisted for next time.
-      const manifestCache = new ManifestCache(this.config.owner, targetPackage)
-      await manifestCache.restore()
+      // manifest-cache: false opts out: no restore, no save, every
+      // manifest fetched from the registry.
+      const manifestCache = this.config.manifestCache
+        ? new ManifestCache(this.config.owner, targetPackage)
+        : null
+      if (manifestCache) {
+        await manifestCache.restore()
+      } else {
+        core.info(
+          `[${targetPackage}] manifest cache: disabled (manifest-cache: false); fetching every manifest from the registry`
+        )
+      }
 
       const orchestrator = new CleanupOrchestrator(
         this.config,
@@ -181,10 +191,12 @@ class CleanupAction {
         await orchestrator.reload()
         perPackageStats.push(await orchestrator.run())
       } finally {
-        await manifestCache.save()
-        const s = manifestCache.getStats()
-        cacheStats.hits += s.hits
-        cacheStats.misses += s.misses
+        if (manifestCache) {
+          await manifestCache.save()
+          const s = manifestCache.getStats()
+          cacheStats.hits += s.hits
+          cacheStats.misses += s.misses
+        }
       }
     }
   }

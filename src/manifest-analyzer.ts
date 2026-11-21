@@ -39,7 +39,7 @@ export class ManifestAnalyzer {
     // Fan out the per-digest manifest fetches. The previous implementation
     // skipped re-fetching digests already seen as children of a parent
     // index; we drop that optimization here because (1) the cross-run
-    // distilled cache makes those fetches free on warm runs, and (2) the
+    // manifest cache makes those fetches free on warm runs, and (2) the
     // sequential dependency the skip required prevents parallelism, which
     // is the bigger win. Children of multi-arch indexes still register
     // their parent links correctly — the outer iteration visits every
@@ -174,10 +174,11 @@ export class ManifestAnalyzer {
           imageManifest.digest
         )
         // Kinda crude
-        if (manifest.layers) {
-          if (manifest.layers[0].mediaType === 'application/vnd.in-toto+json') {
-            label = 'application/vnd.in-toto+json'
-          }
+        // An image with no layers (layers: []) has no first layer to check.
+        if (
+          manifest.layers?.[0]?.mediaType === 'application/vnd.in-toto+json'
+        ) {
+          label = 'application/vnd.in-toto+json'
         }
       }
     } else if (imageManifest.artifactType) {

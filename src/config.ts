@@ -41,6 +41,7 @@ export class Config {
   keepNtagged?: number
   dryRun?: boolean
   writeSummary = true
+  manifestCache = true
   validate?: boolean
   logLevel: LogLevel
   useRegex?: boolean
@@ -217,6 +218,10 @@ export async function buildConfig(): Promise<Config> {
     config.writeSummary = core.getBooleanInput('write-summary')
   }
 
+  if (core.getInput('manifest-cache')) {
+    config.manifestCache = core.getBooleanInput('manifest-cache')
+  }
+
   if (core.getInput('dry-run')) {
     config.dryRun = core.getBooleanInput('dry-run')
     if (config.dryRun) {
@@ -385,6 +390,9 @@ export async function buildConfig(): Promise<Config> {
   optionsMap.add('log-level', LogLevel[config.logLevel])
   if (!config.writeSummary) {
     optionsMap.add('write-summary', 'false')
+  }
+  if (!config.manifestCache) {
+    optionsMap.add('manifest-cache', 'false')
   }
 
   if (config.useRegex !== undefined) {

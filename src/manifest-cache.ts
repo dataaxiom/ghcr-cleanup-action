@@ -3,35 +3,30 @@ import * as cache from '@actions/cache'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { Manifest, ManifestEntry } from './utils.js'
+import { Manifest, digestMatches, parseManifest } from './utils.js'
 
 // Schema version baked into cache keys. Bump when the on-disk record shape
 // changes — old entries become unreadable and LRU out on their own.
-const CACHE_SCHEMA_VERSION = 'v1'
-
-// Compact per-digest record persisted to disk. Only the fields the cleanup
-// pipeline actually reads — full manifest bodies include blob descriptors,
-// annotations, etc. that are pure cache bloat for our use case.
-export interface DistilledManifest {
-  mediaType?: string
-  manifestEntries?: ManifestEntry[]
-  subjectDigest?: string
-  // Captured for the buildx attestation check in manifest-analyzer
-  // (layers[0].mediaType === 'application/vnd.in-toto+json'). Only set for
-  // image manifests that have a layers array.
-  firstLayerMediaType?: string
-}
+// v2: each record holds the manifest's exact text, verified against its
+// digest on restore (v1 held an unverifiable distilled summary).
+const CACHE_SCHEMA_VERSION = 'v2'
 
 /**
- * Cross-run cache of distilled manifest data, keyed by digest.
+ * Cross-run cache of manifests, keyed by digest.
  *
- * Manifests are content-addressed (`sha256:<hash>` IS the SHA256 of the
- * manifest body), so cache hits are correct by construction — there is no
- * staleness possible for a given digest. Mutable state (package list,
- * tags, which digests still exist) is *not* cached here; it must come
- * from a fresh API call.
+ * Each entry is the manifest's exact text as the registry served it. A
+ * manifest's digest (`sha256:<hex>`) is the hash of those exact bytes, so
+ * every entry is checked against its digest on restore and on set().
+ * set() refuses text that does not match; on restore, a single entry that
+ * does not verify discards the whole restored cache, and every manifest
+ * is fetched from the registry instead. Anything that can write to the
+ * repository's Actions cache can therefore corrupt it, but cannot make
+ * the action act on a manifest the registry would not serve — the
+ * delete cascade (children, referrers, orphan checks) only ever sees
+ * verified manifests. Mutable state (package list, tags, which digests
+ * still exist) is *not* cached here; it comes from a fresh API call.
  *
- * Key scheme: `ghcr-manifest-v1-<owner>-<package>-<GITHUB_RUN_ID>`. One
+ * Key scheme: `ghcr-manifest-v2-<owner>-<package>-<GITHUB_RUN_ID>`. One
  * key per workflow run, written once at the end via `save()`. Next run's
  * `restore()` finds the most-recent entry via the prefix restoreKey
  * fallback. @actions/cache entries are immutable once written, so we
@@ -39,22 +34,26 @@ export interface DistilledManifest {
  * write unique while the prefix lets every future run find the latest.
  *
  * Multi-invocation workflows (e.g. matrix jobs that all touch the same
- * package): the first invocation's save wins; later jobs restore from
- * it but hit a `-1` from saveCache on their own attempt — those
- * invocations' incremental fetches are not persisted, which is fine
- * because the typical workload invokes the action once per workflow.
+ * package): they share one key, and a key can be written only once, so
+ * the first invocation's save wins; later jobs restore from it but get
+ * `-1` from saveCache on their own attempt — those invocations'
+ * incremental fetches are not persisted, which is fine because the
+ * typical workload invokes the action once per workflow. saveCache also
+ * returns `-1` when the runner makes the cache read-only for the run
+ * (ACTIONS_CACHE_MODE=read, e.g. on some pull request runs).
  *
  * No-op outside GitHub Actions runners (local dev, unit tests).
  */
 export class ManifestCache {
-  private map = new Map<string, DistilledManifest>()
+  // digest -> the manifest's exact text, verified against the digest
+  private map = new Map<string, string>()
   private packageName: string
   private cacheDir: string
   private cachePath: string
   private key: string
   private restoreKeys: string[]
   private enabled: boolean
-  // Hit/miss counters for the distilled cache. Only `get()` updates
+  // Hit/miss counters for the cross-run cache. Only `get()` updates
   // these, so within-run reuse via Registry.manifestCache (in-memory
   // Map) doesn't skew the cross-run effectiveness signal logged at
   // save() time.
@@ -109,6 +108,10 @@ export class ManifestCache {
     // hit for X, tar -xf ..., Cache restored successfully) is captured
     // under a single collapsible section.
     core.startGroup(`[${this.packageName}] Restoring manifest cache`)
+    // Set when the restored file is discarded as untrustworthy: the next
+    // save() must then replace it, even with an empty cache, so the bad
+    // file stops being the newest entry future runs restore.
+    let discarded = false
     try {
       await fs.promises.mkdir(this.cacheDir, { recursive: true })
       const hitKey = await cache.restoreCache(
@@ -121,19 +124,18 @@ export class ManifestCache {
         return
       }
       const stats = await this.loadFromDisk()
-      if (stats.skipped > 0) {
-        core.warning(
-          `manifest cache: skipped ${stats.skipped} malformed entries from ${hitKey}`
-        )
-      }
-      // The file was reachable but unsalvageable (e.g. truncated upload,
-      // partial write from an earlier crash). Treat it as a cold start —
-      // the next save() will overwrite with a clean copy. Entries are
-      // content-addressed so the "lost" data costs only a refetch.
-      if (stats.loaded === 0 && stats.skipped > 0) {
+      // The cache is used only if every record in it verifies. This
+      // action writes every record, so one that does not verify, or is
+      // not a record at all, means the file was corrupted or tampered
+      // with, and nothing else in it can be trusted either: discard the
+      // whole file and start cold. That costs only refetches.
+      if (stats.skipped + stats.rejected > 0) {
+        const bad = stats.skipped + stats.rejected
+        const total = stats.loaded + bad
         this.map.clear()
+        discarded = true
         core.warning(
-          'manifest cache: file appears corrupt, discarding and starting cold'
+          `manifest cache: ${bad} of ${total} entries in ${hitKey} failed verification (${stats.rejected} not matching their digest, ${stats.skipped} malformed); the cache may have been corrupted or tampered with, so the whole cache is discarded and every manifest will be fetched from the registry`
         )
         return
       }
@@ -149,10 +151,10 @@ export class ManifestCache {
       core.warning(`manifest cache: restore failed (${message}); continuing`)
     } finally {
       // restore() established the baseline against which dirty is
-      // measured. Whether we loaded entries, started cold, or recovered
-      // from corruption, what's in `map` right now matches what we'd
-      // want to save — nothing to upload until something changes.
-      this.dirty = false
+      // measured: what's in `map` now matches what we'd want to save, so
+      // there is nothing to upload until something changes — except
+      // after a discard, when the bad file must be replaced.
+      this.dirty = discarded
       core.endGroup()
     }
   }
@@ -167,7 +169,7 @@ export class ManifestCache {
       this.logEffectiveness()
       return
     }
-    if (this.map.size === 0) {
+    if (this.map.size === 0 && !this.dirty) {
       this.logEffectiveness()
       return
     }
@@ -189,15 +191,16 @@ export class ManifestCache {
     try {
       await fs.promises.mkdir(this.cacheDir, { recursive: true })
       await this.writeToDisk()
-      // saveCache returns the cacheId on success, or -1 when the
-      // reserve step fails (e.g. an earlier job in this same workflow
-      // already wrote this key). The library logs its own
-      // "Failed to save: ..." line without throwing, so the return
-      // value is the only honest signal of success.
+      // saveCache returns the cacheId on success, or -1 when it did not
+      // save: the runner made the cache read-only for this run, an
+      // earlier job in this workflow already wrote this key, or the
+      // upload failed. The library logs the actual reason itself without
+      // throwing, so the return value is the only honest signal, and
+      // this message must not guess which reason it was.
       const cacheId = await cache.saveCache([this.cacheDir], this.key)
       if (cacheId === -1) {
         core.info(
-          `manifest cache: ${this.key} already saved by an earlier job in this workflow; skipping`
+          `manifest cache: not saved as ${this.key} (reason logged above); the next run restores the newest saved cache`
         )
       } else {
         core.info(
@@ -214,23 +217,45 @@ export class ManifestCache {
     }
   }
 
-  get(digest: string): DistilledManifest | undefined {
-    const value = this.map.get(digest)
-    if (value) {
-      this.hits++
-    } else {
-      this.misses++
+  /**
+   * The cached manifest for `digest`, parsed from its verified text, or
+   * undefined on a miss. An entry that does not parse is dropped and
+   * counted as a miss, so the caller fetches it from the registry.
+   */
+  get(digest: string): Manifest | undefined {
+    const text = this.map.get(digest)
+    if (text !== undefined) {
+      try {
+        const manifest = parseManifest(text)
+        this.hits++
+        return manifest
+      } catch {
+        this.map.delete(digest)
+        this.dirty = true
+      }
     }
-    return value
+    this.misses++
+    return undefined
   }
 
   getStats(): { hits: number; misses: number } {
     return { hits: this.hits, misses: this.misses }
   }
 
-  set(digest: string, distilled: DistilledManifest): void {
-    this.map.set(digest, distilled)
+  /**
+   * Cache a manifest's exact text under its digest. The text is checked
+   * against the digest here too, so nothing unverified can enter the
+   * cache (see {@link textMatchesDigest}).
+   *
+   * @returns true if the entry was cached
+   */
+  set(digest: string, text: string): boolean {
+    if (!textMatchesDigest(digest, text)) {
+      return false
+    }
+    this.map.set(digest, text)
     this.dirty = true
+    return true
   }
 
   size(): number {
@@ -262,7 +287,7 @@ export class ManifestCache {
   }
 
   /**
-   * Single-line summary of how often the distilled cache short-
+   * Single-line summary of how often the cross-run cache short-
    * circuited a registry fetch this run. Surfaces in the workflow log
    * so users can see the cache is actually doing something.
    */
@@ -281,34 +306,43 @@ export class ManifestCache {
     }
   }
 
-  private async loadFromDisk(): Promise<{ loaded: number; skipped: number }> {
+  private async loadFromDisk(): Promise<{
+    loaded: number
+    skipped: number
+    rejected: number
+  }> {
     let raw: string
     try {
       raw = await fs.promises.readFile(this.cachePath, 'utf8')
     } catch {
       // File missing means the cache key existed but the archive was
       // empty or had unexpected contents — treat as a cold start.
-      return { loaded: 0, skipped: 0 }
+      return { loaded: 0, skipped: 0, rejected: 0 }
     }
     let loaded = 0
     let skipped = 0
+    let rejected = 0
     for (const line of raw.split('\n')) {
       if (!line) continue
       try {
-        const parsed = JSON.parse(line) as {
-          digest: string
-        } & DistilledManifest
-        const { digest, ...rest } = parsed
-        if (typeof digest === 'string' && digest.length > 0) {
+        const parsed: unknown = JSON.parse(line)
+        const { digest, manifest } = (parsed ?? {}) as {
+          digest?: unknown
+          manifest?: unknown
+        }
+        if (typeof digest !== 'string' || typeof manifest !== 'string') {
+          // Parsed JSON but not a record. Treat as structurally invalid —
+          // equivalent to a JSON.parse failure.
+          skipped++
+        } else if (!textMatchesDigest(digest, manifest)) {
+          // The text is not the manifest this digest names. Never use it.
+          rejected++
+        } else {
           // set the map directly rather than going through `this.set`,
           // which would flip the dirty flag — loading from disk is the
           // baseline, not a change.
-          this.map.set(digest, rest)
+          this.map.set(digest, manifest)
           loaded++
-        } else {
-          // Parsed JSON but the digest field is missing/blank. Treat as
-          // structurally invalid — equivalent to a JSON.parse failure.
-          skipped++
         }
       } catch {
         // Malformed line — drop it. The digest's content is recoverable
@@ -316,74 +350,26 @@ export class ManifestCache {
         skipped++
       }
     }
-    return { loaded, skipped }
+    return { loaded, skipped, rejected }
   }
 
   private async writeToDisk(): Promise<void> {
     const lines: string[] = []
-    for (const [digest, distilled] of this.map) {
-      lines.push(JSON.stringify({ digest, ...distilled }))
+    for (const [digest, manifest] of this.map) {
+      lines.push(JSON.stringify({ digest, manifest }))
     }
     await fs.promises.writeFile(this.cachePath, `${lines.join('\n')}\n`)
   }
 }
 
 /**
- * Extract the subset of a registry manifest we want to persist across runs.
+ * True when `text` is exactly the manifest `digest` names. The text must
+ * be well-formed: UTF-8 encoding turns a lone surrogate into the bytes of
+ * U+FFFD, so without this check a different string could encode to the
+ * verified bytes. Text from bytes that were not valid UTF-8 fails too,
+ * since its encoding is not the bytes the digest covers.
  */
-export function distillManifest(manifest: Manifest): DistilledManifest {
-  const distilled: DistilledManifest = {}
-  if (manifest.mediaType) {
-    distilled.mediaType = manifest.mediaType
-  }
-  if (manifest.manifests && manifest.manifests.length > 0) {
-    distilled.manifestEntries = manifest.manifests.map(entry => ({
-      digest: entry.digest,
-      mediaType: entry.mediaType,
-      artifactType: entry.artifactType,
-      platform: entry.platform,
-      size: entry.size
-    }))
-  }
-  if (manifest.subject?.digest) {
-    distilled.subjectDigest = manifest.subject.digest
-  }
-  if (manifest.layers && manifest.layers.length > 0) {
-    distilled.firstLayerMediaType = manifest.layers[0].mediaType
-  }
-  return distilled
-}
-
-/**
- * Rebuild a Manifest-shaped object from a distilled record so existing
- * callers can read it the same way they read a registry response.
- *
- * Only the fields used by the cleanup pipeline (analyzer, deleter
- * cascade, validator) are populated. In particular `layers[0]` carries
- * the original mediaType but its `digest`/`size` are placeholders —
- * never trust them. The untag-PUT path must use
- * Registry.getRawManifestByDigest, which always fetches the full body
- * from the registry.
- */
-export function reconstituteManifest(distilled: DistilledManifest): Manifest {
-  const manifest: Manifest = {}
-  if (distilled.mediaType) {
-    manifest.mediaType = distilled.mediaType
-  }
-  if (distilled.manifestEntries) {
-    manifest.manifests = distilled.manifestEntries
-  }
-  if (distilled.subjectDigest) {
-    manifest.subject = { digest: distilled.subjectDigest }
-  }
-  if (distilled.firstLayerMediaType) {
-    manifest.layers = [
-      {
-        mediaType: distilled.firstLayerMediaType,
-        digest: '',
-        size: 0
-      }
-    ]
-  }
-  return manifest
+export function textMatchesDigest(digest: string, text: string): boolean {
+  const bytes = Buffer.from(text, 'utf8')
+  return bytes.toString('utf8') === text && digestMatches(digest, bytes)
 }
