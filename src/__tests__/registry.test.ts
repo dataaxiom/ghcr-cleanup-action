@@ -3,6 +3,10 @@ import { createHash } from 'crypto'
 import * as core from '@actions/core'
 import axios from 'axios'
 import { Registry } from '../registry'
+// Not mocked: the end-to-end cache test uses the real module. Imported
+// here, not inside the test, so loading @actions/cache doesn't count
+// against that test's timeout.
+import { ManifestCache } from '../manifest-cache'
 import { Config, LogLevel } from '../config'
 
 // Resolve to the rejection reason of `promise` (fails if it resolves).
@@ -535,10 +539,6 @@ describe('Registry', () => {
     })
 
     it('caches end to end in a real ManifestCache only what verifies', async () => {
-      const { ManifestCache } =
-        await vi.importActual<typeof import('../manifest-cache')>(
-          '../manifest-cache'
-        )
       const real = new ManifestCache('test-owner', 'pkg')
       const r = new Registry(config, packageRepo, real)
       mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })

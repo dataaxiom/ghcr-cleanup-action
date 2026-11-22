@@ -30,6 +30,16 @@ const fixture = (manifest: object): Fixture => {
 const record = (f: Fixture): string =>
   JSON.stringify({ digest: f.digest, manifest: f.text })
 
+// U+FFFD, and a lone (unpaired) high surrogate. Both display as the
+// replacement character but are different strings; UTF-8 encoding turns the lone surrogate
+// into U+FFFD's bytes. Built with fromCharCode so it can't be mistaken
+// for U+FFFD in the source.
+const REPLACEMENT_CHAR = String.fromCharCode(0xfffd)
+const LONE_SURROGATE = String.fromCharCode(0xd800)
+// The same text with its U+FFFD swapped for a lone surrogate.
+const withLoneSurrogate = (text: string): string =>
+  text.replace(REPLACEMENT_CHAR, LONE_SURROGATE)
+
 const A = fixture({
   schemaVersion: 2,
   mediaType: 'application/vnd.oci.image.manifest.v1+json',
@@ -344,8 +354,12 @@ describe('manifest-cache', () => {
       // U+FFFD in the real manifest; a lone surrogate in the forged text
       // encodes to the same UTF-8 bytes, so only a well-formedness check
       // tells them apart.
-      const real = fixture({ schemaVersion: 2, annotations: { a: '\ufffd' } })
-      const forgedText = real.text.replace('\ufffd', '\ud800')
+      const real = fixture({
+        schemaVersion: 2,
+        annotations: { a: REPLACEMENT_CHAR }
+      })
+      const forgedText = withLoneSurrogate(real.text)
+      expect(forgedText).not.toBe(real.text)
       expect(Buffer.from(forgedText, 'utf8')).toEqual(
         Buffer.from(real.text, 'utf8')
       )
@@ -491,11 +505,12 @@ describe('manifest-cache', () => {
     })
 
     it('set() refuses text with a lone surrogate, even if its bytes verify', () => {
-      const real = fixture({ schemaVersion: 2, annotations: { a: '\ufffd' } })
+      const real = fixture({
+        schemaVersion: 2,
+        annotations: { a: REPLACEMENT_CHAR }
+      })
       const c = new ManifestCache('owner', 'pkg')
-      expect(c.set(real.digest, real.text.replace('\ufffd', '\ud800'))).toBe(
-        false
-      )
+      expect(c.set(real.digest, withLoneSurrogate(real.text))).toBe(false)
       expect(c.set(real.digest, real.text)).toBe(true)
     })
 
