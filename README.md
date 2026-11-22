@@ -172,6 +172,7 @@ when the target package isn't linked to any repository at all.
 | `github-api-url`    | `https://api.github.com` | GitHub API URL.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `log-level`         | `info`                   | One of `error`, `warn`, `info`, `debug`.                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `write-summary`     | `true`                   | Write the "GHCR Cleanup Summary" to the workflow run's job summary. Set to `false` to keep the output in the logs only.                                                                                                                                                                                                                                                                                                                         |
+| `manifest-cache`    | `true`                   | Cache manifests between runs, each verified against its digest before use (see [Manifest cache](#manifest-cache)). Set to `false` to fetch every manifest from the registry on each run.                                                                                                                                                                                                                                                        |
 
 ### Conventions
 
@@ -344,11 +345,18 @@ with:
 
 ### Manifest cache
 
-The action caches distilled manifest data between runs via `@actions/cache`,
-keyed by digest. Manifests are content-addressed, so cache hits are correct by
-construction — staleness is impossible. Warm runs only fetch manifests for
-digests that aren't already in the cache; on a stable repository that's a
-handful of new manifests per run instead of the entire package.
+The action caches manifests between runs via `@actions/cache`, keyed by digest.
+Warm runs only fetch manifests for digests that aren't already in the cache; on
+a stable repository that's a handful of new manifests per run instead of the
+entire package.
+
+A manifest's digest is the sha256 of its exact bytes, so every manifest is
+verified against its digest before the action uses it. A manifest fetched from
+the registry that doesn't match fails the run. On restore, if any cache entry
+doesn't match (or isn't a valid entry), the whole cache is discarded with a
+warning and every manifest is fetched from the registry. A corrupted or tampered
+cache therefore can't change what the action deletes; at worst it costs a cold
+start. To skip the cache entirely, set `manifest-cache: false`.
 
 The cache hit rate is logged at the end of every run, e.g.
 `manifest cache: 5234/5294 digests served from cache (99%)`.

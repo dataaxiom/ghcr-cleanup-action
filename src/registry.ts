@@ -6,17 +6,15 @@ import * as AxiosLogger from 'axios-logger'
 import { createHash } from 'crypto'
 import {
   buildTokenUrl,
+  digestMatches,
   isValidChallenge,
   parseChallenge,
+  parseManifest,
   Manifest
 } from './utils.js'
 import { setGlobalConfig } from 'axios-logger'
 import { PackageRepo } from './package-repo.js'
-import {
-  ManifestCache,
-  distillManifest,
-  reconstituteManifest
-} from './manifest-cache.js'
+import { ManifestCache } from './manifest-cache.js'
 
 /**
  * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
@@ -40,9 +38,9 @@ export class Registry {
   // cache of loaded manifests, by digest
   manifestCache = new Map<string, Manifest>()
 
-  // Cross-run distilled cache. Optional — null disables persistent caching
+  // Cross-run manifest cache. Optional — null disables persistent caching
   // (e.g. when running outside a GitHub Actions runner).
-  private distilledCache: ManifestCache | null
+  private crossRunCache: ManifestCache | null
 
   // Shared client for token-exchange calls (used by both login and
   // putManifest). Carries the same 429 retry condition as `this.axios`
@@ -61,16 +59,16 @@ export class Registry {
    *
    * @param config The action configuration
    * @param githubPackageRepo The package repo cache
-   * @param distilledCache Optional cross-run manifest cache
+   * @param crossRunCache Optional cross-run manifest cache
    */
   constructor(
     config: Config,
     githubPackageRepo: PackageRepo,
-    distilledCache: ManifestCache | null = null
+    crossRunCache: ManifestCache | null = null
   ) {
     this.config = config
     this.githubPackageRepo = githubPackageRepo
-    this.distilledCache = distilledCache
+    this.crossRunCache = crossRunCache
     if (this.config.registryUrl) {
       this.baseUrl = this.config.registryUrl
     } else {
@@ -206,11 +204,10 @@ export class Registry {
   }
 
   /**
-   * Retrieves a manifest by its digest. May return a reconstituted manifest
-   * sourced from the cross-run distilled cache — sufficient for the cleanup
-   * pipeline's read paths (analyzer, deleter cascade, validator) but NOT
-   * safe for round-tripping back to the registry. The untag-PUT path must
-   * use {@link getRawManifestByDigest} instead.
+   * Retrieves a manifest by its digest: from this run's in-memory cache,
+   * else the cross-run cache, else the registry. Every source holds only
+   * manifests verified against their digest, so the result is exactly the
+   * manifest the digest names.
    *
    * @param digest - The digest of the manifest to retrieve
    */
@@ -219,45 +216,53 @@ export class Registry {
     if (cached) {
       return cached
     }
-    const distilled = this.distilledCache?.get(digest)
-    if (distilled) {
-      const reconstituted = reconstituteManifest(distilled)
-      this.manifestCache.set(digest, reconstituted)
-      return reconstituted
+    const persisted = this.crossRunCache?.get(digest)
+    if (persisted) {
+      this.manifestCache.set(digest, persisted)
+      return persisted
     }
     return await this.fetchAndCacheManifest(digest)
   }
 
   /**
    * Always hits the registry and returns the full, unmodified manifest body.
-   * Required for the untag flow, which clones the manifest and PUTs it back.
+   * Used by the untag flow, which clones the manifest and PUTs it back: a
+   * fresh, verified copy from the registry, independent of any cache.
    */
   async getRawManifestByDigest(digest: string): Promise<Manifest> {
-    // If the in-memory cache holds an entry that originated from the
-    // distilled cache, the cloned PUT would be missing fields. Force a
-    // refetch by skipping in-memory cache too — partial entries can't be
-    // distinguished without extra bookkeeping, and a single PUT-path fetch
-    // per untag operation is cheap.
     return await this.fetchAndCacheManifest(digest)
   }
 
+  /**
+   * Fetch a manifest from the registry and verify it before anything uses
+   * it: the exact bytes received must hash to the requested digest (the
+   * digest comes from the package listing, or from a manifest that was
+   * itself verified). A mismatch fails the run instead of acting on
+   * content the digest does not name. Verified manifests go into both
+   * caches.
+   */
   private async fetchAndCacheManifest(digest: string): Promise<Manifest> {
     const response = await this.axios.get(
       `/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`,
       {
-        transformResponse: [
-          data => {
-            return data
-          }
-        ]
+        // The exact bytes, undecoded: a string response would have a
+        // leading byte-order mark stripped, changing what is hashed.
+        responseType: 'arraybuffer',
+        transformResponse: [data => data]
       }
     )
-    // ghcr.io's response shape is trusted — no runtime validation.
-    const obj: Manifest = JSON.parse(response?.data)
-    this.manifestCache.set(digest, obj)
-    if (this.distilledCache) {
-      this.distilledCache.set(digest, distillManifest(obj))
+    const bytes = responseBytes(response?.data)
+    if (!digestMatches(digest, bytes)) {
+      throw new Error(
+        `the registry returned content for ${digest} that does not match that digest; refusing to use it`
+      )
     }
+    const text = bytes.toString('utf8')
+    const obj = parseManifest(text)
+    this.manifestCache.set(digest, obj)
+    // set() re-checks the text against the digest, so bytes that are not
+    // valid UTF-8 (and would not survive as text) are simply not cached.
+    this.crossRunCache?.set(digest, text)
     return obj
   }
 
@@ -438,4 +443,20 @@ export class Registry {
       expiresAt: Date.now() + ttlSeconds * 1000 - skewBufferMs
     }
   }
+}
+
+/**
+ * The response body as a Buffer. With responseType 'arraybuffer' the Node
+ * adapter returns a Buffer; an ArrayBuffer or typed array is wrapped as
+ * is, and a string (never sent by the adapter in this mode) is encoded as
+ * UTF-8.
+ */
+function responseBytes(data: unknown): Buffer {
+  if (Buffer.isBuffer(data)) return data
+  if (data instanceof ArrayBuffer) return Buffer.from(data)
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+  }
+  if (typeof data === 'string') return Buffer.from(data, 'utf8')
+  throw new Error('the registry returned a manifest with no body')
 }

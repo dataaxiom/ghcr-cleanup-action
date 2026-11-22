@@ -370,6 +370,19 @@ describe('ManifestAnalyzer', () => {
       expect(label).toBe('application/vnd.in-toto+json')
     })
 
+    it('labels an unknown-platform child with no layers without throwing', async () => {
+      // layers: [] has no first layer; full manifests from the cache now
+      // carry the empty array (the old distilled form dropped it).
+      mockRegistry.getManifestByDigest.mockResolvedValue({ layers: [] })
+
+      const label = await analyzer.buildLabel({
+        digest: 'sha256:empty',
+        platform: { architecture: 'unknown' }
+      })
+
+      expect(label).toBe('unknown')
+    })
+
     it('labels sigstore attestations by artifactType prefix', async () => {
       const label = await analyzer.buildLabel({
         artifactType: 'application/vnd.dev.sigstore.bundle.v0.3+json'

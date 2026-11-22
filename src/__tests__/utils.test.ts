@@ -7,9 +7,12 @@ import {
   type MockedFunction
 } from 'vitest'
 import * as core from '@actions/core'
+import { createHash } from 'crypto'
 import {
   parseChallenge,
   buildTokenUrl,
+  digestMatches,
+  parseManifest,
   isValidChallenge,
   MapPrinter,
   CleanupTaskStatistics,
@@ -133,6 +136,69 @@ describe('utils', () => {
       expect(result.has('junk')).toBe(false)
       expect(result.get('realm')).toBe('r')
       expect(result.get('scope')).toBe('s')
+    })
+  })
+
+  describe('digestMatches', () => {
+    const bytes = Buffer.from('{"schemaVersion":2}', 'utf8')
+    const hex = createHash('sha256').update(bytes).digest('hex')
+
+    it('matches the sha256 of the exact bytes', () => {
+      expect(digestMatches(`sha256:${hex}`, bytes)).toBe(true)
+    })
+
+    it('does not match other bytes, even one byte different', () => {
+      expect(
+        digestMatches(`sha256:${hex}`, Buffer.from('{"schemaVersion":3}'))
+      ).toBe(false)
+      expect(
+        digestMatches(`sha256:${hex}`, Buffer.concat([bytes, Buffer.from(' ')]))
+      ).toBe(false)
+      expect(digestMatches(`sha256:${hex}`, Buffer.alloc(0))).toBe(false)
+    })
+
+    it('matches sha512 digests', () => {
+      const h512 = createHash('sha512').update(bytes).digest('hex')
+      expect(digestMatches(`sha512:${h512}`, bytes)).toBe(true)
+      // sha512 hex under the sha256 name: wrong length for the algorithm
+      expect(digestMatches(`sha256:${h512}`, bytes)).toBe(false)
+    })
+
+    it.each([
+      ['no algorithm', hex],
+      ['empty algorithm', `:${hex}`],
+      ['unsupported algorithm', `md5:${hex}`],
+      ['prototype key as algorithm', `constructor:${hex}`],
+      ['upper-case hex', `sha256:${hex.toUpperCase()}`],
+      ['short hex', `sha256:${hex.slice(2)}`],
+      ['long hex', `sha256:${hex}00`],
+      ['non-hex characters', `sha256:${hex.slice(1)}g`],
+      ['empty', '']
+    ])('never matches a digest it cannot verify (%s)', (_label, digest) => {
+      expect(digestMatches(digest, bytes)).toBe(false)
+    })
+  })
+
+  describe('parseManifest', () => {
+    it('parses a JSON object', () => {
+      expect(parseManifest('{"layers":[]}')).toEqual({ layers: [] })
+    })
+
+    it('ignores a leading byte-order mark', () => {
+      expect(parseManifest('\ufeff{"layers":[]}')).toEqual({ layers: [] })
+    })
+
+    it.each(['[]', 'null', '1', '"x"', 'true'])(
+      'rejects a JSON value that is not an object (%s)',
+      text => {
+        expect(() => parseManifest(text)).toThrow(
+          'manifest is not a JSON object'
+        )
+      }
+    )
+
+    it('rejects text that is not JSON', () => {
+      expect(() => parseManifest('not json')).toThrow()
     })
   })
 

@@ -151,6 +151,14 @@ inputs:
     required: false
     default: 'true'
 
+  manifest-cache:
+    description: >
+      Cache manifests between runs in the Actions cache (true/false). Every
+      cached manifest is verified against its digest before use. Set to false to
+      fetch every manifest from the registry on each run. Default: true
+    required: false
+    default: 'true'
+
   registry-url:
     description: >
       Container registry URL (defaults: https://ghcr.io)

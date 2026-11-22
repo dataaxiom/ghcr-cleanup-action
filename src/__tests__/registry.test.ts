@@ -69,6 +69,20 @@ function fakeAxiosError(opts: {
   }
 }
 
+// A manifest as the registry serves it: its exact bytes (the Node adapter
+// returns a Buffer for responseType 'arraybuffer') and their real digest.
+const served = (
+  manifest: object
+): { digest: string; text: string; bytes: Buffer } => {
+  const text = JSON.stringify(manifest)
+  const bytes = Buffer.from(text, 'utf8')
+  return {
+    digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    text,
+    bytes
+  }
+}
+
 describe('Registry', () => {
   let config: Config
   let packageRepo: any
@@ -297,20 +311,17 @@ describe('Registry', () => {
       await registry.login('pkg')
 
       // Prime the cache
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        data: JSON.stringify({ layers: [] })
-      })
-      await registry.getManifestByDigest('sha256:cached')
+      const m = served({ layers: [] })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
+      await registry.getManifestByDigest(m.digest)
 
       // Re-login should clear the cache
       mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
       await registry.login('pkg')
 
       // Next fetch should hit the wire again, not the cache
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        data: JSON.stringify({ layers: [] })
-      })
-      await registry.getManifestByDigest('sha256:cached')
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
+      await registry.getManifestByDigest(m.digest)
 
       // tags/list (x2 logins) + manifest (x2 fetches) = 4 calls
       expect(mockAxiosInstance.get).toHaveBeenCalledTimes(4)
@@ -325,119 +336,252 @@ describe('Registry', () => {
       mockAxiosInstance.get.mockClear()
     })
 
-    it('fetches and parses a manifest on cache miss', async () => {
-      const manifest = { layers: [{ digest: 'sha256:layer' }] }
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        data: JSON.stringify(manifest)
+    // A Registry wired to a real ManifestCache-shaped stub.
+    const withCache = async (crossRunCache: {
+      get: ReturnType<typeof vi.fn>
+      set: ReturnType<typeof vi.fn>
+    }): Promise<Registry> => {
+      const r = new Registry(config, packageRepo, crossRunCache as any)
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
+      await r.login('pkg')
+      mockAxiosInstance.get.mockClear()
+      return r
+    }
+
+    it('fetches the exact bytes, verifies them and parses the manifest', async () => {
+      const m = served({ layers: [{ digest: 'sha256:layer' }] })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
+
+      const result = await registry.getManifestByDigest(m.digest)
+
+      expect(result).toEqual(JSON.parse(m.text))
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
+      const [url, options] = mockAxiosInstance.get.mock.calls[0]
+      expect(url).toBe(`/v2/test-owner/pkg/manifests/${m.digest}`)
+      // Undecoded bytes: a string response would lose a leading BOM.
+      expect(options.responseType).toBe('arraybuffer')
+    })
+
+    it('fails instead of using content that does not match the digest', async () => {
+      const real = served({ layers: [] })
+      const forged = served({
+        manifests: [{ digest: 'sha256:live-image', size: 1 }]
+      })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: forged.bytes })
+
+      await expect(registry.getManifestByDigest(real.digest)).rejects.toThrow(
+        `the registry returned content for ${real.digest} that does not match that digest`
+      )
+      // Nothing was cached: the next call fetches again.
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: real.bytes })
+      await expect(registry.getManifestByDigest(real.digest)).resolves.toEqual(
+        JSON.parse(real.text)
+      )
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(2)
+    })
+
+    it('fails on a digest it cannot verify', async () => {
+      const m = served({ layers: [] })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
+
+      await expect(registry.getManifestByDigest('sha256:abc')).rejects.toThrow(
+        /does not match that digest/
+      )
+    })
+
+    it('fails on an empty body', async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: undefined })
+
+      await expect(registry.getManifestByDigest('sha256:abc')).rejects.toThrow(
+        'the registry returned a manifest with no body'
+      )
+    })
+
+    it('hashes a byte-order mark as served and still parses the manifest', async () => {
+      const text = `\ufeff${JSON.stringify({ layers: [] })}`
+      const bytes = Buffer.from(text, 'utf8')
+      const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: bytes })
+
+      await expect(registry.getManifestByDigest(digest)).resolves.toEqual({
+        layers: []
+      })
+    })
+
+    it('accepts an ArrayBuffer or typed-array body as the same bytes', async () => {
+      const m = served({ layers: [] })
+      const ab = m.bytes.buffer.slice(
+        m.bytes.byteOffset,
+        m.bytes.byteOffset + m.bytes.byteLength
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: ab })
+      await expect(registry.getManifestByDigest(m.digest)).resolves.toEqual({
+        layers: []
       })
 
-      const result = await registry.getManifestByDigest('sha256:abc')
+      const n = served({ layers: [], n: 1 })
+      // A view into a larger buffer: only its own bytes are hashed.
+      const padded = Buffer.concat([
+        Buffer.from('xx'),
+        n.bytes,
+        Buffer.from('yy')
+      ])
+      const view = new Uint8Array(
+        padded.buffer,
+        padded.byteOffset + 2,
+        n.bytes.length
+      )
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: view })
+      await expect(registry.getManifestByDigest(n.digest)).resolves.toEqual({
+        layers: [],
+        n: 1
+      })
+    })
 
-      expect(result).toEqual(manifest)
-      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
+    it('verifies a string body as its UTF-8 bytes', async () => {
+      const m = served({ layers: [] })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.text })
+      await expect(registry.getManifestByDigest(m.digest)).resolves.toEqual({
+        layers: []
+      })
+
+      // Another manifest's text served for a digest it does not match.
+      const other = served({ layers: [3] })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.text })
+      await expect(registry.getManifestByDigest(other.digest)).rejects.toThrow(
+        /does not match that digest/
+      )
     })
 
     it('returns the cached manifest on the second call without refetching', async () => {
-      const manifest = { layers: [] }
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        data: JSON.stringify(manifest)
-      })
+      const m = served({ layers: [] })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
 
-      await registry.getManifestByDigest('sha256:abc')
-      await registry.getManifestByDigest('sha256:abc')
+      await registry.getManifestByDigest(m.digest)
+      await registry.getManifestByDigest(m.digest)
 
       expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
     })
 
-    it('serves from the cross-run distilled cache on hit', async () => {
-      const distilledCache = {
-        get: vi.fn().mockReturnValue({
-          mediaType: 'application/vnd.oci.image.index.v1+json',
-          manifestEntries: [{ digest: 'sha256:child', size: 0 }],
-          subjectDigest: 'sha256:subject'
-        }),
-        set: vi.fn()
+    it('serves from the cross-run cache on hit', async () => {
+      const full = {
+        mediaType: 'application/vnd.oci.image.index.v1+json',
+        manifests: [{ digest: 'sha256:child', size: 0 }],
+        subject: { digest: 'sha256:subject' }
       }
-      const cachedRegistry = new Registry(
-        config,
-        packageRepo,
-        distilledCache as any
-      )
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
-      await cachedRegistry.login('pkg')
-      mockAxiosInstance.get.mockClear()
+      const crossRunCache = { get: vi.fn().mockReturnValue(full), set: vi.fn() }
+      const cachedRegistry = await withCache(crossRunCache)
 
       const result = await cachedRegistry.getManifestByDigest('sha256:abc')
 
-      expect(distilledCache.get).toHaveBeenCalledWith('sha256:abc')
+      expect(crossRunCache.get).toHaveBeenCalledWith('sha256:abc')
       expect(mockAxiosInstance.get).not.toHaveBeenCalled()
-      expect(result.manifests?.[0].digest).toBe('sha256:child')
-      expect(result.subject?.digest).toBe('sha256:subject')
+      expect(result).toEqual(full)
+      // Held in memory for the rest of the run.
+      await cachedRegistry.getManifestByDigest('sha256:abc')
+      expect(crossRunCache.get).toHaveBeenCalledTimes(1)
     })
 
-    it('populates the distilled cache after a registry fetch', async () => {
-      const distilledCache = {
+    it('stores the exact verified text in the cross-run cache after a fetch', async () => {
+      const crossRunCache = {
         get: vi.fn().mockReturnValue(undefined),
         set: vi.fn()
       }
-      const cachedRegistry = new Registry(
-        config,
-        packageRepo,
-        distilledCache as any
-      )
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
-      await cachedRegistry.login('pkg')
-      mockAxiosInstance.get.mockClear()
-
-      const manifest = {
+      const cachedRegistry = await withCache(crossRunCache)
+      const m = served({
         mediaType: 'application/vnd.oci.image.manifest.v1+json',
         subject: { digest: 'sha256:subj' }
-      }
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        data: JSON.stringify(manifest)
       })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
 
-      await cachedRegistry.getManifestByDigest('sha256:abc')
+      await cachedRegistry.getManifestByDigest(m.digest)
 
-      expect(distilledCache.set).toHaveBeenCalledWith(
-        'sha256:abc',
-        expect.objectContaining({ subjectDigest: 'sha256:subj' })
-      )
+      expect(crossRunCache.set).toHaveBeenCalledWith(m.digest, m.text)
     })
 
-    it('getRawManifestByDigest bypasses both in-memory and distilled caches', async () => {
-      const distilledCache = {
-        get: vi.fn().mockReturnValue({
-          manifestEntries: [{ digest: 'sha256:cached', size: 0 }]
-        }),
+    it('caches pretty-printed text exactly, whitespace and trailing newline included', async () => {
+      // Registries commonly serve indented manifests ending in a newline;
+      // the digest covers every byte of that.
+      const crossRunCache = {
+        get: vi.fn().mockReturnValue(undefined),
         set: vi.fn()
       }
-      const cachedRegistry = new Registry(
-        config,
-        packageRepo,
-        distilledCache as any
-      )
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
-      await cachedRegistry.login('pkg')
-      mockAxiosInstance.get.mockClear()
+      const cachedRegistry = await withCache(crossRunCache)
+      const text = `${JSON.stringify({ schemaVersion: 2, layers: [] }, null, 3)}\n`
+      const bytes = Buffer.from(text, 'utf8')
+      const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: bytes })
 
-      const fullManifest = {
-        config: { mediaType: 'cfg', digest: 'sha256:cfg', size: 1 },
-        layers: [{ mediaType: 'l', digest: 'sha256:l', size: 2 }]
+      await cachedRegistry.getManifestByDigest(digest)
+
+      expect(crossRunCache.set).toHaveBeenCalledWith(digest, text)
+    })
+
+    it('does not touch the cross-run cache when verification fails', async () => {
+      const crossRunCache = {
+        get: vi.fn().mockReturnValue(undefined),
+        set: vi.fn()
       }
+      const cachedRegistry = await withCache(crossRunCache)
+      const real = served({ layers: [] })
       mockAxiosInstance.get.mockResolvedValueOnce({
-        data: JSON.stringify(fullManifest)
+        data: served({ layers: [1] }).bytes
       })
 
-      const result = await cachedRegistry.getRawManifestByDigest('sha256:abc')
+      await expect(
+        cachedRegistry.getManifestByDigest(real.digest)
+      ).rejects.toThrow(/does not match that digest/)
+      expect(crossRunCache.set).not.toHaveBeenCalled()
+    })
 
-      // Distilled cache was not consulted for the read.
-      expect(distilledCache.get).not.toHaveBeenCalled()
-      // Registry was hit.
+    it('caches end to end in a real ManifestCache only what verifies', async () => {
+      const { ManifestCache } =
+        await vi.importActual<typeof import('../manifest-cache')>(
+          '../manifest-cache'
+        )
+      const real = new ManifestCache('test-owner', 'pkg')
+      const r = new Registry(config, packageRepo, real)
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} })
+      await r.login('pkg')
+      const m = served({ layers: [{ digest: 'sha256:l' }] })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
+
+      await r.getManifestByDigest(m.digest)
+
+      expect(real.size()).toBe(1)
+      expect(real.get(m.digest)).toEqual(JSON.parse(m.text))
+    })
+
+    it('getRawManifestByDigest bypasses both in-memory and cross-run caches', async () => {
+      const crossRunCache = {
+        get: vi.fn().mockReturnValue({ manifests: [] }),
+        set: vi.fn()
+      }
+      const cachedRegistry = await withCache(crossRunCache)
+      const m = served({
+        config: { mediaType: 'cfg', digest: 'sha256:cfg', size: 1 },
+        layers: [{ mediaType: 'l', digest: 'sha256:l', size: 2 }]
+      })
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
+      // Warm the in-memory cache with something else under the digest.
+      ;(cachedRegistry as any).manifestCache.set(m.digest, { stale: true })
+
+      const result = await cachedRegistry.getRawManifestByDigest(m.digest)
+
+      expect(crossRunCache.get).not.toHaveBeenCalled()
       expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1)
-      // Full body fields are preserved.
-      expect(result.config?.digest).toBe('sha256:cfg')
-      expect(result.layers?.[0].digest).toBe('sha256:l')
+      expect(result).toEqual(JSON.parse(m.text))
+    })
+
+    it('getRawManifestByDigest verifies too', async () => {
+      const real = served({ layers: [] })
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: served({ layers: [2] }).bytes
+      })
+
+      await expect(
+        registry.getRawManifestByDigest(real.digest)
+      ).rejects.toThrow(/does not match that digest/)
     })
   })
 
@@ -449,16 +593,14 @@ describe('Registry', () => {
     })
 
     it('looks up the digest for a tag and fetches that manifest', async () => {
-      packageRepo.getDigestByTag.mockReturnValue('sha256:fromtag')
-      const manifest = { layers: [] }
-      mockAxiosInstance.get.mockResolvedValueOnce({
-        data: JSON.stringify(manifest)
-      })
+      const m = served({ layers: [] })
+      packageRepo.getDigestByTag.mockReturnValue(m.digest)
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: m.bytes })
 
       const result = await registry.getManifestByTag('latest')
 
       expect(packageRepo.getDigestByTag).toHaveBeenCalledWith('latest')
-      expect(result).toEqual(manifest)
+      expect(result).toEqual({ layers: [] })
     })
 
     it('returns undefined when the tag is unknown', async () => {

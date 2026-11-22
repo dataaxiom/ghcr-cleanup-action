@@ -52066,6 +52066,7 @@ var safe_regex2_default = /*#__PURE__*/__nccwpck_require__.n(safe_regex2);
 ;// CONCATENATED MODULE: ./src/utils.ts
 
 
+
 // A sha256 digest is 'sha256:' (7) + 64 hex chars = 71 chars total.
 const SHA256_DIGEST_LENGTH = 'sha256:'.length + 64;
 // Cap user-supplied regex patterns at this length. Real-world tag /
@@ -52433,6 +52434,49 @@ async function runWithConcurrency(items, concurrency, worker) {
 /** Resolve after `ms` milliseconds. */
 async function sleep(ms) {
     await new Promise(resolve => setTimeout(resolve, ms));
+}
+// Digest algorithms a manifest digest can be checked against, with the
+// hex length each produces. A digest naming anything else cannot be
+// verified, so it never matches.
+const DIGEST_HEX_LENGTH = new Map([
+    ['sha256', 64],
+    ['sha512', 128]
+]);
+/**
+ * True when `bytes` is exactly the content `digest` names: the digest is
+ * `<algorithm>:<lower-case hex>` for a supported algorithm and the hash
+ * of the bytes equals it. A manifest's digest is the hash of its exact
+ * bytes, so a match proves the bytes are that manifest; this is what
+ * makes manifests fetched from the registry, and entries restored from
+ * the cross-run cache, safe to act on.
+ */
+function digestMatches(digest, bytes) {
+    const sep = digest.indexOf(':');
+    if (sep <= 0)
+        return false;
+    const algorithm = digest.slice(0, sep);
+    const hex = digest.slice(sep + 1);
+    const length = DIGEST_HEX_LENGTH.get(algorithm);
+    if (length === undefined ||
+        hex.length !== length ||
+        !/^[0-9a-f]+$/.test(hex)) {
+        return false;
+    }
+    return (0,external_crypto_.createHash)(algorithm).update(bytes).digest('hex') === hex;
+}
+/**
+ * Parse manifest text (already verified against its digest) into a
+ * Manifest. A leading byte-order mark, which the digest covers but
+ * JSON.parse rejects, is ignored. Throws if the text is not a JSON
+ * object.
+ */
+function parseManifest(text) {
+    const json = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    const parsed = JSON.parse(json);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('manifest is not a JSON object');
+    }
+    return parsed;
 }
 
 ;// CONCATENATED MODULE: ./node_modules/universal-user-agent/index.js
@@ -57833,6 +57877,7 @@ class Config {
     keepNtagged;
     dryRun;
     writeSummary = true;
+    manifestCache = true;
     validate;
     logLevel;
     useRegex;
@@ -57978,6 +58023,9 @@ async function buildConfig() {
     }
     if (getInput('write-summary')) {
         config.writeSummary = getBooleanInput('write-summary');
+    }
+    if (getInput('manifest-cache')) {
+        config.manifestCache = getBooleanInput('manifest-cache');
     }
     if (getInput('dry-run')) {
         config.dryRun = getBooleanInput('dry-run');
@@ -58136,6 +58184,9 @@ async function buildConfig() {
     optionsMap.add('log-level', LogLevel[config.logLevel]);
     if (!config.writeSummary) {
         optionsMap.add('write-summary', 'false');
+    }
+    if (!config.manifestCache) {
+        optionsMap.add('manifest-cache', 'false');
     }
     if (config.useRegex !== undefined) {
         optionsMap.add('use-regex', `${config.useRegex}`);
@@ -68796,6 +68847,1893 @@ function installRetry(instance, policy = DEFAULT_RETRY_POLICY, deps = DEFAULT_DE
 
 // EXTERNAL MODULE: ./node_modules/axios-logger/lib/index.js
 var lib = __nccwpck_require__(4033);
+;// CONCATENATED MODULE: ./src/registry.ts
+
+
+
+
+
+
+
+
+/**
+ * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
+ */
+class Registry {
+    // The action configuration
+    config;
+    // Reference to the package cache
+    githubPackageRepo;
+    // http client library instance
+    axios;
+    // registry url
+    baseUrl;
+    // current package working on
+    targetPackage = '';
+    // cache of loaded manifests, by digest
+    manifestCache = new Map();
+    // Cross-run manifest cache. Optional — null disables persistent caching
+    // (e.g. when running outside a GitHub Actions runner).
+    crossRunCache;
+    // Shared client for token-exchange calls (used by both login and
+    // putManifest). Carries the same 429 retry condition as `this.axios`
+    // — the token endpoint is rate-limited under bursty fan-out just like
+    // the manifest endpoints.
+    authClient;
+    // Memoised push-scope token for putManifest. The first untag PUT pays
+    // a 401-challenge round-trip; subsequent PUTs reuse this until expiry.
+    // Cleared on login() (which switches targetPackage and therefore
+    // invalidates the scope) and on any 401 from a subsequent PUT.
+    pushToken = null;
+    /**
+     * Constructor
+     *
+     * @param config The action configuration
+     * @param githubPackageRepo The package repo cache
+     * @param crossRunCache Optional cross-run manifest cache
+     */
+    constructor(config, githubPackageRepo, crossRunCache = null) {
+        this.config = config;
+        this.githubPackageRepo = githubPackageRepo;
+        this.crossRunCache = crossRunCache;
+        if (this.config.registryUrl) {
+            this.baseUrl = this.config.registryUrl;
+        }
+        else {
+            this.baseUrl = 'https://ghcr.io/';
+        }
+        this.axios = lib_axios.create({
+            baseURL: this.baseUrl,
+            timeout: REGISTRY_REQUEST_TIMEOUT_MS
+        });
+        // Retry 429 rate limits (which surface from ghcr.io under bursty
+        // parallel reads: manifest fan-out, untag PUTs), plus transient
+        // failures of idempotent requests, honouring Retry-After. See
+        // http-retry.ts for the exact rules.
+        installRetry(this.axios);
+        // The token-exchange client gets the same retry posture: token
+        // endpoint 429s would otherwise surface as bare failures under
+        // parallel untag PUTs.
+        this.authClient = lib_axios.create({ timeout: REGISTRY_REQUEST_TIMEOUT_MS });
+        installRetry(this.authClient);
+        this.axios.defaults.headers.common['Accept'] =
+            'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json';
+        (0,lib/* setGlobalConfig */.e1)({
+            data: false,
+            logger: info
+        });
+        // set the axios logging on if log level is debug
+        if (this.config.logLevel === LogLevel.DEBUG) {
+            this.axios.interceptors.request.use(lib/* requestLogger */.q3);
+            this.axios.interceptors.response.use(lib/* responseLogger */.KR);
+        }
+    }
+    /**
+     * Logs in to the registry
+     * This method retrieves a token and handles authentication challenges if necessary
+     * @returns A Promise that resolves when the login is successful
+     * @throws If an error occurs during the login process
+     */
+    async login(targetPackage) {
+        // reset the cache
+        this.manifestCache.clear();
+        // Drop any push token cached for the previous package — its scope
+        // is repository-bound and cannot be reused after the switch.
+        this.pushToken = null;
+        this.targetPackage = targetPackage;
+        try {
+            if (this.config.logLevel === LogLevel.DEBUG) {
+                info('issuing an authentication challenge');
+            }
+            // get token
+            await this.axios.get(`/v2/${this.config.owner}/${targetPackage}/tags/list`);
+        }
+        catch (error) {
+            if (axios_isAxiosError(error) && error.response) {
+                if (error.response?.status === 401) {
+                    const challenge = error.response?.headers['www-authenticate'];
+                    if (!challenge) {
+                        throw new Error(`${this.baseUrl} returned 401 without a www-authenticate challenge; cannot authenticate`, { cause: error });
+                    }
+                    const attributes = parseChallenge(challenge);
+                    if (isValidChallenge(attributes)) {
+                        const tokenResponse = await this.fetchRegistryToken(attributes);
+                        const token = tokenResponse.token;
+                        if (token) {
+                            // Mask the exchanged registry token like the input token: it
+                            // rides in the default Authorization header, so any error dump
+                            // that includes request config would otherwise print it.
+                            core_setSecret(token);
+                            this.axios.defaults.headers.common['Authorization'] =
+                                `Bearer ${token}`;
+                            if (this.config.logLevel === LogLevel.DEBUG) {
+                                info('authentication challenge succeded');
+                            }
+                        }
+                        else {
+                            // Do not stringify tokenResponse into the message — an
+                            // auth-endpoint body can carry a credential, and this
+                            // reaches the (possibly public) job log via setFailed.
+                            throw new Error(`${this.baseUrl} login failed: token service returned no token`, { cause: error });
+                        }
+                    }
+                    else {
+                        throw new Error(`invalid www-authenticate challenge ${challenge}`, {
+                            cause: error
+                        });
+                    }
+                }
+                else {
+                    // Report through the thrown error only: main's catch calls
+                    // setFailed once, with this message.
+                    throw new Error(`Error logging into registry API with package: ${targetPackage} (HTTP ${error.response.status})`, { cause: error });
+                }
+            }
+            else {
+                // Non-axios error or error without a response — rethrow so caller sees it
+                throw error;
+            }
+        }
+    }
+    /**
+     * Exchange a www-authenticate challenge for a bearer token using the
+     * shared {@link authClient}. Returns the raw token-service response
+     * so callers can read both `token` and `expires_in` if present.
+     *
+     * Docker token spec: https://distribution.github.io/distribution/spec/auth/token/
+     */
+    async fetchRegistryToken(attributes) {
+        // Validates the realm before the token is attached (see buildTokenUrl).
+        const tokenUrl = buildTokenUrl(attributes, this.baseUrl, process.env.GITHUB_SERVER_URL);
+        const response = await this.authClient.get(tokenUrl, {
+            auth: {
+                username: 'token',
+                password: this.config.token
+            }
+        });
+        return response.data;
+    }
+    /**
+     * Retrieves a manifest by its digest: from this run's in-memory cache,
+     * else the cross-run cache, else the registry. Every source holds only
+     * manifests verified against their digest, so the result is exactly the
+     * manifest the digest names.
+     *
+     * @param digest - The digest of the manifest to retrieve
+     */
+    async getManifestByDigest(digest) {
+        const cached = this.manifestCache.get(digest);
+        if (cached) {
+            return cached;
+        }
+        const persisted = this.crossRunCache?.get(digest);
+        if (persisted) {
+            this.manifestCache.set(digest, persisted);
+            return persisted;
+        }
+        return await this.fetchAndCacheManifest(digest);
+    }
+    /**
+     * Always hits the registry and returns the full, unmodified manifest body.
+     * Used by the untag flow, which clones the manifest and PUTs it back: a
+     * fresh, verified copy from the registry, independent of any cache.
+     */
+    async getRawManifestByDigest(digest) {
+        return await this.fetchAndCacheManifest(digest);
+    }
+    /**
+     * Fetch a manifest from the registry and verify it before anything uses
+     * it: the exact bytes received must hash to the requested digest (the
+     * digest comes from the package listing, or from a manifest that was
+     * itself verified). A mismatch fails the run instead of acting on
+     * content the digest does not name. Verified manifests go into both
+     * caches.
+     */
+    async fetchAndCacheManifest(digest) {
+        const response = await this.axios.get(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`, {
+            // The exact bytes, undecoded: a string response would have a
+            // leading byte-order mark stripped, changing what is hashed.
+            responseType: 'arraybuffer',
+            transformResponse: [data => data]
+        });
+        const bytes = responseBytes(response?.data);
+        if (!digestMatches(digest, bytes)) {
+            throw new Error(`the registry returned content for ${digest} that does not match that digest; refusing to use it`);
+        }
+        const text = bytes.toString('utf8');
+        const obj = parseManifest(text);
+        this.manifestCache.set(digest, obj);
+        // set() re-checks the text against the digest, so bytes that are not
+        // valid UTF-8 (and would not survive as text) are simply not cached.
+        this.crossRunCache?.set(digest, text);
+        return obj;
+    }
+    /**
+     * Retrieves a manifest by its tag
+     *
+     * @param tag - The tag of the manifest to retrieve
+     * @returns A Promise that resolves to the retrieved manifest
+     */
+    async getManifestByTag(tag) {
+        const tagDigest = this.githubPackageRepo.getDigestByTag(tag);
+        if (tagDigest) {
+            return await this.getManifestByDigest(tagDigest);
+        }
+        return undefined;
+    }
+    /**
+     * Puts the manifest for a given tag in the registry.
+     * @param tag - The tag of the manifest.
+     * @param manifest - The manifest to be put.
+     * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
+     * @returns The digest (`sha256:<hex>`) of the exact bytes sent — the
+     *   digest of the version the registry creates for this PUT.
+     */
+    async putManifest(tag, manifest, multiArch) {
+        // Serialize once and send exactly these bytes, so the returned digest
+        // is the one the registry stores (a manifest's digest is the sha256 of
+        // its exact bytes). Callers use it to identify the version this PUT
+        // created without trusting whatever the tag later resolves to.
+        const body = Buffer.from(JSON.stringify(manifest), 'utf8');
+        const digest = `sha256:${(0,external_crypto_.createHash)('sha256').update(body).digest('hex')}`;
+        if (this.config.dryRun) {
+            return digest;
+        }
+        const contentType = manifest.mediaType;
+        // Fast path: a cached push token from a previous PUT this run. Skip
+        // the 401-challenge handshake entirely. On expiry we clear the cache
+        // and fall through to the challenge path below.
+        const cached = this.getCachedPushToken();
+        if (cached) {
+            try {
+                await this.putManifestWithToken(tag, body, contentType, cached, digest);
+                return digest;
+            }
+            catch (error) {
+                if (axios_isAxiosError(error) && error.response?.status === 401) {
+                    // Token rejected (likely server-side revocation or rotation
+                    // before our TTL window elapsed). Drop it and fall through.
+                    this.pushToken = null;
+                }
+                else {
+                    throw error;
+                }
+            }
+        }
+        // Cold path: PUT without auth, expect a 401 challenge, exchange it
+        // for a fresh push token, then PUT again with the token. The
+        // challenge body carries the realm/service/scope we need.
+        try {
+            const response = await this.authClient.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, body, { headers: { 'Content-Type': contentType } });
+            // No challenge issued — upload already succeeded
+            this.assertStoredDigest(response, digest);
+            return digest;
+        }
+        catch (error) {
+            if (axios_isAxiosError(error) && error.response?.status === 401) {
+                const challenge = error.response.headers['www-authenticate'];
+                if (!challenge) {
+                    throw new Error(`${this.baseUrl} returned 401 without a www-authenticate challenge; cannot obtain a push token`, { cause: error });
+                }
+                const attributes = parseChallenge(challenge);
+                if (!isValidChallenge(attributes)) {
+                    throw new Error(`invalid www-authenticate challenge ${challenge}`, {
+                        cause: error
+                    });
+                }
+                const tokenResponse = await this.fetchRegistryToken(attributes);
+                const token = tokenResponse.token;
+                if (!token) {
+                    throw new Error('failed to obtain push token from authentication challenge', { cause: error });
+                }
+                core_setSecret(token);
+                this.cachePushToken(token, tokenResponse.expires_in);
+                await this.putManifestWithToken(tag, body, contentType, token, digest);
+            }
+            else {
+                throw error;
+            }
+        }
+        return digest;
+    }
+    /**
+     * PUT a manifest body to `<tag>` using the supplied bearer token.
+     * Extracted so both the cached-token fast path and the
+     * challenge-response cold path share the same call shape.
+     */
+    async putManifestWithToken(tag, body, contentType, token, expectedDigest) {
+        const response = await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, body, {
+            headers: {
+                'content-type': contentType,
+                Authorization: `Bearer ${token}`
+            }
+        });
+        this.assertStoredDigest(response, expectedDigest);
+    }
+    /**
+     * The registry reports the digest it stored a manifest under in the
+     * Docker-Content-Digest response header. Untag identifies the version
+     * its PUT created by the digest putManifest computes, so a mismatch
+     * (a registry that re-serialized the manifest) must stop the run rather
+     * than leave untag looking for a version that will never appear.
+     */
+    assertStoredDigest(response, expectedDigest) {
+        const reported = response?.headers?.['docker-content-digest'];
+        if (typeof reported === 'string' && reported !== expectedDigest) {
+            throw new Error(`${this.baseUrl} stored the manifest as ${reported}, not the expected ${expectedDigest}; stopping, since untag identifies the version it created by that digest`);
+        }
+    }
+    /**
+     * Return the memoised push token if it's still valid, otherwise null.
+     * A small safety buffer guards against clock skew between us and the
+     * token service.
+     */
+    getCachedPushToken() {
+        if (!this.pushToken)
+            return null;
+        if (Date.now() >= this.pushToken.expiresAt) {
+            this.pushToken = null;
+            return null;
+        }
+        return this.pushToken.value;
+    }
+    /**
+     * Memoise a freshly-issued push token. The Docker token spec defines
+     * `expires_in` (seconds, optional, spec default 60) — we honor that
+     * when present and otherwise fall back to a conservative 60s. A 10s
+     * skew buffer trims the effective TTL so we re-auth slightly before
+     * the server actually rejects.
+     */
+    cachePushToken(token, expiresInSeconds) {
+        const ttlSeconds = expiresInSeconds && expiresInSeconds > 0 ? expiresInSeconds : 60;
+        const skewBufferMs = 10_000;
+        this.pushToken = {
+            value: token,
+            expiresAt: Date.now() + ttlSeconds * 1000 - skewBufferMs
+        };
+    }
+}
+/**
+ * The response body as a Buffer. With responseType 'arraybuffer' the Node
+ * adapter returns a Buffer; an ArrayBuffer or typed array is wrapped as
+ * is, and a string (never sent by the adapter in this mode) is encoded as
+ * UTF-8.
+ */
+function responseBytes(data) {
+    if (Buffer.isBuffer(data))
+        return data;
+    if (data instanceof ArrayBuffer)
+        return Buffer.from(data);
+    if (ArrayBuffer.isView(data)) {
+        return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    }
+    if (typeof data === 'string')
+        return Buffer.from(data, 'utf8');
+    throw new Error('the registry returned a manifest with no body');
+}
+
+;// CONCATENATED MODULE: ./src/image-filter.ts
+
+
+
+class ImageFilter {
+    context;
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Applies exclusion filters to the filter set
+     */
+    applyExclusionFilters(filterSet) {
+        const excludeTags = [];
+        if (!this.context.config.excludeTags) {
+            return excludeTags;
+        }
+        const tagsInUse = this.context.packageRepo.getTags();
+        if (this.context.config.useRegex) {
+            const regex = new RegExp(this.context.config.excludeTags);
+            // Check all tags for matches first
+            for (const tag of tagsInUse) {
+                if (regex.test(tag)) {
+                    const digest = this.context.packageRepo.getDigestByTag(tag);
+                    if (digest) {
+                        filterSet.delete(digest);
+                    }
+                    excludeTags.push(tag);
+                }
+            }
+            // Now check for digest based format matches
+            for (const digest of this.context.packageRepo.getDigests()) {
+                if (regex.test(digest)) {
+                    filterSet.delete(digest);
+                    excludeTags.push(digest);
+                }
+            }
+        }
+        else {
+            const isTagMatch = wildcardMatch(this.context.config.excludeTags
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean));
+            // Check all tags for matches first
+            for (const tag of tagsInUse) {
+                if (isTagMatch(tag)) {
+                    const digest = this.context.packageRepo.getDigestByTag(tag);
+                    if (digest) {
+                        filterSet.delete(digest);
+                    }
+                    excludeTags.push(tag);
+                }
+            }
+            // Now check for digest based format matches
+            for (const digest of this.context.packageRepo.getDigests()) {
+                if (isTagMatch(digest)) {
+                    filterSet.delete(digest);
+                    excludeTags.push(digest);
+                }
+            }
+        }
+        if (excludeTags.length > 0) {
+            logListing(`[${this.context.targetPackage}] Excluding tags from deletion`, excludeTags, { debug: this.context.config.logLevel >= LogLevel.DEBUG });
+        }
+        return excludeTags;
+    }
+    /**
+     * Filters images by age
+     */
+    applyAgeFilter(filterSet) {
+        if (!this.context.config.olderThan) {
+            return;
+        }
+        const lines = [];
+        for (const digest of filterSet) {
+            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${digest} not in package cache`);
+            }
+            if (ghPackage.updated_at) {
+                const cutOff = new Date(Date.now() - this.context.config.olderThan);
+                const packageDate = new Date(ghPackage.updated_at);
+                if (packageDate >= cutOff) {
+                    // The package is newer than cutoff so remove it from filterSet
+                    filterSet.delete(digest);
+                }
+                else {
+                    const tags = ghPackage.metadata.container.tags;
+                    if (tags.length > 0) {
+                        lines.push(`${digest} ${tags}`);
+                    }
+                    else {
+                        lines.push(digest);
+                    }
+                }
+            }
+            else {
+                // No timestamp: the age is unknown, so it can't be shown to be
+                // older than the cutoff. Keep it rather than treat it as old.
+                filterSet.delete(digest);
+            }
+        }
+        logListing(`[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no images found'
+        });
+    }
+    /**
+     * Expands tags based on wildcard or regex patterns
+     */
+    expandTags(filterSet) {
+        const matchTags = new Set();
+        if (!this.context.config.deleteTags) {
+            return matchTags;
+        }
+        if (this.context.config.useRegex) {
+            const regex = new RegExp(this.context.config.deleteTags);
+            // Build match list from filterSet
+            for (const digest of filterSet) {
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
+                for (const tag of ghPackage.metadata.container.tags) {
+                    if (regex.test(tag)) {
+                        matchTags.add(tag);
+                    }
+                }
+            }
+            // Check for digest based format matches
+            for (const digest of filterSet) {
+                if (regex.test(digest)) {
+                    matchTags.add(digest);
+                }
+            }
+        }
+        else {
+            const isTagMatch = wildcardMatch(this.context.config.deleteTags
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean));
+            // Build match list from filterSet
+            for (const digest of filterSet) {
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
+                for (const tag of ghPackage.metadata.container.tags) {
+                    if (isTagMatch(tag)) {
+                        matchTags.add(tag);
+                    }
+                }
+            }
+            // Check for digest based format matches
+            for (const digest of filterSet) {
+                if (isTagMatch(digest)) {
+                    matchTags.add(digest);
+                }
+            }
+        }
+        return matchTags;
+    }
+}
+
+;// CONCATENATED MODULE: ./src/manifest-analyzer.ts
+
+
+
+// Concurrency cap for parallel registry manifest fetches. Registry traffic
+// goes to ghcr.io (separate rate budget from api.github.com) and the axios
+// client retries 429s, so a modest fan-out is safe. Conservative default —
+// can be lifted if real workloads ask for more.
+const MANIFEST_FETCH_CONCURRENCY = 10;
+class ManifestAnalyzer {
+    context;
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Builds two relationship maps in a single pass:
+     *  - digestUsedBy: child digest → set of multi-arch parent indexes
+     *  - subjectReferrers: subject digest → set of OCI 1.1 referrer digests
+     *    (manifests with a `subject` descriptor; subject may or may not be in
+     *    the repo — entries where the subject is missing surface as orphans
+     *    in the validator).
+     */
+    async loadDigestUsedByMap() {
+        const digestUsedBy = new Map();
+        const subjectReferrers = new Map();
+        const digests = this.context.packageRepo.getDigests();
+        const digestCount = digests.size;
+        const digestList = Array.from(digests);
+        let processed = 0;
+        let lastReportMs = Date.now();
+        // Fan out the per-digest manifest fetches. The previous implementation
+        // skipped re-fetching digests already seen as children of a parent
+        // index; we drop that optimization here because (1) the cross-run
+        // manifest cache makes those fetches free on warm runs, and (2) the
+        // sequential dependency the skip required prevents parallelism, which
+        // is the bigger win. Children of multi-arch indexes still register
+        // their parent links correctly — the outer iteration visits every
+        // digest exactly once.
+        startGroup(`[${this.context.targetPackage}] Loading manifests`);
+        await runWithConcurrency(digestList, MANIFEST_FETCH_CONCURRENCY, async (digest) => {
+            const manifest = await this.context.registry.getManifestByDigest(digest);
+            // JS Maps are single-thread-safe — mutating shared maps from
+            // multiple awaited workers is fine.
+            if (manifest.manifests) {
+                for (const imageManifest of manifest.manifests) {
+                    if (digests.has(imageManifest.digest)) {
+                        let parents = digestUsedBy.get(imageManifest.digest);
+                        if (!parents) {
+                            parents = new Set();
+                            digestUsedBy.set(imageManifest.digest, parents);
+                        }
+                        parents.add(digest);
+                    }
+                }
+            }
+            // OCI 1.1 subject-bearing referrer (sigstore bundle, etc). ghcr.io
+            // does not implement the /referrers API but echoes the subject
+            // field, so we build the reverse index ourselves. Record the link
+            // even when the subject is not in the repo so the validator can
+            // surface orphans.
+            const subjectDigest = manifest.subject?.digest;
+            if (subjectDigest) {
+                let referrers = subjectReferrers.get(subjectDigest);
+                if (!referrers) {
+                    referrers = new Set();
+                    subjectReferrers.set(subjectDigest, referrers);
+                }
+                referrers.add(digest);
+            }
+            processed++;
+            if (this.context.config.logLevel === LogLevel.DEBUG) {
+                const encoded = JSON.stringify(manifest, null, 4);
+                info(`${digest}:${encoded}`);
+            }
+            else {
+                const now = Date.now();
+                if (now - lastReportMs >= 3000) {
+                    lastReportMs = now;
+                    info(`loaded ${processed} of ${digestCount} manifests`);
+                }
+            }
+        });
+        info(`loaded ${processed} manifests`);
+        endGroup();
+        return { digestUsedBy, subjectReferrers };
+    }
+    /**
+     * Remove all multi architecture platform images from the filterSet including
+     * its referrer image if present (whether linked via a sha256-* tag or via an
+     * OCI 1.1 subject descriptor). Filtering/processing only occurs on top
+     * level images.
+     */
+    async initFilterSet(subjectReferrers = new Map()) {
+        const digests = this.context.packageRepo.getDigests();
+        // Remove all OCI 1.1 subject-bearing referrers from top-level
+        // processing — they are not stand-alone artifacts. If the subject is
+        // still in the repo, the referrer follows it through the cascade. If
+        // the subject is missing, the referrer is an orphan and is reached
+        // via delete-orphaned-images (symmetric with how orphaned sha256-*
+        // fallback tags work).
+        for (const referrers of subjectReferrers.values()) {
+            for (const referrerDigest of referrers) {
+                digests.delete(referrerDigest);
+            }
+        }
+        for (const digest of digests) {
+            const manifest = await this.context.registry.getManifestByDigest(digest);
+            if (manifest.manifests) {
+                for (const imageManifest of manifest.manifests) {
+                    digests.delete(imageManifest.digest);
+                }
+            }
+            // Process any associated images tagged with `sha256-<digest>.*`
+            // via the pre-built reverse index — O(1) lookup instead of an
+            // O(T) scan over every tag in the repo.
+            const referrerTags = this.context.packageRepo.getReferrerTagsForDigest(digest);
+            for (const tag of referrerTags) {
+                const tagDigest = this.context.packageRepo.getDigestByTag(tag);
+                if (tagDigest) {
+                    digests.delete(tagDigest);
+                    // Process any children
+                    const childManifest = await this.context.registry.getManifestByTag(tag);
+                    if (childManifest?.manifests) {
+                        for (const manifestEntry of childManifest.manifests) {
+                            digests.delete(manifestEntry.digest);
+                        }
+                    }
+                }
+            }
+        }
+        return digests;
+    }
+    /**
+     * Builds a label for a manifest based on its type
+     */
+    async buildLabel(imageManifest) {
+        let label = '';
+        if (imageManifest.platform) {
+            if (imageManifest.platform.architecture) {
+                label = imageManifest.platform.architecture;
+            }
+            if (label !== 'unknown') {
+                if (imageManifest.platform.variant) {
+                    label += `/${imageManifest.platform.variant}`;
+                }
+                label = `architecture: ${label}`;
+            }
+            else {
+                // Check if it's a buildx attestation
+                const manifest = await this.context.registry.getManifestByDigest(imageManifest.digest);
+                // Kinda crude
+                // An image with no layers (layers: []) has no first layer to check.
+                if (manifest.layers?.[0]?.mediaType === 'application/vnd.in-toto+json') {
+                    label = 'application/vnd.in-toto+json';
+                }
+            }
+        }
+        else if (imageManifest.artifactType) {
+            // Check if it's a github attestation
+            if (imageManifest.artifactType.startsWith('application/vnd.dev.sigstore.bundle')) {
+                label = 'sigstore attestation';
+            }
+            else {
+                label = imageManifest.artifactType;
+            }
+        }
+        return label;
+    }
+    /**
+     * Pre-loads manifests needed for deletion process
+     */
+    async primeManifests(deleteSet) {
+        const digests = this.context.packageRepo.getDigests();
+        for (const digest of deleteSet) {
+            const manifest = await this.context.registry.getManifestByDigest(digest);
+            if (manifest.manifests) {
+                for (const imageManifest of manifest.manifests) {
+                    // Call the buildLabel method which will prime manifest if needed
+                    if (digests.has(imageManifest.digest)) {
+                        await this.buildLabel(imageManifest);
+                    }
+                }
+            }
+            // Process tagged digests (referrers) via the pre-built index.
+            const referrerTags = this.context.packageRepo.getReferrerTagsForDigest(digest);
+            for (const tag of referrerTags) {
+                const tagDigest = this.context.packageRepo.getDigestByTag(tag);
+                if (tagDigest) {
+                    const tagManifest = await this.context.registry.getManifestByDigest(tagDigest);
+                    if (tagManifest.manifests) {
+                        for (const manifestEntry of tagManifest.manifests) {
+                            if (digests.has(manifestEntry.digest)) {
+                                await this.buildLabel(manifestEntry);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+;// CONCATENATED MODULE: ./src/image-validator.ts
+
+
+
+class ImageValidator {
+    context;
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Validate manifests list packages
+     */
+    async validate(subjectReferrers = new Map()) {
+        startGroup(`[${this.context.targetPackage}] Validating multi-architecture/referrers images`);
+        let hasErrors = false;
+        const processedManifests = new Set();
+        const digests = this.context.packageRepo.getDigests();
+        for (const digest of digests) {
+            if (!processedManifests.has(digest)) {
+                const manifest = await this.context.registry.getManifestByDigest(digest);
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
+                const tags = ghPackage.metadata.container.tags;
+                if (manifest.manifests) {
+                    for (const childImage of manifest.manifests) {
+                        processedManifests.add(childImage.digest);
+                        if (!this.context.packageRepo.getIdByDigest(childImage.digest)) {
+                            hasErrors = true;
+                            if (tags.length > 0) {
+                                warning(`digest ${childImage.digest} not found on image ${tags}`);
+                            }
+                            else {
+                                warning(`digest ${childImage.digest} not found on untagged image ${digest}`);
+                            }
+                        }
+                        digests.delete(childImage.digest);
+                    }
+                }
+            }
+        }
+        // Check for orphaned tags (referrers/cosign etc)
+        const tagsInUse = this.context.packageRepo.getTags();
+        for (const tag of tagsInUse) {
+            const digest = parentDigestFromReferrerTag(tag);
+            if (digest && !this.context.packageRepo.getIdByDigest(digest)) {
+                hasErrors = true;
+                warning(`parent image for referrer tag ${tag} not found in repository`);
+            }
+        }
+        // Check for orphaned OCI 1.1 subject-bearing referrers
+        for (const [subjectDigest, referrers] of subjectReferrers) {
+            if (!this.context.packageRepo.getIdByDigest(subjectDigest)) {
+                for (const referrerDigest of referrers) {
+                    if (this.context.packageRepo.getIdByDigest(referrerDigest)) {
+                        hasErrors = true;
+                        warning(`subject ${subjectDigest} for referrer ${referrerDigest} not found in repository`);
+                    }
+                }
+            }
+        }
+        if (!hasErrors) {
+            info('no errors found');
+        }
+        endGroup();
+        // Return basic result - can be extended later
+        return {
+            hasErrors
+        };
+    }
+    /**
+     * Find ghost images (all child manifests missing)
+     */
+    async findGhostImages(filterSet) {
+        const ghostImages = new Set();
+        const lines = [];
+        for (const digest of filterSet) {
+            const manifest = await this.context.registry.getManifestByDigest(digest);
+            if (manifest.manifests) {
+                let missing = 0;
+                for (const imageManifest of manifest.manifests) {
+                    if (!this.context.packageRepo.getIdByDigest(imageManifest.digest)) {
+                        missing += 1;
+                    }
+                }
+                if (missing === manifest.manifests.length) {
+                    ghostImages.add(digest);
+                    const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                    }
+                    if (ghPackage.metadata.container.tags.length > 0) {
+                        lines.push(`${digest} ${ghPackage.metadata.container.tags}`);
+                    }
+                    else {
+                        lines.push(`${digest}`);
+                    }
+                }
+            }
+        }
+        logListing(`[${this.context.targetPackage}] Finding ghost images to delete`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no ghost images found'
+        });
+        return ghostImages;
+    }
+    /**
+     * Find partial images: multi-arch images where some, but not all, child
+     * manifests are missing. Images where every child is missing are fully
+     * ghost images and are handled by findGhostImages instead.
+     */
+    async findPartialImages(filterSet) {
+        const partialImages = new Set();
+        const lines = [];
+        for (const digest of filterSet) {
+            const manifest = await this.context.registry.getManifestByDigest(digest);
+            if (manifest.manifests) {
+                let missing = 0;
+                for (const imageManifest of manifest.manifests) {
+                    if (!this.context.packageRepo.getIdByDigest(imageManifest.digest)) {
+                        missing += 1;
+                    }
+                }
+                // Partial: at least one child missing AND at least one child present.
+                // Excludes the all-missing case (ghost images) so the two options
+                // don't overlap.
+                if (missing > 0 && missing < manifest.manifests.length) {
+                    partialImages.add(digest);
+                    const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                    }
+                    if (ghPackage.metadata.container.tags.length > 0) {
+                        lines.push(`${digest} ${ghPackage.metadata.container.tags}`);
+                    }
+                    else {
+                        lines.push(`${digest}`);
+                    }
+                }
+            }
+        }
+        logListing(`[${this.context.targetPackage}] Finding partial images to delete`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no partial images found'
+        });
+        return partialImages;
+    }
+    /**
+     * Find orphaned images (parent image doesn't exist). Covers both the
+     * sha256-* fallback tag shape and OCI 1.1 subject-bearing referrers
+     * whose subject is no longer in the repo.
+     *
+     * `excludeTags` (the expanded exclude list — matched tag and digest
+     * strings) is honored here even though orphans are reached outside the
+     * top-level filterSet: an orphan is a stand-alone leftover being
+     * independently staged for deletion, so exclude-tags protects it.
+     *
+     * Deleting an image also deletes its children (the cascade ignores
+     * exclude-tags by design: children are parts of their parent's image).
+     * So an orphan with an excluded child is kept too — otherwise staging
+     * the orphan would delete that excluded child along with it.
+     * `digestUsedBy` (child digest → parent digests) supplies that link.
+     */
+    findOrphanedImages(subjectReferrers = new Map(), excludeTags = [], digestUsedBy = new Map()) {
+        const orphanedImages = new Set();
+        const excluded = new Set(excludeTags);
+        const lines = [];
+        // Parents of any excluded image (by digest, or by a matched tag).
+        const parentsOfExcluded = new Set();
+        for (const entry of excluded) {
+            const digest = this.context.packageRepo.getIdByDigest(entry)
+                ? entry
+                : this.context.packageRepo.getDigestByTag(entry);
+            for (const parent of (digest && digestUsedBy.get(digest)) || []) {
+                parentsOfExcluded.add(parent);
+            }
+        }
+        // An orphan is protected if the exclude pattern matched its digest or
+        // any of its tags (a referrer may carry more than the sha256-* tag),
+        // or if one of its children is excluded.
+        const isExcluded = (digest, tag) => {
+            if (tag && excluded.has(tag))
+                return true;
+            if (excluded.has(digest))
+                return true;
+            if (parentsOfExcluded.has(digest))
+                return true;
+            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            return (ghPackage?.metadata.container.tags.some(t => excluded.has(t)) ?? false);
+        };
+        for (const tag of this.context.packageRepo.getTags()) {
+            const digest = parentDigestFromReferrerTag(tag);
+            if (digest &&
+                this.context.packageRepo.getIdByDigest(digest) === undefined) {
+                const orphanDigest = this.context.packageRepo.getDigestByTag(tag);
+                if (orphanDigest && !isExcluded(orphanDigest, tag)) {
+                    orphanedImages.add(orphanDigest);
+                    lines.push(tag);
+                }
+            }
+        }
+        for (const [subjectDigest, referrers] of subjectReferrers) {
+            if (this.context.packageRepo.getIdByDigest(subjectDigest) === undefined) {
+                for (const referrerDigest of referrers) {
+                    if (this.context.packageRepo.getIdByDigest(referrerDigest) &&
+                        !isExcluded(referrerDigest)) {
+                        orphanedImages.add(referrerDigest);
+                        lines.push(`${referrerDigest} (subject ${subjectDigest} missing)`);
+                    }
+                }
+            }
+        }
+        logListing(`[${this.context.targetPackage}] Finding orphaned images (tags) to delete`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no orphaned images found'
+        });
+        return orphanedImages;
+    }
+}
+
+;// CONCATENATED MODULE: ./src/deletion-strategy.ts
+
+
+
+
+class DeletionStrategy {
+    context;
+    imageFilter;
+    // processTagDeletions runs again after an untag reload; warn once.
+    warnedDigestsIgnoredByKeepN = false;
+    constructor(context) {
+        this.context = context;
+        this.imageFilter = new ImageFilter(context);
+    }
+    /**
+     * Process tag deletions including untagging operations.
+     *
+     * Multi-tagged matches go into `plan.untagOperations`. The caller
+     * (CleanupOrchestrator.run) is responsible for gating those against
+     * `keep-n-tagged` BEFORE executing them — a multi-tagged image in
+     * the keep set must not have a matched tag stripped, or it would
+     * silently slip out of the keep set on subsequent runs. The gate
+     * lives in the orchestrator because keep-n-tagged is the
+     * orchestrator's concern, not the strategy's; this method just
+     * reports what it found.
+     *
+     * @see CleanupOrchestrator.run — search "gate the untag operations"
+     */
+    async processTagDeletions(filterSet, excludeTags) {
+        const plan = {
+            deleteSet: new Set(),
+            untagOperations: new Map()
+        };
+        if (!this.context.config.deleteTags) {
+            return plan;
+        }
+        const matchTags = this.imageFilter.expandTags(filterSet);
+        if (matchTags.size === 0) {
+            logListing(`[${this.context.targetPackage}] Finding tagged images to delete: ${this.context.config.deleteTags}`, [], {
+                debug: this.context.config.logLevel >= LogLevel.DEBUG,
+                emptyMessage: 'no matching tags found'
+            });
+            return plan;
+        }
+        // Separate untagging events and standard deletions
+        const excluded = new Set(excludeTags);
+        const untaggingTags = new Set();
+        const standardTags = new Set();
+        for (const tag of matchTags) {
+            if (!excluded.has(tag)) {
+                if (tag.startsWith('sha256:')) {
+                    standardTags.add(tag);
+                }
+                else {
+                    const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
+                    if (manifestDigest) {
+                        const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+                        if (!ghPackage) {
+                            throw new Error(`cache invariant: digest ${manifestDigest} not in package cache`);
+                        }
+                        if (ghPackage.metadata.container.tags.length > 1) {
+                            untaggingTags.add(tag);
+                            if (!plan.untagOperations.has(manifestDigest)) {
+                                plan.untagOperations.set(manifestDigest, []);
+                            }
+                            const operations = plan.untagOperations.get(manifestDigest);
+                            if (operations) {
+                                operations.push(tag);
+                            }
+                        }
+                        else if (ghPackage.metadata.container.tags.length === 1) {
+                            standardTags.add(tag);
+                        }
+                    }
+                }
+            }
+        }
+        // Process standard deletions - only if keep-n-tagged is not set
+        // When keep-n-tagged IS set, it will handle ALL tagged deletions later
+        if (standardTags.size > 0 && this.context.config.keepNtagged == null) {
+            const lines = [];
+            for (const tag of standardTags) {
+                lines.push(tag);
+                let manifestDigest;
+                if (tag.startsWith('sha256:')) {
+                    manifestDigest = tag;
+                }
+                else {
+                    manifestDigest = this.context.packageRepo.getDigestByTag(tag);
+                }
+                if (manifestDigest) {
+                    plan.deleteSet.add(manifestDigest);
+                    filterSet.delete(manifestDigest);
+                }
+            }
+            logListing(`[${this.context.targetPackage}] Find tagged images to delete: ${this.context.config.deleteTags}`, lines, { debug: this.context.config.logLevel >= LogLevel.DEBUG });
+        }
+        // keep-n-tagged ranks images by their tags, so a delete-tags match on a
+        // bare digest (an untagged image, or a tagged one matched only by its
+        // digest) never enters its candidate set and is never deleted. Say so
+        // once, with a count, rather than drop it silently.
+        if (this.context.config.keepNtagged != null &&
+            !this.warnedDigestsIgnoredByKeepN) {
+            const viaTags = new Set();
+            for (const tag of matchTags) {
+                if (!tag.startsWith('sha256:')) {
+                    const digest = this.context.packageRepo.getDigestByTag(tag);
+                    if (digest)
+                        viaTags.add(digest);
+                }
+            }
+            const ignored = [...matchTags].filter(t => t.startsWith('sha256:') && !viaTags.has(t) && !excluded.has(t));
+            if (ignored.length > 0) {
+                this.warnedDigestsIgnoredByKeepN = true;
+                const sample = ignored.slice(0, 3).join(', ');
+                warning(`[${this.context.targetPackage}] delete-tags matched ${ignored.length} image digest(s) that keep-n-tagged does not act on (it ranks images by their tags), so they were not deleted: ${sample}${ignored.length > 3 ? ', ...' : ''}`);
+            }
+        }
+        return plan;
+    }
+    /**
+     * Keep N untagged images
+     */
+    keepNUntagged(filterSet) {
+        const deleteSet = new Set();
+        if (this.context.config.keepNuntagged == null) {
+            return deleteSet;
+        }
+        const unTaggedPackages = [];
+        for (const digest of filterSet) {
+            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${digest} not in package cache`);
+            }
+            if (ghPackage.metadata.container.tags.length === 0) {
+                unTaggedPackages.push(ghPackage);
+            }
+        }
+        const lines = [];
+        if (unTaggedPackages.length > 0) {
+            // Sort descending by date
+            unTaggedPackages.sort((a, b) => {
+                return Date.parse(b.updated_at) - Date.parse(a.updated_at);
+            });
+            if (unTaggedPackages.length > this.context.config.keepNuntagged) {
+                const deletePackages = unTaggedPackages.splice(this.context.config.keepNuntagged);
+                for (const deletePackage of deletePackages) {
+                    deleteSet.add(deletePackage.name);
+                    filterSet.delete(deletePackage.name);
+                    lines.push(`${deletePackage.name}`);
+                }
+            }
+        }
+        logListing(`[${this.context.targetPackage}] Finding untagged images to delete, keeping ${this.context.config.keepNuntagged} versions`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no untagged images found to delete'
+        });
+        return deleteSet;
+    }
+    /**
+     * Keep N tagged images
+     */
+    keepNTagged(filterSet) {
+        const deleteSet = new Set();
+        if (this.context.config.keepNtagged == null) {
+            return deleteSet;
+        }
+        const taggedPackages = this.collectKeepNTaggedCandidates(filterSet);
+        const lines = [];
+        if (taggedPackages.length > this.context.config.keepNtagged) {
+            const deletePackages = taggedPackages.splice(this.context.config.keepNtagged);
+            for (const deletePackage of deletePackages) {
+                deleteSet.add(deletePackage.name);
+                filterSet.delete(deletePackage.name);
+                const ghPackage = this.context.packageRepo.getPackageByDigest(deletePackage.name);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${deletePackage.name} not in package cache`);
+                }
+                lines.push(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
+            }
+        }
+        logListing(`[${this.context.targetPackage}] Finding tagged images to delete, keeping ${this.context.config.keepNtagged} versions`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no tagged images found to delete'
+        });
+        return deleteSet;
+    }
+    /**
+     * Returns the set of digests that keep-n-tagged would protect — i.e. the
+     * top-N most recent images among the keep-n-tagged candidate set. Used by
+     * the orchestrator to gate untag operations so that a multi-tagged image
+     * in the keep set doesn't have a matched tag stripped before keep-n-tagged
+     * is consulted.
+     */
+    computeKeepNTaggedDigests(filterSet) {
+        const keepSet = new Set();
+        if (this.context.config.keepNtagged == null) {
+            return keepSet;
+        }
+        const candidates = this.collectKeepNTaggedCandidates(filterSet);
+        const kept = candidates.slice(0, this.context.config.keepNtagged);
+        for (const pkg of kept) {
+            keepSet.add(pkg.name);
+        }
+        return keepSet;
+    }
+    /**
+     * Collect the candidate set for keep-n-tagged, deduplicated by digest, and
+     * sorted newest-first. Shared by keepNTagged() (which deletes the tail) and
+     * computeKeepNTaggedDigests() (which protects the head).
+     *
+     * Dedup matters because the delete-tags branch walks per-tag and would
+     * otherwise enter the same image N times when an image has N matched tags —
+     * wrongly making each tag count as a separate keep-set slot.
+     */
+    collectKeepNTaggedCandidates(filterSet) {
+        const byDigest = new Map();
+        if (this.context.config.deleteTags != null) {
+            // Apply keep-n mode only on the supplied/expanded tags
+            const matchTags = this.imageFilter.expandTags(filterSet);
+            for (const tag of matchTags) {
+                const digest = this.context.packageRepo.getDigestByTag(tag);
+                if (digest && !byDigest.has(digest)) {
+                    const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                    if (!ghPackage) {
+                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                    }
+                    byDigest.set(digest, ghPackage);
+                }
+            }
+        }
+        else {
+            // Copy images with tags from the full set
+            for (const digest of filterSet) {
+                if (byDigest.has(digest))
+                    continue;
+                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+                if (!ghPackage) {
+                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
+                }
+                if (ghPackage.metadata.container.tags.length > 0) {
+                    byDigest.set(digest, ghPackage);
+                }
+            }
+        }
+        const taggedPackages = Array.from(byDigest.values());
+        taggedPackages.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+        return taggedPackages;
+    }
+    /**
+     * Delete all untagged images
+     */
+    deleteAllUntagged(filterSet) {
+        const deleteSet = new Set();
+        const lines = [];
+        for (const digest of filterSet) {
+            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${digest} not in package cache`);
+            }
+            if (ghPackage.metadata.container.tags.length === 0) {
+                deleteSet.add(digest);
+                filterSet.delete(digest);
+                lines.push(`${digest}`);
+            }
+        }
+        logListing(`[${this.context.targetPackage}] Finding all untagged images to delete`, lines, {
+            debug: this.context.config.logLevel >= LogLevel.DEBUG,
+            emptyMessage: 'no untagged images found'
+        });
+        return deleteSet;
+    }
+}
+
+;// CONCATENATED MODULE: ./src/image-deleter.ts
+
+
+
+// Concurrency for the parallel PUT + DELETE phases of performUntagging.
+// Modest fan-out — ghcr.io accepts writes happily but writes are
+// account-quota relevant.
+const UNTAG_WRITE_CONCURRENCY = 5;
+// Retry budget for discovering placeholder versions after the untag PUTs.
+// The Packages API list is eventually consistent with the registry, so a
+// freshly-created placeholder can lag — and until it appears, the tag
+// still resolves to its SOURCE image. Each attempt is a full reload;
+// between attempts we back off (linearly) to give ghcr time to converge.
+const UNTAG_RELOAD_MAX_ATTEMPTS = 6;
+const UNTAG_RELOAD_BACKOFF_MS = 1000;
+// Concurrency for child/referrer deletes spawned by a single deleteImage
+// call. The top-level deleteImages loop stays sequential — failures while
+// processing one parent shouldn't leave a wide trail of partial deletes
+// across the repo. Inside a single parent the failure profile is already
+// "parent gone, children may remain" (children run after the parent),
+// so fanning out the children doesn't introduce a new corruption mode;
+// it just makes the existing one happen faster. 5 keeps us well under
+// the Packages API's secondary rate limit on a typical 4-platform image
+// plus its sigstore attestation.
+const CHILD_DELETE_CONCURRENCY = 5;
+class ImageDeleter {
+    context;
+    manifestAnalyzer;
+    deleted;
+    digestUsedBy;
+    subjectReferrers;
+    constructor(context, digestUsedBy, subjectReferrers = new Map()) {
+        this.context = context;
+        this.manifestAnalyzer = new ManifestAnalyzer(context);
+        this.deleted = new Set();
+        this.digestUsedBy = digestUsedBy;
+        this.subjectReferrers = subjectReferrers;
+    }
+    /**
+     * Perform untagging operations.
+     *
+     * Strategy: each tag we want to strip gets a freshly-annotated empty
+     * manifest PUT under it. The unique annotation (timestamp + tag name)
+     * makes every PUT body byte-distinct, so every PUT lands as its own
+     * package version with its own digest. putManifest returns that
+     * digest, so each placeholder is identified exactly — never by what
+     * its tag happens to resolve to. We then reload to discover the new
+     * version IDs and batch the deletes. This replaces an older per-tag PUT→reload→delete loop that
+     * paid a full loadPackages round-trip per tag — catastrophic on large
+     * repos where each reload is ~600 paginated API calls.
+     *
+     * @returns null if nothing was untagged; otherwise what changed (the
+     *   moved tags and the deleted placeholders), which the caller uses to
+     *   bring the package list up to date. On return, the package repo
+     *   holds the listing from this method's own reload (a live run) or
+     *   the simulated untag (a dry run).
+     */
+    async performUntagging(untagOperations) {
+        if (untagOperations.size === 0) {
+            return null;
+        }
+        const jobs = [];
+        for (const [manifestDigest, tags] of untagOperations) {
+            const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+            if (!ghPackage) {
+                throw new Error(`cache invariant: digest ${manifestDigest} not in package cache`);
+            }
+            const allowable = Math.max(0, ghPackage.metadata.container.tags.length - 1);
+            for (let i = 0; i < tags.length && i < allowable; i++) {
+                jobs.push({ manifestDigest, tag: tags[i] });
+            }
+        }
+        if (jobs.length === 0) {
+            return null;
+        }
+        const allTags = jobs.map(j => j.tag);
+        const movedTags = new Map(jobs.map(j => [j.tag, j.manifestDigest]));
+        startGroup(`[${this.context.targetPackage}] Untagging images: ${allTags}`);
+        // Stamp every PUT body uniquely so each lands as a distinct digest.
+        // The timestamp resolves at submit time so the suffix is monotonic
+        // and human-readable in `oci-inspect` output if anyone goes hunting.
+        const stampPrefix = new Date().toISOString();
+        // Pre-fetch each unique source manifest exactly once.
+        // getRawManifestByDigest deliberately bypasses Registry's caches and
+        // always fetches a fresh, verified copy — so without this pre-fetch a
+        // multi-tag untag on the same image would re-GET the full body once
+        // per tag.
+        const uniqueSourceDigests = Array.from(new Set(jobs.map(j => j.manifestDigest)));
+        const rawManifestCache = new Map();
+        await runWithConcurrency(uniqueSourceDigests, UNTAG_WRITE_CONCURRENCY, async (digest) => {
+            rawManifestCache.set(digest, await this.context.registry.getRawManifestByDigest(digest));
+        });
+        // tag → digest of the placeholder version its PUT created. A tag maps
+        // to exactly one source image, so the tag is a unique job key.
+        const placeholderDigests = new Map();
+        await runWithConcurrency(jobs, UNTAG_WRITE_CONCURRENCY, async ({ manifestDigest, tag }) => {
+            const manifest = rawManifestCache.get(manifestDigest);
+            if (!manifest) {
+                throw new Error(`untag invariant: missing raw manifest for ${manifestDigest}`);
+            }
+            // Deep clone, then strip content and stamp the annotation.
+            const newManifest = JSON.parse(JSON.stringify(manifest));
+            newManifest.annotations = {
+                ...(newManifest.annotations || {}),
+                'org.opencontainers.image.created': stampPrefix,
+                'io.github.ghcr-cleanup-action.untag-source-tag': tag
+            };
+            const isMultiArch = !!newManifest.manifests;
+            if (isMultiArch) {
+                newManifest.manifests = [];
+            }
+            else {
+                newManifest.layers = [];
+            }
+            info(`${tag}`);
+            placeholderDigests.set(tag, await this.context.registry.putManifest(tag, newManifest, isMultiArch));
+        });
+        // Dry run: putManifest above was a no-op, so each tag still points
+        // at the live image. Reloading and resolving tags here would find
+        // the live image digests and log them as being deleted — a
+        // misleading preview (a real run deletes only the newly-created
+        // placeholder versions). The tag list logged above is the preview.
+        // Instead, record the untags so the caller's reload sees the listing
+        // a live run would see (those tags gone), and its second pass stages
+        // the same deletions a live run would.
+        if (this.context.config.dryRun) {
+            this.context.packageRepo.simulateUntag(jobs.map(j => j.tag));
+            endGroup();
+            return { movedTags, deletedPlaceholders: [] };
+        }
+        // Discover the placeholder versions so we can delete them. The
+        // Packages API list is eventually consistent with the registry PUTs
+        // above, so a placeholder may not be listed immediately; reload until
+        // every one is, retrying a few times. A whole-list reload re-checks
+        // every pending placeholder at once, since staleness is a property of
+        // the snapshot, not of individual tags.
+        //
+        // A placeholder is matched by its exact digest (returned by the PUT),
+        // never by what its tag resolves to: on a stale or racing listing the
+        // tag can still resolve to the SOURCE image, or to a different image
+        // pushed under the same tag meanwhile — deleting either would remove
+        // an image (and its other, possibly excluded, tags) the user never
+        // asked to delete. Each placeholder's bytes are unique (tag + stamp
+        // annotation), so a version with that digest can only be ours.
+        const placeholderIds = new Map();
+        let pending = jobs;
+        for (let attempt = 1;; attempt++) {
+            await this.context.packageRepo.loadPackages(this.context.targetPackage, false);
+            for (const { tag } of pending) {
+                const digest = placeholderDigests.get(tag);
+                const id = digest
+                    ? this.context.packageRepo.getIdByDigest(digest)
+                    : undefined;
+                if (id !== undefined) {
+                    placeholderIds.set(tag, id);
+                }
+            }
+            pending = pending.filter(j => !placeholderIds.has(j.tag));
+            if (pending.length === 0 || attempt >= UNTAG_RELOAD_MAX_ATTEMPTS) {
+                break;
+            }
+            info(`Untag: ${pending.length} placeholder(s) not yet listed; reloading (attempt ${attempt}/${UNTAG_RELOAD_MAX_ATTEMPTS})`);
+            await sleep(UNTAG_RELOAD_BACKOFF_MS * attempt);
+        }
+        // Delete the confirmed placeholder versions in parallel. The id was
+        // captured when its digest was listed, so a later stale snapshot
+        // can't redirect the delete.
+        await runWithConcurrency(jobs.filter(j => placeholderIds.has(j.tag)), UNTAG_WRITE_CONCURRENCY, async ({ tag }) => {
+            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, placeholderIds.get(tag), placeholderDigests.get(tag), [tag]);
+        });
+        endGroup();
+        // A placeholder that never appeared was not deleted: its tag still
+        // exists in the registry (pointing at the empty placeholder), so the
+        // untag this run was asked to do is incomplete. Fail loudly rather
+        // than report success — and rather than leave the rest of the run
+        // (e.g. keep-n-tagged) acting on a listing that is still catching up.
+        // Nothing else was deleted for these tags; the source image is intact.
+        if (pending.length > 0) {
+            const left = pending
+                .map(({ tag }) => `"${tag}" (placeholder ${placeholderDigests.get(tag)})`)
+                .join(', ');
+            throw new Error(`Untag incomplete: the empty placeholder version for ${left} never appeared in the package list after ${UNTAG_RELOAD_MAX_ATTEMPTS} reloads, so it was not deleted. The source image was not touched. The tag still exists and now points at the empty placeholder; re-run the cleanup once the package list has caught up.`);
+        }
+        return {
+            movedTags,
+            deletedPlaceholders: jobs.map(j => placeholderDigests.get(j.tag))
+        };
+    }
+    /**
+     * Delete a single image and its children.
+     *
+     * Order is parent-first, then children. Same as the previous serial
+     * implementation — keeps the failure profile of "parent gone, some
+     * children may remain" rather than introducing the worse "children
+     * gone, parent intact" profile. Children fan out with bounded
+     * concurrency ({@link CHILD_DELETE_CONCURRENCY}) inside this method;
+     * the calling deleteImages loop stays sequential at the top level.
+     *
+     * The `logger` is threaded through every log call (this method's own
+     * "skipping" lines, the underlying packageRepo.deletePackageVersion,
+     * and recursive sub-deleteImage calls for referrers). The top-level
+     * deleteImages loop hands each invocation a {@link BufferedLogger}
+     * and flushes after the whole tree completes, so a parent and its
+     * descendants emit as one contiguous block in the workflow log
+     * instead of interleaving with sibling parents' children.
+     */
+    async deleteImage(ghPackage, logger = consoleLogger) {
+        if (this.deleted.has(ghPackage.name)) {
+            return { deleted: 0, multiDeleted: 0 };
+        }
+        // Claim this digest synchronously before any await. Without the
+        // claim, two parallel callers (e.g. dual-path cosign: the same
+        // signature reached via both its sha256-*.sig tag and its OCI 1.1
+        // subject descriptor) would both pass the has() check, both fetch
+        // the manifest, both fire DELETE — one wins, one 404s. This entry
+        // is unconditional because deleteImage is only ever invoked when
+        // we've already committed to deleting `ghPackage` (top-level
+        // deleteSet member, or cascade from a parent that's being
+        // deleted). Reference-count-gated deletes go through
+        // deletePlatformChild instead and claim only after the gate
+        // passes — see that method.
+        this.deleted.add(ghPackage.name);
+        const manifest = await this.context.registry.getManifestByDigest(ghPackage.name);
+        await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags, undefined, logger);
+        let imagesDeleted = 1;
+        let multiImagesDeleted = 0;
+        // Collect child-delete jobs from three sources (multi-arch platforms,
+        // sha256-* fallback referrers, OCI 1.1 subject referrers) and run
+        // them under a single shared concurrency budget.
+        //
+        // Concurrency safety: the shared maps (this.deleted, this.digestUsedBy,
+        // parents sets) are read and mutated by multiple parallel tasks. We
+        // rely on two invariants to stay correct:
+        //   (1) Every code path that decides to issue a DELETE first
+        //       synchronously claims the target digest via this.deleted.add
+        //       BEFORE any await. The next task to enter for the same digest
+        //       sees the claim at its has() check and short-circuits.
+        //   (2) The reference-count gate in deletePlatformChild (parents.size
+        //       === 1 && parents.has(parent.name)) is evaluated synchronously,
+        //       and the skip branch's parents.delete(...) is also synchronous,
+        //       so two parallel tasks racing on a shared child are serialized
+        //       through the JS event loop without an explicit lock.
+        const childJobs = [];
+        if (manifest.manifests) {
+            // An empty index (e.g. an untag placeholder) isn't a multi-arch image.
+            if (manifest.manifests.length > 0) {
+                multiImagesDeleted += 1;
+            }
+            for (const imageManifest of manifest.manifests) {
+                childJobs.push(async () => await this.deletePlatformChild(ghPackage, imageManifest, logger));
+            }
+        }
+        // sha256-* fallback referrer tags (cosign default, attestations).
+        // Pre-built reverse index — O(1) lookup instead of scanning every
+        // tag in the repo for every digest we delete.
+        const referrerTags = this.context.packageRepo.getReferrerTagsForDigest(ghPackage.name);
+        for (const tag of referrerTags) {
+            childJobs.push(async () => await this.deleteReferrerByTag(tag, logger));
+        }
+        // OCI 1.1 subject-bearing referrers. ghcr.io doesn't tag these with a
+        // sha256-* fallback when the publisher uses --registry-referrers-mode
+        // oci-1-1 (or equivalent), so we follow the reverse index built by
+        // ManifestAnalyzer.
+        const referrers = this.subjectReferrers.get(ghPackage.name);
+        if (referrers) {
+            for (const referrerDigest of referrers) {
+                childJobs.push(async () => await this.deleteReferrerByDigest(referrerDigest, logger));
+            }
+        }
+        await runWithConcurrency(childJobs, CHILD_DELETE_CONCURRENCY, async (job) => {
+            const result = await job();
+            imagesDeleted += result.deleted;
+            multiImagesDeleted += result.multiDeleted;
+        });
+        return { deleted: imagesDeleted, multiDeleted: multiImagesDeleted };
+    }
+    /**
+     * Delete one entry from a multi-arch manifest's `manifests[]` array if
+     * this parent is its only reference. If the child is shared with
+     * another parent, log and decrement the parent set instead.
+     */
+    async deletePlatformChild(parent, imageManifest, logger) {
+        const manifestPackage = this.context.packageRepo.getPackageByDigest(imageManifest.digest);
+        if (!manifestPackage || this.deleted.has(manifestPackage.name)) {
+            return { deleted: 0, multiDeleted: 0 };
+        }
+        const parents = this.digestUsedBy.get(manifestPackage.name);
+        if (!parents) {
+            return { deleted: 0, multiDeleted: 0 };
+        }
+        if (parents.size === 1 && parents.has(parent.name)) {
+            // Claim the digest synchronously now that the reference-count
+            // gate has passed. The gate (parents.size === 1) is what
+            // distinguishes "I am the last parent and should delete" from
+            // "another parent still references this child." Once that
+            // decision is made, the claim prevents a duplicate-listing race
+            // (same digest appearing twice in one parent's manifest.manifests
+            // → two parallel deletePlatformChild tasks both passing the
+            // gate) from firing two DELETEs. Removing the digestUsedBy entry
+            // is part of the same synchronous "this is mine, nobody else
+            // gets it" transition.
+            this.deleted.add(manifestPackage.name);
+            this.digestUsedBy.delete(manifestPackage.name);
+            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.manifestAnalyzer.buildLabel(imageManifest), logger);
+            return { deleted: 1, multiDeleted: 0 };
+        }
+        logger.info(` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`);
+        parents.delete(parent.name);
+        return { deleted: 0, multiDeleted: 0 };
+    }
+    /**
+     * Resolve a sha256-* fallback referrer tag to its package and cascade.
+     */
+    async deleteReferrerByTag(tag, logger) {
+        const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
+        if (!manifestDigest)
+            return { deleted: 0, multiDeleted: 0 };
+        const attestationPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
+        if (!attestationPackage)
+            return { deleted: 0, multiDeleted: 0 };
+        return await this.deleteImage(attestationPackage, logger);
+    }
+    /**
+     * Resolve an OCI 1.1 subject-bearing referrer digest and cascade.
+     * Short-circuits when the referrer was already deleted via another
+     * path (e.g. it also had a sha256-* fallback tag).
+     */
+    async deleteReferrerByDigest(digest, logger) {
+        if (this.deleted.has(digest))
+            return { deleted: 0, multiDeleted: 0 };
+        const referrerPackage = this.context.packageRepo.getPackageByDigest(digest);
+        if (!referrerPackage)
+            return { deleted: 0, multiDeleted: 0 };
+        return await this.deleteImage(referrerPackage, logger);
+    }
+    /**
+     * Delete all images in the delete set
+     * @param deleteSet digests to delete
+     * @param afterDelete optional hook that runs INSIDE the "Deleting
+     *   packages" log group after the deletes finish but before the group
+     *   closes — lets callers (the orchestrator) emit related log lines
+     *   under the same group instead of having them dangle afterward.
+     */
+    async deleteImages(deleteSet, afterDelete) {
+        // Prime manifests
+        await this.manifestAnalyzer.primeManifests(deleteSet);
+        startGroup(`[${this.context.targetPackage}] Deleting packages`);
+        let totalDeleted = 0;
+        let totalMultiDeleted = 0;
+        if (deleteSet.size > 0) {
+            for (const deleteDigest of deleteSet) {
+                const deleteImage = this.context.packageRepo.getPackageByDigest(deleteDigest);
+                if (!deleteImage) {
+                    throw new Error(`cache invariant: digest ${deleteDigest} not in package cache`);
+                }
+                // Each top-level delete gets its own buffer. Child fan-out
+                // inside deleteImage runs concurrently, so streaming straight
+                // to core.info would interleave a parent's children with the
+                // recursive sub-trees of its referrers. Buffering keeps the
+                // unit (parent + all descendants) emitted as one contiguous
+                // block in the workflow log.
+                //
+                // The flush sits in a finally so a thrown error mid-tree still
+                // emits whatever the tree managed to log before the throw —
+                // the successful parent delete, completed child deletes, any
+                // 404 warnings, etc. Losing that audit trail because a later
+                // sibling failed makes diagnosis much harder, as observed in
+                // the v1.2.0 atomicos report where the parent's successful
+                // delete was invisible.
+                const logger = new BufferedLogger();
+                try {
+                    const result = await this.deleteImage(deleteImage, logger);
+                    totalDeleted += result.deleted;
+                    totalMultiDeleted += result.multiDeleted;
+                }
+                finally {
+                    logger.flush();
+                }
+            }
+        }
+        else {
+            info(`Nothing to delete`);
+        }
+        if (afterDelete) {
+            afterDelete(this.deleted);
+        }
+        endGroup();
+        return {
+            deleted: this.deleted,
+            numberImagesDeleted: totalDeleted,
+            numberMultiImagesDeleted: totalMultiDeleted
+        };
+    }
+}
+
+;// CONCATENATED MODULE: ./src/cleanup-orchestrator.ts
+
+
+
+
+
+
+
+
+
+/**
+ * Orchestrates the cleanup process using modular components
+ */
+class CleanupOrchestrator {
+    config;
+    targetPackage;
+    octokitClient;
+    packageRepo;
+    registry;
+    context;
+    manifestCache;
+    // Modules
+    imageFilter;
+    manifestAnalyzer;
+    imageValidator;
+    deletionStrategy;
+    imageDeleter = null;
+    // State
+    filterSet = new Set();
+    deleteSet = new Set();
+    excludeTags = [];
+    digestUsedBy = new Map();
+    subjectReferrers = new Map();
+    statistics;
+    constructor(config, targetPackage, octokitClient, manifestCache = null) {
+        this.config = config;
+        this.targetPackage = targetPackage;
+        this.octokitClient = octokitClient;
+        this.manifestCache = manifestCache;
+        this.packageRepo = new PackageRepo(config, octokitClient);
+        this.registry = new Registry(config, this.packageRepo, manifestCache);
+        this.statistics = new CleanupTaskStatistics(targetPackage, 0, 0);
+        // Create context for modules
+        this.context = {
+            config,
+            registry: this.registry,
+            packageRepo: this.packageRepo,
+            targetPackage
+        };
+        // Initialize modules
+        this.imageFilter = new ImageFilter(this.context);
+        this.manifestAnalyzer = new ManifestAnalyzer(this.context);
+        this.imageValidator = new ImageValidator(this.context);
+        this.deletionStrategy = new DeletionStrategy(this.context);
+    }
+    async init() {
+        await this.registry.login(this.targetPackage);
+    }
+    async reload() {
+        // Prime the list of current packages. The afterLoad callback runs
+        // inside the "[Loaded package data]" log group, so the manifest-
+        // cache prune's diagnostic line lands inside that group rather than
+        // floating alone above subsequent groups.
+        //
+        // The prune itself: drop cached manifest entries whose digests no
+        // longer exist in the package list. Without this, the cross-run
+        // cache accumulates entries for deleted packages forever — they'll
+        // never come back (digests are content-addressed) so they're pure
+        // bloat.
+        await this.packageRepo.loadPackages(this.targetPackage, true, () => {
+            this.manifestCache?.prune(this.packageRepo.getDigests());
+        });
+        await this.analyze();
+    }
+    /**
+     * Rebuild everything derived from the package list held in packageRepo:
+     * the relationship maps, the deleter, the filter set, exclusions and the
+     * age filter. reload() runs this after fetching the list; after an
+     * untag it can also run on the list packageRepo already holds (see
+     * run()).
+     */
+    async analyze() {
+        this.deleteSet.clear();
+        // Build digestUsedBy + subjectReferrers maps in one pass
+        const analysis = await this.manifestAnalyzer.loadDigestUsedByMap();
+        this.digestUsedBy = analysis.digestUsedBy;
+        this.subjectReferrers = analysis.subjectReferrers;
+        // Initialize imageDeleter with both relationship maps
+        this.imageDeleter = new ImageDeleter(this.context, this.digestUsedBy, this.subjectReferrers);
+        // Initialize filterSet - remove manifest image children, referrers etc
+        this.filterSet = await this.manifestAnalyzer.initFilterSet(this.subjectReferrers);
+        // Apply exclusion filters
+        this.excludeTags = this.imageFilter.applyExclusionFilters(this.filterSet);
+        // Apply age filter
+        this.imageFilter.applyAgeFilter(this.filterSet);
+    }
+    async run() {
+        // Process tag deletions first - to support untagging
+        if (this.config.deleteTags) {
+            const plan = await this.deletionStrategy.processTagDeletions(this.filterSet, this.excludeTags);
+            // When keep-n-tagged is set, gate the untag operations: any image that
+            // keep-n-tagged would protect must not be partially untagged here.
+            // Otherwise multi-tagged images in the keep set get a matched tag
+            // stripped before keep-n-tagged runs, defeating its protection.
+            if (this.config.keepNtagged != null && plan.untagOperations.size > 0) {
+                const keepSet = this.deletionStrategy.computeKeepNTaggedDigests(this.filterSet);
+                for (const digest of keepSet) {
+                    plan.untagOperations.delete(digest);
+                }
+            }
+            // Perform untagging if needed
+            let reloadOccurred = false;
+            if (plan.untagOperations.size > 0) {
+                if (!this.imageDeleter) {
+                    throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
+                }
+                const listedBefore = this.packageRepo.getDigests();
+                const untag = await this.imageDeleter.performUntagging(plan.untagOperations);
+                if (untag) {
+                    // performUntagging left packageRepo holding its own post-untag
+                    // reload (or, in a dry run, the simulated untag). Reuse it when
+                    // it provably reflects the untag; otherwise reload from the API
+                    // as before. On large repos this saves a full package listing.
+                    if (this.packageRepo.applyUntag(untag, listedBefore)) {
+                        info('Untagging done; re-planning from the updated package list');
+                        this.manifestCache?.prune(this.packageRepo.getDigests());
+                        await this.analyze();
+                    }
+                    else {
+                        info('Reloading action due to untagging');
+                        await this.reload();
+                    }
+                    reloadOccurred = true;
+                }
+            }
+            // Only process the original plan if we didn't reload
+            // If we reloaded, we need to re-process tag deletions
+            if (!reloadOccurred) {
+                for (const digest of plan.deleteSet) {
+                    this.deleteSet.add(digest);
+                }
+            }
+            else {
+                // After reload, re-process tag deletions to pick up images
+                // whose deletion candidacy depended on tags that survived the
+                // first pass (e.g. multi-tagged images whose untag was gated
+                // out by keep-n-tagged — their other tags are still present
+                // and may now resolve to a delete-set entry).
+                //
+                // We only ingest newPlan.deleteSet — newPlan.untagOperations
+                // is intentionally dropped. When keep-n-tagged gates a
+                // multi-tagged image out of the first pass's untag list, that
+                // image still has the matched tag after reload, so the second
+                // pass re-derives the same untag operation. Re-running it
+                // would defeat the keep-n-tagged protection that filtered it
+                // out in the first place — re-applying the gate here would
+                // simply remove the same entry again. Skipping the work is
+                // equivalent and avoids a redundant gate computation.
+                const newPlan = await this.deletionStrategy.processTagDeletions(this.filterSet, this.excludeTags);
+                for (const digest of newPlan.deleteSet) {
+                    this.deleteSet.add(digest);
+                }
+            }
+        }
+        // Process ghost/partial/orphaned images. These are independent `if`
+        // blocks, not an if/else: the two finders return disjoint sets
+        // (findPartialImages excludes the all-children-missing case, which is
+        // exactly what findGhostImages matches), so with both options set a
+        // user asking to delete both categories gets both. An `else if` here
+        // silently dropped every ghost image whenever delete-partial-images
+        // was also on.
+        if (this.config.deletePartialImages) {
+            const partialImages = await this.imageValidator.findPartialImages(this.filterSet);
+            for (const digest of partialImages) {
+                this.deleteSet.add(digest);
+                this.filterSet.delete(digest);
+            }
+        }
+        if (this.config.deleteGhostImages) {
+            const ghostImages = await this.imageValidator.findGhostImages(this.filterSet);
+            for (const digest of ghostImages) {
+                this.deleteSet.add(digest);
+                this.filterSet.delete(digest);
+            }
+        }
+        if (this.config.deleteOrphanedImages) {
+            const orphanedImages = this.imageValidator.findOrphanedImages(this.subjectReferrers, this.excludeTags, this.digestUsedBy);
+            for (const digest of orphanedImages) {
+                this.deleteSet.add(digest);
+                this.filterSet.delete(digest);
+            }
+        }
+        // Process keep-n policies
+        if (this.config.keepNtagged != null) {
+            const toDelete = this.deletionStrategy.keepNTagged(this.filterSet);
+            for (const digest of toDelete) {
+                this.deleteSet.add(digest);
+            }
+        }
+        if (this.config.keepNuntagged != null) {
+            const toDelete = this.deletionStrategy.keepNUntagged(this.filterSet);
+            for (const digest of toDelete) {
+                this.deleteSet.add(digest);
+            }
+        }
+        else if (this.config.deleteUntagged) {
+            const toDelete = this.deletionStrategy.deleteAllUntagged(this.filterSet);
+            for (const digest of toDelete) {
+                this.deleteSet.add(digest);
+            }
+        }
+        // Perform the actual deletion
+        if (!this.imageDeleter) {
+            throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
+        }
+        // The afterDelete hook fires inside the "Deleting packages" log
+        // group so the "pruned N stale entries" line lands under the same
+        // collapsible section as the deletes that caused it. Reload-time
+        // prune only saw pre-deletion state; without this, a run that
+        // deleted 5000 packages would persist 5000 dead entries until the
+        // next run's reload prune caught them.
+        const result = await this.imageDeleter.deleteImages(this.deleteSet, deleted => {
+            if (this.manifestCache && deleted.size > 0) {
+                const stillAlive = new Set(this.packageRepo.getDigests());
+                for (const digest of deleted) {
+                    stillAlive.delete(digest);
+                }
+                this.manifestCache.prune(stillAlive);
+            }
+        });
+        this.statistics.numberImagesDeleted = result.numberImagesDeleted;
+        this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
+        this.statistics.deletedDigests = [...result.deleted];
+        // Print statistics
+        this.statistics.print();
+        // Run validation if requested
+        if (this.config.validate) {
+            info(` [${this.targetPackage}] Running Validation Task `);
+            await this.reload();
+            await this.imageValidator.validate(this.subjectReferrers);
+            info('');
+        }
+        return this.statistics;
+    }
+}
+
 ;// CONCATENATED MODULE: ./node_modules/@actions/glob/lib/internal-glob-options-helper.js
 
 /**
@@ -121895,19 +123833,28 @@ function saveCacheV2(paths_1, key_1, options_1) {
 
 
 
+
 // Schema version baked into cache keys. Bump when the on-disk record shape
 // changes — old entries become unreadable and LRU out on their own.
-const CACHE_SCHEMA_VERSION = 'v1';
+// v2: each record holds the manifest's exact text, verified against its
+// digest on restore (v1 held an unverifiable distilled summary).
+const CACHE_SCHEMA_VERSION = 'v2';
 /**
- * Cross-run cache of distilled manifest data, keyed by digest.
+ * Cross-run cache of manifests, keyed by digest.
  *
- * Manifests are content-addressed (`sha256:<hash>` IS the SHA256 of the
- * manifest body), so cache hits are correct by construction — there is no
- * staleness possible for a given digest. Mutable state (package list,
- * tags, which digests still exist) is *not* cached here; it must come
- * from a fresh API call.
+ * Each entry is the manifest's exact text as the registry served it. A
+ * manifest's digest (`sha256:<hex>`) is the hash of those exact bytes, so
+ * every entry is checked against its digest on restore and on set().
+ * set() refuses text that does not match; on restore, a single entry that
+ * does not verify discards the whole restored cache, and every manifest
+ * is fetched from the registry instead. Anything that can write to the
+ * repository's Actions cache can therefore corrupt it, but cannot make
+ * the action act on a manifest the registry would not serve — the
+ * delete cascade (children, referrers, orphan checks) only ever sees
+ * verified manifests. Mutable state (package list, tags, which digests
+ * still exist) is *not* cached here; it comes from a fresh API call.
  *
- * Key scheme: `ghcr-manifest-v1-<owner>-<package>-<GITHUB_RUN_ID>`. One
+ * Key scheme: `ghcr-manifest-v2-<owner>-<package>-<GITHUB_RUN_ID>`. One
  * key per workflow run, written once at the end via `save()`. Next run's
  * `restore()` finds the most-recent entry via the prefix restoreKey
  * fallback. @actions/cache entries are immutable once written, so we
@@ -121915,14 +123862,18 @@ const CACHE_SCHEMA_VERSION = 'v1';
  * write unique while the prefix lets every future run find the latest.
  *
  * Multi-invocation workflows (e.g. matrix jobs that all touch the same
- * package): the first invocation's save wins; later jobs restore from
- * it but hit a `-1` from saveCache on their own attempt — those
- * invocations' incremental fetches are not persisted, which is fine
- * because the typical workload invokes the action once per workflow.
+ * package): they share one key, and a key can be written only once, so
+ * the first invocation's save wins; later jobs restore from it but get
+ * `-1` from saveCache on their own attempt — those invocations'
+ * incremental fetches are not persisted, which is fine because the
+ * typical workload invokes the action once per workflow. saveCache also
+ * returns `-1` when the runner makes the cache read-only for the run
+ * (ACTIONS_CACHE_MODE=read, e.g. on some pull request runs).
  *
  * No-op outside GitHub Actions runners (local dev, unit tests).
  */
 class ManifestCache {
+    // digest -> the manifest's exact text, verified against the digest
     map = new Map();
     packageName;
     cacheDir;
@@ -121930,7 +123881,7 @@ class ManifestCache {
     key;
     restoreKeys;
     enabled;
-    // Hit/miss counters for the distilled cache. Only `get()` updates
+    // Hit/miss counters for the cross-run cache. Only `get()` updates
     // these, so within-run reuse via Registry.manifestCache (in-memory
     // Map) doesn't skew the cross-run effectiveness signal logged at
     // save() time.
@@ -121976,6 +123927,10 @@ class ManifestCache {
         // hit for X, tar -xf ..., Cache restored successfully) is captured
         // under a single collapsible section.
         startGroup(`[${this.packageName}] Restoring manifest cache`);
+        // Set when the restored file is discarded as untrustworthy: the next
+        // save() must then replace it, even with an empty cache, so the bad
+        // file stops being the newest entry future runs restore.
+        let discarded = false;
         try {
             await external_fs_.promises.mkdir(this.cacheDir, { recursive: true });
             const hitKey = await restoreCache([this.cacheDir], this.key, this.restoreKeys);
@@ -121984,16 +123939,17 @@ class ManifestCache {
                 return;
             }
             const stats = await this.loadFromDisk();
-            if (stats.skipped > 0) {
-                warning(`manifest cache: skipped ${stats.skipped} malformed entries from ${hitKey}`);
-            }
-            // The file was reachable but unsalvageable (e.g. truncated upload,
-            // partial write from an earlier crash). Treat it as a cold start —
-            // the next save() will overwrite with a clean copy. Entries are
-            // content-addressed so the "lost" data costs only a refetch.
-            if (stats.loaded === 0 && stats.skipped > 0) {
+            // The cache is used only if every record in it verifies. This
+            // action writes every record, so one that does not verify, or is
+            // not a record at all, means the file was corrupted or tampered
+            // with, and nothing else in it can be trusted either: discard the
+            // whole file and start cold. That costs only refetches.
+            if (stats.skipped + stats.rejected > 0) {
+                const bad = stats.skipped + stats.rejected;
+                const total = stats.loaded + bad;
                 this.map.clear();
-                warning('manifest cache: file appears corrupt, discarding and starting cold');
+                discarded = true;
+                warning(`manifest cache: ${bad} of ${total} entries in ${hitKey} failed verification (${stats.rejected} not matching their digest, ${stats.skipped} malformed); the cache may have been corrupted or tampered with, so the whole cache is discarded and every manifest will be fetched from the registry`);
                 return;
             }
             info(`manifest cache: restored ${this.map.size} entries from ${hitKey}`);
@@ -122008,10 +123964,10 @@ class ManifestCache {
         }
         finally {
             // restore() established the baseline against which dirty is
-            // measured. Whether we loaded entries, started cold, or recovered
-            // from corruption, what's in `map` right now matches what we'd
-            // want to save — nothing to upload until something changes.
-            this.dirty = false;
+            // measured: what's in `map` now matches what we'd want to save, so
+            // there is nothing to upload until something changes — except
+            // after a discard, when the bad file must be replaced.
+            this.dirty = discarded;
             endGroup();
         }
     }
@@ -122025,7 +123981,7 @@ class ManifestCache {
             this.logEffectiveness();
             return;
         }
-        if (this.map.size === 0) {
+        if (this.map.size === 0 && !this.dirty) {
             this.logEffectiveness();
             return;
         }
@@ -122044,14 +124000,15 @@ class ManifestCache {
         try {
             await external_fs_.promises.mkdir(this.cacheDir, { recursive: true });
             await this.writeToDisk();
-            // saveCache returns the cacheId on success, or -1 when the
-            // reserve step fails (e.g. an earlier job in this same workflow
-            // already wrote this key). The library logs its own
-            // "Failed to save: ..." line without throwing, so the return
-            // value is the only honest signal of success.
+            // saveCache returns the cacheId on success, or -1 when it did not
+            // save: the runner made the cache read-only for this run, an
+            // earlier job in this workflow already wrote this key, or the
+            // upload failed. The library logs the actual reason itself without
+            // throwing, so the return value is the only honest signal, and
+            // this message must not guess which reason it was.
             const cacheId = await cache_saveCache([this.cacheDir], this.key);
             if (cacheId === -1) {
-                info(`manifest cache: ${this.key} already saved by an earlier job in this workflow; skipping`);
+                info(`manifest cache: not saved as ${this.key} (reason logged above); the next run restores the newest saved cache`);
             }
             else {
                 info(`manifest cache: saved ${this.map.size} entries as ${this.key}`);
@@ -122067,22 +124024,44 @@ class ManifestCache {
             endGroup();
         }
     }
+    /**
+     * The cached manifest for `digest`, parsed from its verified text, or
+     * undefined on a miss. An entry that does not parse is dropped and
+     * counted as a miss, so the caller fetches it from the registry.
+     */
     get(digest) {
-        const value = this.map.get(digest);
-        if (value) {
-            this.hits++;
+        const text = this.map.get(digest);
+        if (text !== undefined) {
+            try {
+                const manifest = parseManifest(text);
+                this.hits++;
+                return manifest;
+            }
+            catch {
+                this.map.delete(digest);
+                this.dirty = true;
+            }
         }
-        else {
-            this.misses++;
-        }
-        return value;
+        this.misses++;
+        return undefined;
     }
     getStats() {
         return { hits: this.hits, misses: this.misses };
     }
-    set(digest, distilled) {
-        this.map.set(digest, distilled);
+    /**
+     * Cache a manifest's exact text under its digest. The text is checked
+     * against the digest here too, so nothing unverified can enter the
+     * cache (see {@link textMatchesDigest}).
+     *
+     * @returns true if the entry was cached
+     */
+    set(digest, text) {
+        if (!textMatchesDigest(digest, text)) {
+            return false;
+        }
+        this.map.set(digest, text);
         this.dirty = true;
+        return true;
     }
     size() {
         return this.map.size;
@@ -122111,7 +124090,7 @@ class ManifestCache {
         return dropped;
     }
     /**
-     * Single-line summary of how often the distilled cache short-
+     * Single-line summary of how often the cross-run cache short-
      * circuited a registry fetch this run. Surfaces in the workflow log
      * so users can see the cache is actually doing something.
      */
@@ -122135,27 +124114,32 @@ class ManifestCache {
         catch {
             // File missing means the cache key existed but the archive was
             // empty or had unexpected contents — treat as a cold start.
-            return { loaded: 0, skipped: 0 };
+            return { loaded: 0, skipped: 0, rejected: 0 };
         }
         let loaded = 0;
         let skipped = 0;
+        let rejected = 0;
         for (const line of raw.split('\n')) {
             if (!line)
                 continue;
             try {
                 const parsed = JSON.parse(line);
-                const { digest, ...rest } = parsed;
-                if (typeof digest === 'string' && digest.length > 0) {
+                const { digest, manifest } = (parsed ?? {});
+                if (typeof digest !== 'string' || typeof manifest !== 'string') {
+                    // Parsed JSON but not a record. Treat as structurally invalid —
+                    // equivalent to a JSON.parse failure.
+                    skipped++;
+                }
+                else if (!textMatchesDigest(digest, manifest)) {
+                    // The text is not the manifest this digest names. Never use it.
+                    rejected++;
+                }
+                else {
                     // set the map directly rather than going through `this.set`,
                     // which would flip the dirty flag — loading from disk is the
                     // baseline, not a change.
-                    this.map.set(digest, rest);
+                    this.map.set(digest, manifest);
                     loaded++;
-                }
-                else {
-                    // Parsed JSON but the digest field is missing/blank. Treat as
-                    // structurally invalid — equivalent to a JSON.parse failure.
-                    skipped++;
                 }
             }
             catch {
@@ -122164,1940 +124148,26 @@ class ManifestCache {
                 skipped++;
             }
         }
-        return { loaded, skipped };
+        return { loaded, skipped, rejected };
     }
     async writeToDisk() {
         const lines = [];
-        for (const [digest, distilled] of this.map) {
-            lines.push(JSON.stringify({ digest, ...distilled }));
+        for (const [digest, manifest] of this.map) {
+            lines.push(JSON.stringify({ digest, manifest }));
         }
         await external_fs_.promises.writeFile(this.cachePath, `${lines.join('\n')}\n`);
     }
 }
 /**
- * Extract the subset of a registry manifest we want to persist across runs.
+ * True when `text` is exactly the manifest `digest` names. The text must
+ * be well-formed: UTF-8 encoding turns a lone surrogate into the bytes of
+ * U+FFFD, so without this check a different string could encode to the
+ * verified bytes. Text from bytes that were not valid UTF-8 fails too,
+ * since its encoding is not the bytes the digest covers.
  */
-function distillManifest(manifest) {
-    const distilled = {};
-    if (manifest.mediaType) {
-        distilled.mediaType = manifest.mediaType;
-    }
-    if (manifest.manifests && manifest.manifests.length > 0) {
-        distilled.manifestEntries = manifest.manifests.map(entry => ({
-            digest: entry.digest,
-            mediaType: entry.mediaType,
-            artifactType: entry.artifactType,
-            platform: entry.platform,
-            size: entry.size
-        }));
-    }
-    if (manifest.subject?.digest) {
-        distilled.subjectDigest = manifest.subject.digest;
-    }
-    if (manifest.layers && manifest.layers.length > 0) {
-        distilled.firstLayerMediaType = manifest.layers[0].mediaType;
-    }
-    return distilled;
-}
-/**
- * Rebuild a Manifest-shaped object from a distilled record so existing
- * callers can read it the same way they read a registry response.
- *
- * Only the fields used by the cleanup pipeline (analyzer, deleter
- * cascade, validator) are populated. In particular `layers[0]` carries
- * the original mediaType but its `digest`/`size` are placeholders —
- * never trust them. The untag-PUT path must use
- * Registry.getRawManifestByDigest, which always fetches the full body
- * from the registry.
- */
-function reconstituteManifest(distilled) {
-    const manifest = {};
-    if (distilled.mediaType) {
-        manifest.mediaType = distilled.mediaType;
-    }
-    if (distilled.manifestEntries) {
-        manifest.manifests = distilled.manifestEntries;
-    }
-    if (distilled.subjectDigest) {
-        manifest.subject = { digest: distilled.subjectDigest };
-    }
-    if (distilled.firstLayerMediaType) {
-        manifest.layers = [
-            {
-                mediaType: distilled.firstLayerMediaType,
-                digest: '',
-                size: 0
-            }
-        ];
-    }
-    return manifest;
-}
-
-;// CONCATENATED MODULE: ./src/registry.ts
-
-
-
-
-
-
-
-
-
-/**
- * Provides access to the GitHub Container Registry via the Docker Registry HTTP API V2.
- */
-class Registry {
-    // The action configuration
-    config;
-    // Reference to the package cache
-    githubPackageRepo;
-    // http client library instance
-    axios;
-    // registry url
-    baseUrl;
-    // current package working on
-    targetPackage = '';
-    // cache of loaded manifests, by digest
-    manifestCache = new Map();
-    // Cross-run distilled cache. Optional — null disables persistent caching
-    // (e.g. when running outside a GitHub Actions runner).
-    distilledCache;
-    // Shared client for token-exchange calls (used by both login and
-    // putManifest). Carries the same 429 retry condition as `this.axios`
-    // — the token endpoint is rate-limited under bursty fan-out just like
-    // the manifest endpoints.
-    authClient;
-    // Memoised push-scope token for putManifest. The first untag PUT pays
-    // a 401-challenge round-trip; subsequent PUTs reuse this until expiry.
-    // Cleared on login() (which switches targetPackage and therefore
-    // invalidates the scope) and on any 401 from a subsequent PUT.
-    pushToken = null;
-    /**
-     * Constructor
-     *
-     * @param config The action configuration
-     * @param githubPackageRepo The package repo cache
-     * @param distilledCache Optional cross-run manifest cache
-     */
-    constructor(config, githubPackageRepo, distilledCache = null) {
-        this.config = config;
-        this.githubPackageRepo = githubPackageRepo;
-        this.distilledCache = distilledCache;
-        if (this.config.registryUrl) {
-            this.baseUrl = this.config.registryUrl;
-        }
-        else {
-            this.baseUrl = 'https://ghcr.io/';
-        }
-        this.axios = lib_axios.create({
-            baseURL: this.baseUrl,
-            timeout: REGISTRY_REQUEST_TIMEOUT_MS
-        });
-        // Retry 429 rate limits (which surface from ghcr.io under bursty
-        // parallel reads: manifest fan-out, untag PUTs), plus transient
-        // failures of idempotent requests, honouring Retry-After. See
-        // http-retry.ts for the exact rules.
-        installRetry(this.axios);
-        // The token-exchange client gets the same retry posture: token
-        // endpoint 429s would otherwise surface as bare failures under
-        // parallel untag PUTs.
-        this.authClient = lib_axios.create({ timeout: REGISTRY_REQUEST_TIMEOUT_MS });
-        installRetry(this.authClient);
-        this.axios.defaults.headers.common['Accept'] =
-            'application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json';
-        (0,lib/* setGlobalConfig */.e1)({
-            data: false,
-            logger: info
-        });
-        // set the axios logging on if log level is debug
-        if (this.config.logLevel === LogLevel.DEBUG) {
-            this.axios.interceptors.request.use(lib/* requestLogger */.q3);
-            this.axios.interceptors.response.use(lib/* responseLogger */.KR);
-        }
-    }
-    /**
-     * Logs in to the registry
-     * This method retrieves a token and handles authentication challenges if necessary
-     * @returns A Promise that resolves when the login is successful
-     * @throws If an error occurs during the login process
-     */
-    async login(targetPackage) {
-        // reset the cache
-        this.manifestCache.clear();
-        // Drop any push token cached for the previous package — its scope
-        // is repository-bound and cannot be reused after the switch.
-        this.pushToken = null;
-        this.targetPackage = targetPackage;
-        try {
-            if (this.config.logLevel === LogLevel.DEBUG) {
-                info('issuing an authentication challenge');
-            }
-            // get token
-            await this.axios.get(`/v2/${this.config.owner}/${targetPackage}/tags/list`);
-        }
-        catch (error) {
-            if (axios_isAxiosError(error) && error.response) {
-                if (error.response?.status === 401) {
-                    const challenge = error.response?.headers['www-authenticate'];
-                    if (!challenge) {
-                        throw new Error(`${this.baseUrl} returned 401 without a www-authenticate challenge; cannot authenticate`, { cause: error });
-                    }
-                    const attributes = parseChallenge(challenge);
-                    if (isValidChallenge(attributes)) {
-                        const tokenResponse = await this.fetchRegistryToken(attributes);
-                        const token = tokenResponse.token;
-                        if (token) {
-                            // Mask the exchanged registry token like the input token: it
-                            // rides in the default Authorization header, so any error dump
-                            // that includes request config would otherwise print it.
-                            core_setSecret(token);
-                            this.axios.defaults.headers.common['Authorization'] =
-                                `Bearer ${token}`;
-                            if (this.config.logLevel === LogLevel.DEBUG) {
-                                info('authentication challenge succeded');
-                            }
-                        }
-                        else {
-                            // Do not stringify tokenResponse into the message — an
-                            // auth-endpoint body can carry a credential, and this
-                            // reaches the (possibly public) job log via setFailed.
-                            throw new Error(`${this.baseUrl} login failed: token service returned no token`, { cause: error });
-                        }
-                    }
-                    else {
-                        throw new Error(`invalid www-authenticate challenge ${challenge}`, {
-                            cause: error
-                        });
-                    }
-                }
-                else {
-                    // Report through the thrown error only: main's catch calls
-                    // setFailed once, with this message.
-                    throw new Error(`Error logging into registry API with package: ${targetPackage} (HTTP ${error.response.status})`, { cause: error });
-                }
-            }
-            else {
-                // Non-axios error or error without a response — rethrow so caller sees it
-                throw error;
-            }
-        }
-    }
-    /**
-     * Exchange a www-authenticate challenge for a bearer token using the
-     * shared {@link authClient}. Returns the raw token-service response
-     * so callers can read both `token` and `expires_in` if present.
-     *
-     * Docker token spec: https://distribution.github.io/distribution/spec/auth/token/
-     */
-    async fetchRegistryToken(attributes) {
-        // Validates the realm before the token is attached (see buildTokenUrl).
-        const tokenUrl = buildTokenUrl(attributes, this.baseUrl, process.env.GITHUB_SERVER_URL);
-        const response = await this.authClient.get(tokenUrl, {
-            auth: {
-                username: 'token',
-                password: this.config.token
-            }
-        });
-        return response.data;
-    }
-    /**
-     * Retrieves a manifest by its digest. May return a reconstituted manifest
-     * sourced from the cross-run distilled cache — sufficient for the cleanup
-     * pipeline's read paths (analyzer, deleter cascade, validator) but NOT
-     * safe for round-tripping back to the registry. The untag-PUT path must
-     * use {@link getRawManifestByDigest} instead.
-     *
-     * @param digest - The digest of the manifest to retrieve
-     */
-    async getManifestByDigest(digest) {
-        const cached = this.manifestCache.get(digest);
-        if (cached) {
-            return cached;
-        }
-        const distilled = this.distilledCache?.get(digest);
-        if (distilled) {
-            const reconstituted = reconstituteManifest(distilled);
-            this.manifestCache.set(digest, reconstituted);
-            return reconstituted;
-        }
-        return await this.fetchAndCacheManifest(digest);
-    }
-    /**
-     * Always hits the registry and returns the full, unmodified manifest body.
-     * Required for the untag flow, which clones the manifest and PUTs it back.
-     */
-    async getRawManifestByDigest(digest) {
-        // If the in-memory cache holds an entry that originated from the
-        // distilled cache, the cloned PUT would be missing fields. Force a
-        // refetch by skipping in-memory cache too — partial entries can't be
-        // distinguished without extra bookkeeping, and a single PUT-path fetch
-        // per untag operation is cheap.
-        return await this.fetchAndCacheManifest(digest);
-    }
-    async fetchAndCacheManifest(digest) {
-        const response = await this.axios.get(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${digest}`, {
-            transformResponse: [
-                data => {
-                    return data;
-                }
-            ]
-        });
-        // ghcr.io's response shape is trusted — no runtime validation.
-        const obj = JSON.parse(response?.data);
-        this.manifestCache.set(digest, obj);
-        if (this.distilledCache) {
-            this.distilledCache.set(digest, distillManifest(obj));
-        }
-        return obj;
-    }
-    /**
-     * Retrieves a manifest by its tag
-     *
-     * @param tag - The tag of the manifest to retrieve
-     * @returns A Promise that resolves to the retrieved manifest
-     */
-    async getManifestByTag(tag) {
-        const tagDigest = this.githubPackageRepo.getDigestByTag(tag);
-        if (tagDigest) {
-            return await this.getManifestByDigest(tagDigest);
-        }
-        return undefined;
-    }
-    /**
-     * Puts the manifest for a given tag in the registry.
-     * @param tag - The tag of the manifest.
-     * @param manifest - The manifest to be put.
-     * @param multiArch - A boolean indicating whether the manifest is for a multi-architecture image.
-     * @returns The digest (`sha256:<hex>`) of the exact bytes sent — the
-     *   digest of the version the registry creates for this PUT.
-     */
-    async putManifest(tag, manifest, multiArch) {
-        // Serialize once and send exactly these bytes, so the returned digest
-        // is the one the registry stores (a manifest's digest is the sha256 of
-        // its exact bytes). Callers use it to identify the version this PUT
-        // created without trusting whatever the tag later resolves to.
-        const body = Buffer.from(JSON.stringify(manifest), 'utf8');
-        const digest = `sha256:${(0,external_crypto_.createHash)('sha256').update(body).digest('hex')}`;
-        if (this.config.dryRun) {
-            return digest;
-        }
-        const contentType = manifest.mediaType;
-        // Fast path: a cached push token from a previous PUT this run. Skip
-        // the 401-challenge handshake entirely. On expiry we clear the cache
-        // and fall through to the challenge path below.
-        const cached = this.getCachedPushToken();
-        if (cached) {
-            try {
-                await this.putManifestWithToken(tag, body, contentType, cached, digest);
-                return digest;
-            }
-            catch (error) {
-                if (axios_isAxiosError(error) && error.response?.status === 401) {
-                    // Token rejected (likely server-side revocation or rotation
-                    // before our TTL window elapsed). Drop it and fall through.
-                    this.pushToken = null;
-                }
-                else {
-                    throw error;
-                }
-            }
-        }
-        // Cold path: PUT without auth, expect a 401 challenge, exchange it
-        // for a fresh push token, then PUT again with the token. The
-        // challenge body carries the realm/service/scope we need.
-        try {
-            const response = await this.authClient.put(`${this.baseUrl}v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, body, { headers: { 'Content-Type': contentType } });
-            // No challenge issued — upload already succeeded
-            this.assertStoredDigest(response, digest);
-            return digest;
-        }
-        catch (error) {
-            if (axios_isAxiosError(error) && error.response?.status === 401) {
-                const challenge = error.response.headers['www-authenticate'];
-                if (!challenge) {
-                    throw new Error(`${this.baseUrl} returned 401 without a www-authenticate challenge; cannot obtain a push token`, { cause: error });
-                }
-                const attributes = parseChallenge(challenge);
-                if (!isValidChallenge(attributes)) {
-                    throw new Error(`invalid www-authenticate challenge ${challenge}`, {
-                        cause: error
-                    });
-                }
-                const tokenResponse = await this.fetchRegistryToken(attributes);
-                const token = tokenResponse.token;
-                if (!token) {
-                    throw new Error('failed to obtain push token from authentication challenge', { cause: error });
-                }
-                core_setSecret(token);
-                this.cachePushToken(token, tokenResponse.expires_in);
-                await this.putManifestWithToken(tag, body, contentType, token, digest);
-            }
-            else {
-                throw error;
-            }
-        }
-        return digest;
-    }
-    /**
-     * PUT a manifest body to `<tag>` using the supplied bearer token.
-     * Extracted so both the cached-token fast path and the
-     * challenge-response cold path share the same call shape.
-     */
-    async putManifestWithToken(tag, body, contentType, token, expectedDigest) {
-        const response = await this.axios.put(`/v2/${this.config.owner}/${this.targetPackage}/manifests/${tag}`, body, {
-            headers: {
-                'content-type': contentType,
-                Authorization: `Bearer ${token}`
-            }
-        });
-        this.assertStoredDigest(response, expectedDigest);
-    }
-    /**
-     * The registry reports the digest it stored a manifest under in the
-     * Docker-Content-Digest response header. Untag identifies the version
-     * its PUT created by the digest putManifest computes, so a mismatch
-     * (a registry that re-serialized the manifest) must stop the run rather
-     * than leave untag looking for a version that will never appear.
-     */
-    assertStoredDigest(response, expectedDigest) {
-        const reported = response?.headers?.['docker-content-digest'];
-        if (typeof reported === 'string' && reported !== expectedDigest) {
-            throw new Error(`${this.baseUrl} stored the manifest as ${reported}, not the expected ${expectedDigest}; stopping, since untag identifies the version it created by that digest`);
-        }
-    }
-    /**
-     * Return the memoised push token if it's still valid, otherwise null.
-     * A small safety buffer guards against clock skew between us and the
-     * token service.
-     */
-    getCachedPushToken() {
-        if (!this.pushToken)
-            return null;
-        if (Date.now() >= this.pushToken.expiresAt) {
-            this.pushToken = null;
-            return null;
-        }
-        return this.pushToken.value;
-    }
-    /**
-     * Memoise a freshly-issued push token. The Docker token spec defines
-     * `expires_in` (seconds, optional, spec default 60) — we honor that
-     * when present and otherwise fall back to a conservative 60s. A 10s
-     * skew buffer trims the effective TTL so we re-auth slightly before
-     * the server actually rejects.
-     */
-    cachePushToken(token, expiresInSeconds) {
-        const ttlSeconds = expiresInSeconds && expiresInSeconds > 0 ? expiresInSeconds : 60;
-        const skewBufferMs = 10_000;
-        this.pushToken = {
-            value: token,
-            expiresAt: Date.now() + ttlSeconds * 1000 - skewBufferMs
-        };
-    }
-}
-
-;// CONCATENATED MODULE: ./src/image-filter.ts
-
-
-
-class ImageFilter {
-    context;
-    constructor(context) {
-        this.context = context;
-    }
-    /**
-     * Applies exclusion filters to the filter set
-     */
-    applyExclusionFilters(filterSet) {
-        const excludeTags = [];
-        if (!this.context.config.excludeTags) {
-            return excludeTags;
-        }
-        const tagsInUse = this.context.packageRepo.getTags();
-        if (this.context.config.useRegex) {
-            const regex = new RegExp(this.context.config.excludeTags);
-            // Check all tags for matches first
-            for (const tag of tagsInUse) {
-                if (regex.test(tag)) {
-                    const digest = this.context.packageRepo.getDigestByTag(tag);
-                    if (digest) {
-                        filterSet.delete(digest);
-                    }
-                    excludeTags.push(tag);
-                }
-            }
-            // Now check for digest based format matches
-            for (const digest of this.context.packageRepo.getDigests()) {
-                if (regex.test(digest)) {
-                    filterSet.delete(digest);
-                    excludeTags.push(digest);
-                }
-            }
-        }
-        else {
-            const isTagMatch = wildcardMatch(this.context.config.excludeTags
-                .split(',')
-                .map(s => s.trim())
-                .filter(Boolean));
-            // Check all tags for matches first
-            for (const tag of tagsInUse) {
-                if (isTagMatch(tag)) {
-                    const digest = this.context.packageRepo.getDigestByTag(tag);
-                    if (digest) {
-                        filterSet.delete(digest);
-                    }
-                    excludeTags.push(tag);
-                }
-            }
-            // Now check for digest based format matches
-            for (const digest of this.context.packageRepo.getDigests()) {
-                if (isTagMatch(digest)) {
-                    filterSet.delete(digest);
-                    excludeTags.push(digest);
-                }
-            }
-        }
-        if (excludeTags.length > 0) {
-            logListing(`[${this.context.targetPackage}] Excluding tags from deletion`, excludeTags, { debug: this.context.config.logLevel >= LogLevel.DEBUG });
-        }
-        return excludeTags;
-    }
-    /**
-     * Filters images by age
-     */
-    applyAgeFilter(filterSet) {
-        if (!this.context.config.olderThan) {
-            return;
-        }
-        const lines = [];
-        for (const digest of filterSet) {
-            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-            if (!ghPackage) {
-                throw new Error(`cache invariant: digest ${digest} not in package cache`);
-            }
-            if (ghPackage.updated_at) {
-                const cutOff = new Date(Date.now() - this.context.config.olderThan);
-                const packageDate = new Date(ghPackage.updated_at);
-                if (packageDate >= cutOff) {
-                    // The package is newer than cutoff so remove it from filterSet
-                    filterSet.delete(digest);
-                }
-                else {
-                    const tags = ghPackage.metadata.container.tags;
-                    if (tags.length > 0) {
-                        lines.push(`${digest} ${tags}`);
-                    }
-                    else {
-                        lines.push(digest);
-                    }
-                }
-            }
-            else {
-                // No timestamp: the age is unknown, so it can't be shown to be
-                // older than the cutoff. Keep it rather than treat it as old.
-                filterSet.delete(digest);
-            }
-        }
-        logListing(`[${this.context.targetPackage}] Finding images that are older than: ${this.context.config.olderThanReadable}`, lines, {
-            debug: this.context.config.logLevel >= LogLevel.DEBUG,
-            emptyMessage: 'no images found'
-        });
-    }
-    /**
-     * Expands tags based on wildcard or regex patterns
-     */
-    expandTags(filterSet) {
-        const matchTags = new Set();
-        if (!this.context.config.deleteTags) {
-            return matchTags;
-        }
-        if (this.context.config.useRegex) {
-            const regex = new RegExp(this.context.config.deleteTags);
-            // Build match list from filterSet
-            for (const digest of filterSet) {
-                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (!ghPackage) {
-                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
-                }
-                for (const tag of ghPackage.metadata.container.tags) {
-                    if (regex.test(tag)) {
-                        matchTags.add(tag);
-                    }
-                }
-            }
-            // Check for digest based format matches
-            for (const digest of filterSet) {
-                if (regex.test(digest)) {
-                    matchTags.add(digest);
-                }
-            }
-        }
-        else {
-            const isTagMatch = wildcardMatch(this.context.config.deleteTags
-                .split(',')
-                .map(s => s.trim())
-                .filter(Boolean));
-            // Build match list from filterSet
-            for (const digest of filterSet) {
-                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (!ghPackage) {
-                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
-                }
-                for (const tag of ghPackage.metadata.container.tags) {
-                    if (isTagMatch(tag)) {
-                        matchTags.add(tag);
-                    }
-                }
-            }
-            // Check for digest based format matches
-            for (const digest of filterSet) {
-                if (isTagMatch(digest)) {
-                    matchTags.add(digest);
-                }
-            }
-        }
-        return matchTags;
-    }
-}
-
-;// CONCATENATED MODULE: ./src/manifest-analyzer.ts
-
-
-
-// Concurrency cap for parallel registry manifest fetches. Registry traffic
-// goes to ghcr.io (separate rate budget from api.github.com) and the axios
-// client retries 429s, so a modest fan-out is safe. Conservative default —
-// can be lifted if real workloads ask for more.
-const MANIFEST_FETCH_CONCURRENCY = 10;
-class ManifestAnalyzer {
-    context;
-    constructor(context) {
-        this.context = context;
-    }
-    /**
-     * Builds two relationship maps in a single pass:
-     *  - digestUsedBy: child digest → set of multi-arch parent indexes
-     *  - subjectReferrers: subject digest → set of OCI 1.1 referrer digests
-     *    (manifests with a `subject` descriptor; subject may or may not be in
-     *    the repo — entries where the subject is missing surface as orphans
-     *    in the validator).
-     */
-    async loadDigestUsedByMap() {
-        const digestUsedBy = new Map();
-        const subjectReferrers = new Map();
-        const digests = this.context.packageRepo.getDigests();
-        const digestCount = digests.size;
-        const digestList = Array.from(digests);
-        let processed = 0;
-        let lastReportMs = Date.now();
-        // Fan out the per-digest manifest fetches. The previous implementation
-        // skipped re-fetching digests already seen as children of a parent
-        // index; we drop that optimization here because (1) the cross-run
-        // distilled cache makes those fetches free on warm runs, and (2) the
-        // sequential dependency the skip required prevents parallelism, which
-        // is the bigger win. Children of multi-arch indexes still register
-        // their parent links correctly — the outer iteration visits every
-        // digest exactly once.
-        startGroup(`[${this.context.targetPackage}] Loading manifests`);
-        await runWithConcurrency(digestList, MANIFEST_FETCH_CONCURRENCY, async (digest) => {
-            const manifest = await this.context.registry.getManifestByDigest(digest);
-            // JS Maps are single-thread-safe — mutating shared maps from
-            // multiple awaited workers is fine.
-            if (manifest.manifests) {
-                for (const imageManifest of manifest.manifests) {
-                    if (digests.has(imageManifest.digest)) {
-                        let parents = digestUsedBy.get(imageManifest.digest);
-                        if (!parents) {
-                            parents = new Set();
-                            digestUsedBy.set(imageManifest.digest, parents);
-                        }
-                        parents.add(digest);
-                    }
-                }
-            }
-            // OCI 1.1 subject-bearing referrer (sigstore bundle, etc). ghcr.io
-            // does not implement the /referrers API but echoes the subject
-            // field, so we build the reverse index ourselves. Record the link
-            // even when the subject is not in the repo so the validator can
-            // surface orphans.
-            const subjectDigest = manifest.subject?.digest;
-            if (subjectDigest) {
-                let referrers = subjectReferrers.get(subjectDigest);
-                if (!referrers) {
-                    referrers = new Set();
-                    subjectReferrers.set(subjectDigest, referrers);
-                }
-                referrers.add(digest);
-            }
-            processed++;
-            if (this.context.config.logLevel === LogLevel.DEBUG) {
-                const encoded = JSON.stringify(manifest, null, 4);
-                info(`${digest}:${encoded}`);
-            }
-            else {
-                const now = Date.now();
-                if (now - lastReportMs >= 3000) {
-                    lastReportMs = now;
-                    info(`loaded ${processed} of ${digestCount} manifests`);
-                }
-            }
-        });
-        info(`loaded ${processed} manifests`);
-        endGroup();
-        return { digestUsedBy, subjectReferrers };
-    }
-    /**
-     * Remove all multi architecture platform images from the filterSet including
-     * its referrer image if present (whether linked via a sha256-* tag or via an
-     * OCI 1.1 subject descriptor). Filtering/processing only occurs on top
-     * level images.
-     */
-    async initFilterSet(subjectReferrers = new Map()) {
-        const digests = this.context.packageRepo.getDigests();
-        // Remove all OCI 1.1 subject-bearing referrers from top-level
-        // processing — they are not stand-alone artifacts. If the subject is
-        // still in the repo, the referrer follows it through the cascade. If
-        // the subject is missing, the referrer is an orphan and is reached
-        // via delete-orphaned-images (symmetric with how orphaned sha256-*
-        // fallback tags work).
-        for (const referrers of subjectReferrers.values()) {
-            for (const referrerDigest of referrers) {
-                digests.delete(referrerDigest);
-            }
-        }
-        for (const digest of digests) {
-            const manifest = await this.context.registry.getManifestByDigest(digest);
-            if (manifest.manifests) {
-                for (const imageManifest of manifest.manifests) {
-                    digests.delete(imageManifest.digest);
-                }
-            }
-            // Process any associated images tagged with `sha256-<digest>.*`
-            // via the pre-built reverse index — O(1) lookup instead of an
-            // O(T) scan over every tag in the repo.
-            const referrerTags = this.context.packageRepo.getReferrerTagsForDigest(digest);
-            for (const tag of referrerTags) {
-                const tagDigest = this.context.packageRepo.getDigestByTag(tag);
-                if (tagDigest) {
-                    digests.delete(tagDigest);
-                    // Process any children
-                    const childManifest = await this.context.registry.getManifestByTag(tag);
-                    if (childManifest?.manifests) {
-                        for (const manifestEntry of childManifest.manifests) {
-                            digests.delete(manifestEntry.digest);
-                        }
-                    }
-                }
-            }
-        }
-        return digests;
-    }
-    /**
-     * Builds a label for a manifest based on its type
-     */
-    async buildLabel(imageManifest) {
-        let label = '';
-        if (imageManifest.platform) {
-            if (imageManifest.platform.architecture) {
-                label = imageManifest.platform.architecture;
-            }
-            if (label !== 'unknown') {
-                if (imageManifest.platform.variant) {
-                    label += `/${imageManifest.platform.variant}`;
-                }
-                label = `architecture: ${label}`;
-            }
-            else {
-                // Check if it's a buildx attestation
-                const manifest = await this.context.registry.getManifestByDigest(imageManifest.digest);
-                // Kinda crude
-                if (manifest.layers) {
-                    if (manifest.layers[0].mediaType === 'application/vnd.in-toto+json') {
-                        label = 'application/vnd.in-toto+json';
-                    }
-                }
-            }
-        }
-        else if (imageManifest.artifactType) {
-            // Check if it's a github attestation
-            if (imageManifest.artifactType.startsWith('application/vnd.dev.sigstore.bundle')) {
-                label = 'sigstore attestation';
-            }
-            else {
-                label = imageManifest.artifactType;
-            }
-        }
-        return label;
-    }
-    /**
-     * Pre-loads manifests needed for deletion process
-     */
-    async primeManifests(deleteSet) {
-        const digests = this.context.packageRepo.getDigests();
-        for (const digest of deleteSet) {
-            const manifest = await this.context.registry.getManifestByDigest(digest);
-            if (manifest.manifests) {
-                for (const imageManifest of manifest.manifests) {
-                    // Call the buildLabel method which will prime manifest if needed
-                    if (digests.has(imageManifest.digest)) {
-                        await this.buildLabel(imageManifest);
-                    }
-                }
-            }
-            // Process tagged digests (referrers) via the pre-built index.
-            const referrerTags = this.context.packageRepo.getReferrerTagsForDigest(digest);
-            for (const tag of referrerTags) {
-                const tagDigest = this.context.packageRepo.getDigestByTag(tag);
-                if (tagDigest) {
-                    const tagManifest = await this.context.registry.getManifestByDigest(tagDigest);
-                    if (tagManifest.manifests) {
-                        for (const manifestEntry of tagManifest.manifests) {
-                            if (digests.has(manifestEntry.digest)) {
-                                await this.buildLabel(manifestEntry);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-;// CONCATENATED MODULE: ./src/image-validator.ts
-
-
-
-class ImageValidator {
-    context;
-    constructor(context) {
-        this.context = context;
-    }
-    /**
-     * Validate manifests list packages
-     */
-    async validate(subjectReferrers = new Map()) {
-        startGroup(`[${this.context.targetPackage}] Validating multi-architecture/referrers images`);
-        let hasErrors = false;
-        const processedManifests = new Set();
-        const digests = this.context.packageRepo.getDigests();
-        for (const digest of digests) {
-            if (!processedManifests.has(digest)) {
-                const manifest = await this.context.registry.getManifestByDigest(digest);
-                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (!ghPackage) {
-                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
-                }
-                const tags = ghPackage.metadata.container.tags;
-                if (manifest.manifests) {
-                    for (const childImage of manifest.manifests) {
-                        processedManifests.add(childImage.digest);
-                        if (!this.context.packageRepo.getIdByDigest(childImage.digest)) {
-                            hasErrors = true;
-                            if (tags.length > 0) {
-                                warning(`digest ${childImage.digest} not found on image ${tags}`);
-                            }
-                            else {
-                                warning(`digest ${childImage.digest} not found on untagged image ${digest}`);
-                            }
-                        }
-                        digests.delete(childImage.digest);
-                    }
-                }
-            }
-        }
-        // Check for orphaned tags (referrers/cosign etc)
-        const tagsInUse = this.context.packageRepo.getTags();
-        for (const tag of tagsInUse) {
-            const digest = parentDigestFromReferrerTag(tag);
-            if (digest && !this.context.packageRepo.getIdByDigest(digest)) {
-                hasErrors = true;
-                warning(`parent image for referrer tag ${tag} not found in repository`);
-            }
-        }
-        // Check for orphaned OCI 1.1 subject-bearing referrers
-        for (const [subjectDigest, referrers] of subjectReferrers) {
-            if (!this.context.packageRepo.getIdByDigest(subjectDigest)) {
-                for (const referrerDigest of referrers) {
-                    if (this.context.packageRepo.getIdByDigest(referrerDigest)) {
-                        hasErrors = true;
-                        warning(`subject ${subjectDigest} for referrer ${referrerDigest} not found in repository`);
-                    }
-                }
-            }
-        }
-        if (!hasErrors) {
-            info('no errors found');
-        }
-        endGroup();
-        // Return basic result - can be extended later
-        return {
-            hasErrors
-        };
-    }
-    /**
-     * Find ghost images (all child manifests missing)
-     */
-    async findGhostImages(filterSet) {
-        const ghostImages = new Set();
-        const lines = [];
-        for (const digest of filterSet) {
-            const manifest = await this.context.registry.getManifestByDigest(digest);
-            if (manifest.manifests) {
-                let missing = 0;
-                for (const imageManifest of manifest.manifests) {
-                    if (!this.context.packageRepo.getIdByDigest(imageManifest.digest)) {
-                        missing += 1;
-                    }
-                }
-                if (missing === manifest.manifests.length) {
-                    ghostImages.add(digest);
-                    const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (!ghPackage) {
-                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
-                    }
-                    if (ghPackage.metadata.container.tags.length > 0) {
-                        lines.push(`${digest} ${ghPackage.metadata.container.tags}`);
-                    }
-                    else {
-                        lines.push(`${digest}`);
-                    }
-                }
-            }
-        }
-        logListing(`[${this.context.targetPackage}] Finding ghost images to delete`, lines, {
-            debug: this.context.config.logLevel >= LogLevel.DEBUG,
-            emptyMessage: 'no ghost images found'
-        });
-        return ghostImages;
-    }
-    /**
-     * Find partial images: multi-arch images where some, but not all, child
-     * manifests are missing. Images where every child is missing are fully
-     * ghost images and are handled by findGhostImages instead.
-     */
-    async findPartialImages(filterSet) {
-        const partialImages = new Set();
-        const lines = [];
-        for (const digest of filterSet) {
-            const manifest = await this.context.registry.getManifestByDigest(digest);
-            if (manifest.manifests) {
-                let missing = 0;
-                for (const imageManifest of manifest.manifests) {
-                    if (!this.context.packageRepo.getIdByDigest(imageManifest.digest)) {
-                        missing += 1;
-                    }
-                }
-                // Partial: at least one child missing AND at least one child present.
-                // Excludes the all-missing case (ghost images) so the two options
-                // don't overlap.
-                if (missing > 0 && missing < manifest.manifests.length) {
-                    partialImages.add(digest);
-                    const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (!ghPackage) {
-                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
-                    }
-                    if (ghPackage.metadata.container.tags.length > 0) {
-                        lines.push(`${digest} ${ghPackage.metadata.container.tags}`);
-                    }
-                    else {
-                        lines.push(`${digest}`);
-                    }
-                }
-            }
-        }
-        logListing(`[${this.context.targetPackage}] Finding partial images to delete`, lines, {
-            debug: this.context.config.logLevel >= LogLevel.DEBUG,
-            emptyMessage: 'no partial images found'
-        });
-        return partialImages;
-    }
-    /**
-     * Find orphaned images (parent image doesn't exist). Covers both the
-     * sha256-* fallback tag shape and OCI 1.1 subject-bearing referrers
-     * whose subject is no longer in the repo.
-     *
-     * `excludeTags` (the expanded exclude list — matched tag and digest
-     * strings) is honored here even though orphans are reached outside the
-     * top-level filterSet: an orphan is a stand-alone leftover being
-     * independently staged for deletion, so exclude-tags protects it.
-     *
-     * Deleting an image also deletes its children (the cascade ignores
-     * exclude-tags by design: children are parts of their parent's image).
-     * So an orphan with an excluded child is kept too — otherwise staging
-     * the orphan would delete that excluded child along with it.
-     * `digestUsedBy` (child digest → parent digests) supplies that link.
-     */
-    findOrphanedImages(subjectReferrers = new Map(), excludeTags = [], digestUsedBy = new Map()) {
-        const orphanedImages = new Set();
-        const excluded = new Set(excludeTags);
-        const lines = [];
-        // Parents of any excluded image (by digest, or by a matched tag).
-        const parentsOfExcluded = new Set();
-        for (const entry of excluded) {
-            const digest = this.context.packageRepo.getIdByDigest(entry)
-                ? entry
-                : this.context.packageRepo.getDigestByTag(entry);
-            for (const parent of (digest && digestUsedBy.get(digest)) || []) {
-                parentsOfExcluded.add(parent);
-            }
-        }
-        // An orphan is protected if the exclude pattern matched its digest or
-        // any of its tags (a referrer may carry more than the sha256-* tag),
-        // or if one of its children is excluded.
-        const isExcluded = (digest, tag) => {
-            if (tag && excluded.has(tag))
-                return true;
-            if (excluded.has(digest))
-                return true;
-            if (parentsOfExcluded.has(digest))
-                return true;
-            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-            return (ghPackage?.metadata.container.tags.some(t => excluded.has(t)) ?? false);
-        };
-        for (const tag of this.context.packageRepo.getTags()) {
-            const digest = parentDigestFromReferrerTag(tag);
-            if (digest &&
-                this.context.packageRepo.getIdByDigest(digest) === undefined) {
-                const orphanDigest = this.context.packageRepo.getDigestByTag(tag);
-                if (orphanDigest && !isExcluded(orphanDigest, tag)) {
-                    orphanedImages.add(orphanDigest);
-                    lines.push(tag);
-                }
-            }
-        }
-        for (const [subjectDigest, referrers] of subjectReferrers) {
-            if (this.context.packageRepo.getIdByDigest(subjectDigest) === undefined) {
-                for (const referrerDigest of referrers) {
-                    if (this.context.packageRepo.getIdByDigest(referrerDigest) &&
-                        !isExcluded(referrerDigest)) {
-                        orphanedImages.add(referrerDigest);
-                        lines.push(`${referrerDigest} (subject ${subjectDigest} missing)`);
-                    }
-                }
-            }
-        }
-        logListing(`[${this.context.targetPackage}] Finding orphaned images (tags) to delete`, lines, {
-            debug: this.context.config.logLevel >= LogLevel.DEBUG,
-            emptyMessage: 'no orphaned images found'
-        });
-        return orphanedImages;
-    }
-}
-
-;// CONCATENATED MODULE: ./src/deletion-strategy.ts
-
-
-
-
-class DeletionStrategy {
-    context;
-    imageFilter;
-    // processTagDeletions runs again after an untag reload; warn once.
-    warnedDigestsIgnoredByKeepN = false;
-    constructor(context) {
-        this.context = context;
-        this.imageFilter = new ImageFilter(context);
-    }
-    /**
-     * Process tag deletions including untagging operations.
-     *
-     * Multi-tagged matches go into `plan.untagOperations`. The caller
-     * (CleanupOrchestrator.run) is responsible for gating those against
-     * `keep-n-tagged` BEFORE executing them — a multi-tagged image in
-     * the keep set must not have a matched tag stripped, or it would
-     * silently slip out of the keep set on subsequent runs. The gate
-     * lives in the orchestrator because keep-n-tagged is the
-     * orchestrator's concern, not the strategy's; this method just
-     * reports what it found.
-     *
-     * @see CleanupOrchestrator.run — search "gate the untag operations"
-     */
-    async processTagDeletions(filterSet, excludeTags) {
-        const plan = {
-            deleteSet: new Set(),
-            untagOperations: new Map()
-        };
-        if (!this.context.config.deleteTags) {
-            return plan;
-        }
-        const matchTags = this.imageFilter.expandTags(filterSet);
-        if (matchTags.size === 0) {
-            logListing(`[${this.context.targetPackage}] Finding tagged images to delete: ${this.context.config.deleteTags}`, [], {
-                debug: this.context.config.logLevel >= LogLevel.DEBUG,
-                emptyMessage: 'no matching tags found'
-            });
-            return plan;
-        }
-        // Separate untagging events and standard deletions
-        const excluded = new Set(excludeTags);
-        const untaggingTags = new Set();
-        const standardTags = new Set();
-        for (const tag of matchTags) {
-            if (!excluded.has(tag)) {
-                if (tag.startsWith('sha256:')) {
-                    standardTags.add(tag);
-                }
-                else {
-                    const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
-                    if (manifestDigest) {
-                        const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
-                        if (!ghPackage) {
-                            throw new Error(`cache invariant: digest ${manifestDigest} not in package cache`);
-                        }
-                        if (ghPackage.metadata.container.tags.length > 1) {
-                            untaggingTags.add(tag);
-                            if (!plan.untagOperations.has(manifestDigest)) {
-                                plan.untagOperations.set(manifestDigest, []);
-                            }
-                            const operations = plan.untagOperations.get(manifestDigest);
-                            if (operations) {
-                                operations.push(tag);
-                            }
-                        }
-                        else if (ghPackage.metadata.container.tags.length === 1) {
-                            standardTags.add(tag);
-                        }
-                    }
-                }
-            }
-        }
-        // Process standard deletions - only if keep-n-tagged is not set
-        // When keep-n-tagged IS set, it will handle ALL tagged deletions later
-        if (standardTags.size > 0 && this.context.config.keepNtagged == null) {
-            const lines = [];
-            for (const tag of standardTags) {
-                lines.push(tag);
-                let manifestDigest;
-                if (tag.startsWith('sha256:')) {
-                    manifestDigest = tag;
-                }
-                else {
-                    manifestDigest = this.context.packageRepo.getDigestByTag(tag);
-                }
-                if (manifestDigest) {
-                    plan.deleteSet.add(manifestDigest);
-                    filterSet.delete(manifestDigest);
-                }
-            }
-            logListing(`[${this.context.targetPackage}] Find tagged images to delete: ${this.context.config.deleteTags}`, lines, { debug: this.context.config.logLevel >= LogLevel.DEBUG });
-        }
-        // keep-n-tagged ranks images by their tags, so a delete-tags match on a
-        // bare digest (an untagged image, or a tagged one matched only by its
-        // digest) never enters its candidate set and is never deleted. Say so
-        // once, with a count, rather than drop it silently.
-        if (this.context.config.keepNtagged != null &&
-            !this.warnedDigestsIgnoredByKeepN) {
-            const viaTags = new Set();
-            for (const tag of matchTags) {
-                if (!tag.startsWith('sha256:')) {
-                    const digest = this.context.packageRepo.getDigestByTag(tag);
-                    if (digest)
-                        viaTags.add(digest);
-                }
-            }
-            const ignored = [...matchTags].filter(t => t.startsWith('sha256:') && !viaTags.has(t) && !excluded.has(t));
-            if (ignored.length > 0) {
-                this.warnedDigestsIgnoredByKeepN = true;
-                const sample = ignored.slice(0, 3).join(', ');
-                warning(`[${this.context.targetPackage}] delete-tags matched ${ignored.length} image digest(s) that keep-n-tagged does not act on (it ranks images by their tags), so they were not deleted: ${sample}${ignored.length > 3 ? ', ...' : ''}`);
-            }
-        }
-        return plan;
-    }
-    /**
-     * Keep N untagged images
-     */
-    keepNUntagged(filterSet) {
-        const deleteSet = new Set();
-        if (this.context.config.keepNuntagged == null) {
-            return deleteSet;
-        }
-        const unTaggedPackages = [];
-        for (const digest of filterSet) {
-            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-            if (!ghPackage) {
-                throw new Error(`cache invariant: digest ${digest} not in package cache`);
-            }
-            if (ghPackage.metadata.container.tags.length === 0) {
-                unTaggedPackages.push(ghPackage);
-            }
-        }
-        const lines = [];
-        if (unTaggedPackages.length > 0) {
-            // Sort descending by date
-            unTaggedPackages.sort((a, b) => {
-                return Date.parse(b.updated_at) - Date.parse(a.updated_at);
-            });
-            if (unTaggedPackages.length > this.context.config.keepNuntagged) {
-                const deletePackages = unTaggedPackages.splice(this.context.config.keepNuntagged);
-                for (const deletePackage of deletePackages) {
-                    deleteSet.add(deletePackage.name);
-                    filterSet.delete(deletePackage.name);
-                    lines.push(`${deletePackage.name}`);
-                }
-            }
-        }
-        logListing(`[${this.context.targetPackage}] Finding untagged images to delete, keeping ${this.context.config.keepNuntagged} versions`, lines, {
-            debug: this.context.config.logLevel >= LogLevel.DEBUG,
-            emptyMessage: 'no untagged images found to delete'
-        });
-        return deleteSet;
-    }
-    /**
-     * Keep N tagged images
-     */
-    keepNTagged(filterSet) {
-        const deleteSet = new Set();
-        if (this.context.config.keepNtagged == null) {
-            return deleteSet;
-        }
-        const taggedPackages = this.collectKeepNTaggedCandidates(filterSet);
-        const lines = [];
-        if (taggedPackages.length > this.context.config.keepNtagged) {
-            const deletePackages = taggedPackages.splice(this.context.config.keepNtagged);
-            for (const deletePackage of deletePackages) {
-                deleteSet.add(deletePackage.name);
-                filterSet.delete(deletePackage.name);
-                const ghPackage = this.context.packageRepo.getPackageByDigest(deletePackage.name);
-                if (!ghPackage) {
-                    throw new Error(`cache invariant: digest ${deletePackage.name} not in package cache`);
-                }
-                lines.push(`${deletePackage.name} ${ghPackage.metadata.container.tags}`);
-            }
-        }
-        logListing(`[${this.context.targetPackage}] Finding tagged images to delete, keeping ${this.context.config.keepNtagged} versions`, lines, {
-            debug: this.context.config.logLevel >= LogLevel.DEBUG,
-            emptyMessage: 'no tagged images found to delete'
-        });
-        return deleteSet;
-    }
-    /**
-     * Returns the set of digests that keep-n-tagged would protect — i.e. the
-     * top-N most recent images among the keep-n-tagged candidate set. Used by
-     * the orchestrator to gate untag operations so that a multi-tagged image
-     * in the keep set doesn't have a matched tag stripped before keep-n-tagged
-     * is consulted.
-     */
-    computeKeepNTaggedDigests(filterSet) {
-        const keepSet = new Set();
-        if (this.context.config.keepNtagged == null) {
-            return keepSet;
-        }
-        const candidates = this.collectKeepNTaggedCandidates(filterSet);
-        const kept = candidates.slice(0, this.context.config.keepNtagged);
-        for (const pkg of kept) {
-            keepSet.add(pkg.name);
-        }
-        return keepSet;
-    }
-    /**
-     * Collect the candidate set for keep-n-tagged, deduplicated by digest, and
-     * sorted newest-first. Shared by keepNTagged() (which deletes the tail) and
-     * computeKeepNTaggedDigests() (which protects the head).
-     *
-     * Dedup matters because the delete-tags branch walks per-tag and would
-     * otherwise enter the same image N times when an image has N matched tags —
-     * wrongly making each tag count as a separate keep-set slot.
-     */
-    collectKeepNTaggedCandidates(filterSet) {
-        const byDigest = new Map();
-        if (this.context.config.deleteTags != null) {
-            // Apply keep-n mode only on the supplied/expanded tags
-            const matchTags = this.imageFilter.expandTags(filterSet);
-            for (const tag of matchTags) {
-                const digest = this.context.packageRepo.getDigestByTag(tag);
-                if (digest && !byDigest.has(digest)) {
-                    const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                    if (!ghPackage) {
-                        throw new Error(`cache invariant: digest ${digest} not in package cache`);
-                    }
-                    byDigest.set(digest, ghPackage);
-                }
-            }
-        }
-        else {
-            // Copy images with tags from the full set
-            for (const digest of filterSet) {
-                if (byDigest.has(digest))
-                    continue;
-                const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-                if (!ghPackage) {
-                    throw new Error(`cache invariant: digest ${digest} not in package cache`);
-                }
-                if (ghPackage.metadata.container.tags.length > 0) {
-                    byDigest.set(digest, ghPackage);
-                }
-            }
-        }
-        const taggedPackages = Array.from(byDigest.values());
-        taggedPackages.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-        return taggedPackages;
-    }
-    /**
-     * Delete all untagged images
-     */
-    deleteAllUntagged(filterSet) {
-        const deleteSet = new Set();
-        const lines = [];
-        for (const digest of filterSet) {
-            const ghPackage = this.context.packageRepo.getPackageByDigest(digest);
-            if (!ghPackage) {
-                throw new Error(`cache invariant: digest ${digest} not in package cache`);
-            }
-            if (ghPackage.metadata.container.tags.length === 0) {
-                deleteSet.add(digest);
-                filterSet.delete(digest);
-                lines.push(`${digest}`);
-            }
-        }
-        logListing(`[${this.context.targetPackage}] Finding all untagged images to delete`, lines, {
-            debug: this.context.config.logLevel >= LogLevel.DEBUG,
-            emptyMessage: 'no untagged images found'
-        });
-        return deleteSet;
-    }
-}
-
-;// CONCATENATED MODULE: ./src/image-deleter.ts
-
-
-
-// Concurrency for the parallel PUT + DELETE phases of performUntagging.
-// Modest fan-out — ghcr.io accepts writes happily but writes are
-// account-quota relevant.
-const UNTAG_WRITE_CONCURRENCY = 5;
-// Retry budget for discovering placeholder versions after the untag PUTs.
-// The Packages API list is eventually consistent with the registry, so a
-// freshly-created placeholder can lag — and until it appears, the tag
-// still resolves to its SOURCE image. Each attempt is a full reload;
-// between attempts we back off (linearly) to give ghcr time to converge.
-const UNTAG_RELOAD_MAX_ATTEMPTS = 6;
-const UNTAG_RELOAD_BACKOFF_MS = 1000;
-// Concurrency for child/referrer deletes spawned by a single deleteImage
-// call. The top-level deleteImages loop stays sequential — failures while
-// processing one parent shouldn't leave a wide trail of partial deletes
-// across the repo. Inside a single parent the failure profile is already
-// "parent gone, children may remain" (children run after the parent),
-// so fanning out the children doesn't introduce a new corruption mode;
-// it just makes the existing one happen faster. 5 keeps us well under
-// the Packages API's secondary rate limit on a typical 4-platform image
-// plus its sigstore attestation.
-const CHILD_DELETE_CONCURRENCY = 5;
-class ImageDeleter {
-    context;
-    manifestAnalyzer;
-    deleted;
-    digestUsedBy;
-    subjectReferrers;
-    constructor(context, digestUsedBy, subjectReferrers = new Map()) {
-        this.context = context;
-        this.manifestAnalyzer = new ManifestAnalyzer(context);
-        this.deleted = new Set();
-        this.digestUsedBy = digestUsedBy;
-        this.subjectReferrers = subjectReferrers;
-    }
-    /**
-     * Perform untagging operations.
-     *
-     * Strategy: each tag we want to strip gets a freshly-annotated empty
-     * manifest PUT under it. The unique annotation (timestamp + tag name)
-     * makes every PUT body byte-distinct, so every PUT lands as its own
-     * package version with its own digest. putManifest returns that
-     * digest, so each placeholder is identified exactly — never by what
-     * its tag happens to resolve to. We then reload to discover the new
-     * version IDs and batch the deletes. This replaces an older per-tag PUT→reload→delete loop that
-     * paid a full loadPackages round-trip per tag — catastrophic on large
-     * repos where each reload is ~600 paginated API calls.
-     *
-     * @returns null if nothing was untagged; otherwise what changed (the
-     *   moved tags and the deleted placeholders), which the caller uses to
-     *   bring the package list up to date. On return, the package repo
-     *   holds the listing from this method's own reload (a live run) or
-     *   the simulated untag (a dry run).
-     */
-    async performUntagging(untagOperations) {
-        if (untagOperations.size === 0) {
-            return null;
-        }
-        const jobs = [];
-        for (const [manifestDigest, tags] of untagOperations) {
-            const ghPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
-            if (!ghPackage) {
-                throw new Error(`cache invariant: digest ${manifestDigest} not in package cache`);
-            }
-            const allowable = Math.max(0, ghPackage.metadata.container.tags.length - 1);
-            for (let i = 0; i < tags.length && i < allowable; i++) {
-                jobs.push({ manifestDigest, tag: tags[i] });
-            }
-        }
-        if (jobs.length === 0) {
-            return null;
-        }
-        const allTags = jobs.map(j => j.tag);
-        const movedTags = new Map(jobs.map(j => [j.tag, j.manifestDigest]));
-        startGroup(`[${this.context.targetPackage}] Untagging images: ${allTags}`);
-        // Stamp every PUT body uniquely so each lands as a distinct digest.
-        // The timestamp resolves at submit time so the suffix is monotonic
-        // and human-readable in `oci-inspect` output if anyone goes hunting.
-        const stampPrefix = new Date().toISOString();
-        // Pre-fetch each unique source manifest exactly once.
-        // getRawManifestByDigest deliberately bypasses Registry's in-memory
-        // cache (which may hold a reconstituted, field-incomplete entry
-        // from the distilled disk cache) — so without this pre-fetch a
-        // multi-tag untag on the same image would re-GET the full body once
-        // per tag.
-        const uniqueSourceDigests = Array.from(new Set(jobs.map(j => j.manifestDigest)));
-        const rawManifestCache = new Map();
-        await runWithConcurrency(uniqueSourceDigests, UNTAG_WRITE_CONCURRENCY, async (digest) => {
-            rawManifestCache.set(digest, await this.context.registry.getRawManifestByDigest(digest));
-        });
-        // tag → digest of the placeholder version its PUT created. A tag maps
-        // to exactly one source image, so the tag is a unique job key.
-        const placeholderDigests = new Map();
-        await runWithConcurrency(jobs, UNTAG_WRITE_CONCURRENCY, async ({ manifestDigest, tag }) => {
-            const manifest = rawManifestCache.get(manifestDigest);
-            if (!manifest) {
-                throw new Error(`untag invariant: missing raw manifest for ${manifestDigest}`);
-            }
-            // Deep clone, then strip content and stamp the annotation.
-            const newManifest = JSON.parse(JSON.stringify(manifest));
-            newManifest.annotations = {
-                ...(newManifest.annotations || {}),
-                'org.opencontainers.image.created': stampPrefix,
-                'io.github.ghcr-cleanup-action.untag-source-tag': tag
-            };
-            const isMultiArch = !!newManifest.manifests;
-            if (isMultiArch) {
-                newManifest.manifests = [];
-            }
-            else {
-                newManifest.layers = [];
-            }
-            info(`${tag}`);
-            placeholderDigests.set(tag, await this.context.registry.putManifest(tag, newManifest, isMultiArch));
-        });
-        // Dry run: putManifest above was a no-op, so each tag still points
-        // at the live image. Reloading and resolving tags here would find
-        // the live image digests and log them as being deleted — a
-        // misleading preview (a real run deletes only the newly-created
-        // placeholder versions). The tag list logged above is the preview.
-        // Instead, record the untags so the caller's reload sees the listing
-        // a live run would see (those tags gone), and its second pass stages
-        // the same deletions a live run would.
-        if (this.context.config.dryRun) {
-            this.context.packageRepo.simulateUntag(jobs.map(j => j.tag));
-            endGroup();
-            return { movedTags, deletedPlaceholders: [] };
-        }
-        // Discover the placeholder versions so we can delete them. The
-        // Packages API list is eventually consistent with the registry PUTs
-        // above, so a placeholder may not be listed immediately; reload until
-        // every one is, retrying a few times. A whole-list reload re-checks
-        // every pending placeholder at once, since staleness is a property of
-        // the snapshot, not of individual tags.
-        //
-        // A placeholder is matched by its exact digest (returned by the PUT),
-        // never by what its tag resolves to: on a stale or racing listing the
-        // tag can still resolve to the SOURCE image, or to a different image
-        // pushed under the same tag meanwhile — deleting either would remove
-        // an image (and its other, possibly excluded, tags) the user never
-        // asked to delete. Each placeholder's bytes are unique (tag + stamp
-        // annotation), so a version with that digest can only be ours.
-        const placeholderIds = new Map();
-        let pending = jobs;
-        for (let attempt = 1;; attempt++) {
-            await this.context.packageRepo.loadPackages(this.context.targetPackage, false);
-            for (const { tag } of pending) {
-                const digest = placeholderDigests.get(tag);
-                const id = digest
-                    ? this.context.packageRepo.getIdByDigest(digest)
-                    : undefined;
-                if (id !== undefined) {
-                    placeholderIds.set(tag, id);
-                }
-            }
-            pending = pending.filter(j => !placeholderIds.has(j.tag));
-            if (pending.length === 0 || attempt >= UNTAG_RELOAD_MAX_ATTEMPTS) {
-                break;
-            }
-            info(`Untag: ${pending.length} placeholder(s) not yet listed; reloading (attempt ${attempt}/${UNTAG_RELOAD_MAX_ATTEMPTS})`);
-            await sleep(UNTAG_RELOAD_BACKOFF_MS * attempt);
-        }
-        // Delete the confirmed placeholder versions in parallel. The id was
-        // captured when its digest was listed, so a later stale snapshot
-        // can't redirect the delete.
-        await runWithConcurrency(jobs.filter(j => placeholderIds.has(j.tag)), UNTAG_WRITE_CONCURRENCY, async ({ tag }) => {
-            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, placeholderIds.get(tag), placeholderDigests.get(tag), [tag]);
-        });
-        endGroup();
-        // A placeholder that never appeared was not deleted: its tag still
-        // exists in the registry (pointing at the empty placeholder), so the
-        // untag this run was asked to do is incomplete. Fail loudly rather
-        // than report success — and rather than leave the rest of the run
-        // (e.g. keep-n-tagged) acting on a listing that is still catching up.
-        // Nothing else was deleted for these tags; the source image is intact.
-        if (pending.length > 0) {
-            const left = pending
-                .map(({ tag }) => `"${tag}" (placeholder ${placeholderDigests.get(tag)})`)
-                .join(', ');
-            throw new Error(`Untag incomplete: the empty placeholder version for ${left} never appeared in the package list after ${UNTAG_RELOAD_MAX_ATTEMPTS} reloads, so it was not deleted. The source image was not touched. The tag still exists and now points at the empty placeholder; re-run the cleanup once the package list has caught up.`);
-        }
-        return {
-            movedTags,
-            deletedPlaceholders: jobs.map(j => placeholderDigests.get(j.tag))
-        };
-    }
-    /**
-     * Delete a single image and its children.
-     *
-     * Order is parent-first, then children. Same as the previous serial
-     * implementation — keeps the failure profile of "parent gone, some
-     * children may remain" rather than introducing the worse "children
-     * gone, parent intact" profile. Children fan out with bounded
-     * concurrency ({@link CHILD_DELETE_CONCURRENCY}) inside this method;
-     * the calling deleteImages loop stays sequential at the top level.
-     *
-     * The `logger` is threaded through every log call (this method's own
-     * "skipping" lines, the underlying packageRepo.deletePackageVersion,
-     * and recursive sub-deleteImage calls for referrers). The top-level
-     * deleteImages loop hands each invocation a {@link BufferedLogger}
-     * and flushes after the whole tree completes, so a parent and its
-     * descendants emit as one contiguous block in the workflow log
-     * instead of interleaving with sibling parents' children.
-     */
-    async deleteImage(ghPackage, logger = consoleLogger) {
-        if (this.deleted.has(ghPackage.name)) {
-            return { deleted: 0, multiDeleted: 0 };
-        }
-        // Claim this digest synchronously before any await. Without the
-        // claim, two parallel callers (e.g. dual-path cosign: the same
-        // signature reached via both its sha256-*.sig tag and its OCI 1.1
-        // subject descriptor) would both pass the has() check, both fetch
-        // the manifest, both fire DELETE — one wins, one 404s. This entry
-        // is unconditional because deleteImage is only ever invoked when
-        // we've already committed to deleting `ghPackage` (top-level
-        // deleteSet member, or cascade from a parent that's being
-        // deleted). Reference-count-gated deletes go through
-        // deletePlatformChild instead and claim only after the gate
-        // passes — see that method.
-        this.deleted.add(ghPackage.name);
-        const manifest = await this.context.registry.getManifestByDigest(ghPackage.name);
-        await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, ghPackage.id, ghPackage.name, ghPackage.metadata.container.tags, undefined, logger);
-        let imagesDeleted = 1;
-        let multiImagesDeleted = 0;
-        // Collect child-delete jobs from three sources (multi-arch platforms,
-        // sha256-* fallback referrers, OCI 1.1 subject referrers) and run
-        // them under a single shared concurrency budget.
-        //
-        // Concurrency safety: the shared maps (this.deleted, this.digestUsedBy,
-        // parents sets) are read and mutated by multiple parallel tasks. We
-        // rely on two invariants to stay correct:
-        //   (1) Every code path that decides to issue a DELETE first
-        //       synchronously claims the target digest via this.deleted.add
-        //       BEFORE any await. The next task to enter for the same digest
-        //       sees the claim at its has() check and short-circuits.
-        //   (2) The reference-count gate in deletePlatformChild (parents.size
-        //       === 1 && parents.has(parent.name)) is evaluated synchronously,
-        //       and the skip branch's parents.delete(...) is also synchronous,
-        //       so two parallel tasks racing on a shared child are serialized
-        //       through the JS event loop without an explicit lock.
-        const childJobs = [];
-        if (manifest.manifests) {
-            // An empty index (e.g. an untag placeholder) isn't a multi-arch image.
-            if (manifest.manifests.length > 0) {
-                multiImagesDeleted += 1;
-            }
-            for (const imageManifest of manifest.manifests) {
-                childJobs.push(async () => await this.deletePlatformChild(ghPackage, imageManifest, logger));
-            }
-        }
-        // sha256-* fallback referrer tags (cosign default, attestations).
-        // Pre-built reverse index — O(1) lookup instead of scanning every
-        // tag in the repo for every digest we delete.
-        const referrerTags = this.context.packageRepo.getReferrerTagsForDigest(ghPackage.name);
-        for (const tag of referrerTags) {
-            childJobs.push(async () => await this.deleteReferrerByTag(tag, logger));
-        }
-        // OCI 1.1 subject-bearing referrers. ghcr.io doesn't tag these with a
-        // sha256-* fallback when the publisher uses --registry-referrers-mode
-        // oci-1-1 (or equivalent), so we follow the reverse index built by
-        // ManifestAnalyzer.
-        const referrers = this.subjectReferrers.get(ghPackage.name);
-        if (referrers) {
-            for (const referrerDigest of referrers) {
-                childJobs.push(async () => await this.deleteReferrerByDigest(referrerDigest, logger));
-            }
-        }
-        await runWithConcurrency(childJobs, CHILD_DELETE_CONCURRENCY, async (job) => {
-            const result = await job();
-            imagesDeleted += result.deleted;
-            multiImagesDeleted += result.multiDeleted;
-        });
-        return { deleted: imagesDeleted, multiDeleted: multiImagesDeleted };
-    }
-    /**
-     * Delete one entry from a multi-arch manifest's `manifests[]` array if
-     * this parent is its only reference. If the child is shared with
-     * another parent, log and decrement the parent set instead.
-     */
-    async deletePlatformChild(parent, imageManifest, logger) {
-        const manifestPackage = this.context.packageRepo.getPackageByDigest(imageManifest.digest);
-        if (!manifestPackage || this.deleted.has(manifestPackage.name)) {
-            return { deleted: 0, multiDeleted: 0 };
-        }
-        const parents = this.digestUsedBy.get(manifestPackage.name);
-        if (!parents) {
-            return { deleted: 0, multiDeleted: 0 };
-        }
-        if (parents.size === 1 && parents.has(parent.name)) {
-            // Claim the digest synchronously now that the reference-count
-            // gate has passed. The gate (parents.size === 1) is what
-            // distinguishes "I am the last parent and should delete" from
-            // "another parent still references this child." Once that
-            // decision is made, the claim prevents a duplicate-listing race
-            // (same digest appearing twice in one parent's manifest.manifests
-            // → two parallel deletePlatformChild tasks both passing the
-            // gate) from firing two DELETEs. Removing the digestUsedBy entry
-            // is part of the same synchronous "this is mine, nobody else
-            // gets it" transition.
-            this.deleted.add(manifestPackage.name);
-            this.digestUsedBy.delete(manifestPackage.name);
-            await this.context.packageRepo.deletePackageVersion(this.context.targetPackage, manifestPackage.id, manifestPackage.name, [], await this.manifestAnalyzer.buildLabel(imageManifest), logger);
-            return { deleted: 1, multiDeleted: 0 };
-        }
-        logger.info(` skipping package id: ${manifestPackage.id} digest: ${manifestPackage.name} as it's in use by another image`);
-        parents.delete(parent.name);
-        return { deleted: 0, multiDeleted: 0 };
-    }
-    /**
-     * Resolve a sha256-* fallback referrer tag to its package and cascade.
-     */
-    async deleteReferrerByTag(tag, logger) {
-        const manifestDigest = this.context.packageRepo.getDigestByTag(tag);
-        if (!manifestDigest)
-            return { deleted: 0, multiDeleted: 0 };
-        const attestationPackage = this.context.packageRepo.getPackageByDigest(manifestDigest);
-        if (!attestationPackage)
-            return { deleted: 0, multiDeleted: 0 };
-        return await this.deleteImage(attestationPackage, logger);
-    }
-    /**
-     * Resolve an OCI 1.1 subject-bearing referrer digest and cascade.
-     * Short-circuits when the referrer was already deleted via another
-     * path (e.g. it also had a sha256-* fallback tag).
-     */
-    async deleteReferrerByDigest(digest, logger) {
-        if (this.deleted.has(digest))
-            return { deleted: 0, multiDeleted: 0 };
-        const referrerPackage = this.context.packageRepo.getPackageByDigest(digest);
-        if (!referrerPackage)
-            return { deleted: 0, multiDeleted: 0 };
-        return await this.deleteImage(referrerPackage, logger);
-    }
-    /**
-     * Delete all images in the delete set
-     * @param deleteSet digests to delete
-     * @param afterDelete optional hook that runs INSIDE the "Deleting
-     *   packages" log group after the deletes finish but before the group
-     *   closes — lets callers (the orchestrator) emit related log lines
-     *   under the same group instead of having them dangle afterward.
-     */
-    async deleteImages(deleteSet, afterDelete) {
-        // Prime manifests
-        await this.manifestAnalyzer.primeManifests(deleteSet);
-        startGroup(`[${this.context.targetPackage}] Deleting packages`);
-        let totalDeleted = 0;
-        let totalMultiDeleted = 0;
-        if (deleteSet.size > 0) {
-            for (const deleteDigest of deleteSet) {
-                const deleteImage = this.context.packageRepo.getPackageByDigest(deleteDigest);
-                if (!deleteImage) {
-                    throw new Error(`cache invariant: digest ${deleteDigest} not in package cache`);
-                }
-                // Each top-level delete gets its own buffer. Child fan-out
-                // inside deleteImage runs concurrently, so streaming straight
-                // to core.info would interleave a parent's children with the
-                // recursive sub-trees of its referrers. Buffering keeps the
-                // unit (parent + all descendants) emitted as one contiguous
-                // block in the workflow log.
-                //
-                // The flush sits in a finally so a thrown error mid-tree still
-                // emits whatever the tree managed to log before the throw —
-                // the successful parent delete, completed child deletes, any
-                // 404 warnings, etc. Losing that audit trail because a later
-                // sibling failed makes diagnosis much harder, as observed in
-                // the v1.2.0 atomicos report where the parent's successful
-                // delete was invisible.
-                const logger = new BufferedLogger();
-                try {
-                    const result = await this.deleteImage(deleteImage, logger);
-                    totalDeleted += result.deleted;
-                    totalMultiDeleted += result.multiDeleted;
-                }
-                finally {
-                    logger.flush();
-                }
-            }
-        }
-        else {
-            info(`Nothing to delete`);
-        }
-        if (afterDelete) {
-            afterDelete(this.deleted);
-        }
-        endGroup();
-        return {
-            deleted: this.deleted,
-            numberImagesDeleted: totalDeleted,
-            numberMultiImagesDeleted: totalMultiDeleted
-        };
-    }
-}
-
-;// CONCATENATED MODULE: ./src/cleanup-orchestrator.ts
-
-
-
-
-
-
-
-
-
-/**
- * Orchestrates the cleanup process using modular components
- */
-class CleanupOrchestrator {
-    config;
-    targetPackage;
-    octokitClient;
-    packageRepo;
-    registry;
-    context;
-    manifestCache;
-    // Modules
-    imageFilter;
-    manifestAnalyzer;
-    imageValidator;
-    deletionStrategy;
-    imageDeleter = null;
-    // State
-    filterSet = new Set();
-    deleteSet = new Set();
-    excludeTags = [];
-    digestUsedBy = new Map();
-    subjectReferrers = new Map();
-    statistics;
-    constructor(config, targetPackage, octokitClient, manifestCache = null) {
-        this.config = config;
-        this.targetPackage = targetPackage;
-        this.octokitClient = octokitClient;
-        this.manifestCache = manifestCache;
-        this.packageRepo = new PackageRepo(config, octokitClient);
-        this.registry = new Registry(config, this.packageRepo, manifestCache);
-        this.statistics = new CleanupTaskStatistics(targetPackage, 0, 0);
-        // Create context for modules
-        this.context = {
-            config,
-            registry: this.registry,
-            packageRepo: this.packageRepo,
-            targetPackage
-        };
-        // Initialize modules
-        this.imageFilter = new ImageFilter(this.context);
-        this.manifestAnalyzer = new ManifestAnalyzer(this.context);
-        this.imageValidator = new ImageValidator(this.context);
-        this.deletionStrategy = new DeletionStrategy(this.context);
-    }
-    async init() {
-        await this.registry.login(this.targetPackage);
-    }
-    async reload() {
-        // Prime the list of current packages. The afterLoad callback runs
-        // inside the "[Loaded package data]" log group, so the manifest-
-        // cache prune's diagnostic line lands inside that group rather than
-        // floating alone above subsequent groups.
-        //
-        // The prune itself: drop cached manifest entries whose digests no
-        // longer exist in the package list. Without this, the cross-run
-        // cache accumulates entries for deleted packages forever — they'll
-        // never come back (digests are content-addressed) so they're pure
-        // bloat.
-        await this.packageRepo.loadPackages(this.targetPackage, true, () => {
-            this.manifestCache?.prune(this.packageRepo.getDigests());
-        });
-        await this.analyze();
-    }
-    /**
-     * Rebuild everything derived from the package list held in packageRepo:
-     * the relationship maps, the deleter, the filter set, exclusions and the
-     * age filter. reload() runs this after fetching the list; after an
-     * untag it can also run on the list packageRepo already holds (see
-     * run()).
-     */
-    async analyze() {
-        this.deleteSet.clear();
-        // Build digestUsedBy + subjectReferrers maps in one pass
-        const analysis = await this.manifestAnalyzer.loadDigestUsedByMap();
-        this.digestUsedBy = analysis.digestUsedBy;
-        this.subjectReferrers = analysis.subjectReferrers;
-        // Initialize imageDeleter with both relationship maps
-        this.imageDeleter = new ImageDeleter(this.context, this.digestUsedBy, this.subjectReferrers);
-        // Initialize filterSet - remove manifest image children, referrers etc
-        this.filterSet = await this.manifestAnalyzer.initFilterSet(this.subjectReferrers);
-        // Apply exclusion filters
-        this.excludeTags = this.imageFilter.applyExclusionFilters(this.filterSet);
-        // Apply age filter
-        this.imageFilter.applyAgeFilter(this.filterSet);
-    }
-    async run() {
-        // Process tag deletions first - to support untagging
-        if (this.config.deleteTags) {
-            const plan = await this.deletionStrategy.processTagDeletions(this.filterSet, this.excludeTags);
-            // When keep-n-tagged is set, gate the untag operations: any image that
-            // keep-n-tagged would protect must not be partially untagged here.
-            // Otherwise multi-tagged images in the keep set get a matched tag
-            // stripped before keep-n-tagged runs, defeating its protection.
-            if (this.config.keepNtagged != null && plan.untagOperations.size > 0) {
-                const keepSet = this.deletionStrategy.computeKeepNTaggedDigests(this.filterSet);
-                for (const digest of keepSet) {
-                    plan.untagOperations.delete(digest);
-                }
-            }
-            // Perform untagging if needed
-            let reloadOccurred = false;
-            if (plan.untagOperations.size > 0) {
-                if (!this.imageDeleter) {
-                    throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
-                }
-                const listedBefore = this.packageRepo.getDigests();
-                const untag = await this.imageDeleter.performUntagging(plan.untagOperations);
-                if (untag) {
-                    // performUntagging left packageRepo holding its own post-untag
-                    // reload (or, in a dry run, the simulated untag). Reuse it when
-                    // it provably reflects the untag; otherwise reload from the API
-                    // as before. On large repos this saves a full package listing.
-                    if (this.packageRepo.applyUntag(untag, listedBefore)) {
-                        info('Untagging done; re-planning from the updated package list');
-                        this.manifestCache?.prune(this.packageRepo.getDigests());
-                        await this.analyze();
-                    }
-                    else {
-                        info('Reloading action due to untagging');
-                        await this.reload();
-                    }
-                    reloadOccurred = true;
-                }
-            }
-            // Only process the original plan if we didn't reload
-            // If we reloaded, we need to re-process tag deletions
-            if (!reloadOccurred) {
-                for (const digest of plan.deleteSet) {
-                    this.deleteSet.add(digest);
-                }
-            }
-            else {
-                // After reload, re-process tag deletions to pick up images
-                // whose deletion candidacy depended on tags that survived the
-                // first pass (e.g. multi-tagged images whose untag was gated
-                // out by keep-n-tagged — their other tags are still present
-                // and may now resolve to a delete-set entry).
-                //
-                // We only ingest newPlan.deleteSet — newPlan.untagOperations
-                // is intentionally dropped. When keep-n-tagged gates a
-                // multi-tagged image out of the first pass's untag list, that
-                // image still has the matched tag after reload, so the second
-                // pass re-derives the same untag operation. Re-running it
-                // would defeat the keep-n-tagged protection that filtered it
-                // out in the first place — re-applying the gate here would
-                // simply remove the same entry again. Skipping the work is
-                // equivalent and avoids a redundant gate computation.
-                const newPlan = await this.deletionStrategy.processTagDeletions(this.filterSet, this.excludeTags);
-                for (const digest of newPlan.deleteSet) {
-                    this.deleteSet.add(digest);
-                }
-            }
-        }
-        // Process ghost/partial/orphaned images. These are independent `if`
-        // blocks, not an if/else: the two finders return disjoint sets
-        // (findPartialImages excludes the all-children-missing case, which is
-        // exactly what findGhostImages matches), so with both options set a
-        // user asking to delete both categories gets both. An `else if` here
-        // silently dropped every ghost image whenever delete-partial-images
-        // was also on.
-        if (this.config.deletePartialImages) {
-            const partialImages = await this.imageValidator.findPartialImages(this.filterSet);
-            for (const digest of partialImages) {
-                this.deleteSet.add(digest);
-                this.filterSet.delete(digest);
-            }
-        }
-        if (this.config.deleteGhostImages) {
-            const ghostImages = await this.imageValidator.findGhostImages(this.filterSet);
-            for (const digest of ghostImages) {
-                this.deleteSet.add(digest);
-                this.filterSet.delete(digest);
-            }
-        }
-        if (this.config.deleteOrphanedImages) {
-            const orphanedImages = this.imageValidator.findOrphanedImages(this.subjectReferrers, this.excludeTags, this.digestUsedBy);
-            for (const digest of orphanedImages) {
-                this.deleteSet.add(digest);
-                this.filterSet.delete(digest);
-            }
-        }
-        // Process keep-n policies
-        if (this.config.keepNtagged != null) {
-            const toDelete = this.deletionStrategy.keepNTagged(this.filterSet);
-            for (const digest of toDelete) {
-                this.deleteSet.add(digest);
-            }
-        }
-        if (this.config.keepNuntagged != null) {
-            const toDelete = this.deletionStrategy.keepNUntagged(this.filterSet);
-            for (const digest of toDelete) {
-                this.deleteSet.add(digest);
-            }
-        }
-        else if (this.config.deleteUntagged) {
-            const toDelete = this.deletionStrategy.deleteAllUntagged(this.filterSet);
-            for (const digest of toDelete) {
-                this.deleteSet.add(digest);
-            }
-        }
-        // Perform the actual deletion
-        if (!this.imageDeleter) {
-            throw new Error('CleanupOrchestrator.run() invariant: imageDeleter is not initialized — reload() must be called before run()');
-        }
-        // The afterDelete hook fires inside the "Deleting packages" log
-        // group so the "pruned N stale entries" line lands under the same
-        // collapsible section as the deletes that caused it. Reload-time
-        // prune only saw pre-deletion state; without this, a run that
-        // deleted 5000 packages would persist 5000 dead entries until the
-        // next run's reload prune caught them.
-        const result = await this.imageDeleter.deleteImages(this.deleteSet, deleted => {
-            if (this.manifestCache && deleted.size > 0) {
-                const stillAlive = new Set(this.packageRepo.getDigests());
-                for (const digest of deleted) {
-                    stillAlive.delete(digest);
-                }
-                this.manifestCache.prune(stillAlive);
-            }
-        });
-        this.statistics.numberImagesDeleted = result.numberImagesDeleted;
-        this.statistics.numberMultiImagesDeleted = result.numberMultiImagesDeleted;
-        this.statistics.deletedDigests = [...result.deleted];
-        // Print statistics
-        this.statistics.print();
-        // Run validation if requested
-        if (this.config.validate) {
-            info(` [${this.targetPackage}] Running Validation Task `);
-            await this.reload();
-            await this.imageValidator.validate(this.subjectReferrers);
-            info('');
-        }
-        return this.statistics;
-    }
+function textMatchesDigest(digest, text) {
+    const bytes = Buffer.from(text, 'utf8');
+    return bytes.toString('utf8') === text && digestMatches(digest, bytes);
 }
 
 ;// CONCATENATED MODULE: ./src/main.ts
@@ -124234,8 +124304,17 @@ class CleanupAction {
             // Restore before reload() so analyzer manifest fetches see the
             // warm cache from prior workflow runs; save once after run() so
             // newly-fetched manifests are persisted for next time.
-            const manifestCache = new ManifestCache(this.config.owner, targetPackage);
-            await manifestCache.restore();
+            // manifest-cache: false opts out: no restore, no save, every
+            // manifest fetched from the registry.
+            const manifestCache = this.config.manifestCache
+                ? new ManifestCache(this.config.owner, targetPackage)
+                : null;
+            if (manifestCache) {
+                await manifestCache.restore();
+            }
+            else {
+                info(`[${targetPackage}] manifest cache: disabled (manifest-cache: false); fetching every manifest from the registry`);
+            }
             const orchestrator = new CleanupOrchestrator(this.config, targetPackage, this.octokitClient, manifestCache);
             try {
                 await orchestrator.init();
@@ -124243,10 +124322,12 @@ class CleanupAction {
                 perPackageStats.push(await orchestrator.run());
             }
             finally {
-                await manifestCache.save();
-                const s = manifestCache.getStats();
-                cacheStats.hits += s.hits;
-                cacheStats.misses += s.misses;
+                if (manifestCache) {
+                    await manifestCache.save();
+                    const s = manifestCache.getStats();
+                    cacheStats.hits += s.hits;
+                    cacheStats.misses += s.misses;
+                }
             }
         }
     }

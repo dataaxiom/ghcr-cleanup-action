@@ -1,4 +1,5 @@
 import * as core from '@actions/core'
+import { createHash } from 'crypto'
 import safeRegex from 'safe-regex2'
 
 // A sha256 digest is 'sha256:' (7) + 64 hex chars = 71 chars total.
@@ -484,6 +485,53 @@ export async function runWithConcurrency<T>(
 /** Resolve after `ms` milliseconds. */
 export async function sleep(ms: number): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// Digest algorithms a manifest digest can be checked against, with the
+// hex length each produces. A digest naming anything else cannot be
+// verified, so it never matches.
+const DIGEST_HEX_LENGTH = new Map([
+  ['sha256', 64],
+  ['sha512', 128]
+])
+
+/**
+ * True when `bytes` is exactly the content `digest` names: the digest is
+ * `<algorithm>:<lower-case hex>` for a supported algorithm and the hash
+ * of the bytes equals it. A manifest's digest is the hash of its exact
+ * bytes, so a match proves the bytes are that manifest; this is what
+ * makes manifests fetched from the registry, and entries restored from
+ * the cross-run cache, safe to act on.
+ */
+export function digestMatches(digest: string, bytes: Buffer): boolean {
+  const sep = digest.indexOf(':')
+  if (sep <= 0) return false
+  const algorithm = digest.slice(0, sep)
+  const hex = digest.slice(sep + 1)
+  const length = DIGEST_HEX_LENGTH.get(algorithm)
+  if (
+    length === undefined ||
+    hex.length !== length ||
+    !/^[0-9a-f]+$/.test(hex)
+  ) {
+    return false
+  }
+  return createHash(algorithm).update(bytes).digest('hex') === hex
+}
+
+/**
+ * Parse manifest text (already verified against its digest) into a
+ * Manifest. A leading byte-order mark, which the digest covers but
+ * JSON.parse rejects, is ignored. Throws if the text is not a JSON
+ * object.
+ */
+export function parseManifest(text: string): Manifest {
+  const json = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+  const parsed: unknown = JSON.parse(json)
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('manifest is not a JSON object')
+  }
+  return parsed
 }
 
 export interface Manifest {

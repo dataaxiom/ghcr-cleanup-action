@@ -49,14 +49,22 @@ vi.mock('../utils')
 // (which is itself hoisted) safely reference this state — individual
 // tests assign to `mockCacheStats.value` to control what `getStats()`
 // returns for that test.
-const { mockCacheStats } = vi.hoisted(() => ({
-  mockCacheStats: { value: { hits: 0, misses: 0 } }
+const { mockCacheStats, cacheCalls } = vi.hoisted(() => ({
+  mockCacheStats: { value: { hits: 0, misses: 0 } },
+  cacheCalls: { constructed: 0, restored: 0, saved: 0 }
 }))
 vi.mock('../manifest-cache.js', () => {
   return {
     ManifestCache: class {
-      async restore(): Promise<void> {}
-      async save(): Promise<void> {}
+      constructor() {
+        cacheCalls.constructed++
+      }
+      async restore(): Promise<void> {
+        cacheCalls.restored++
+      }
+      async save(): Promise<void> {
+        cacheCalls.saved++
+      }
       getStats(): { hits: number; misses: number } {
         return mockCacheStats.value
       }
@@ -75,6 +83,7 @@ const defaultConfig = (overrides: Partial<Config> = {}): Config =>
     token: 'gh-token',
     dryRun: false,
     writeSummary: true,
+    manifestCache: true,
     repoType: 'Organization',
     tokenOwnsPackage: false,
     defaultPackageUsed: false,
@@ -712,6 +721,32 @@ describe('main.run()', () => {
       // 30/(30+10) = 75%
       expect(flat).toContain('75%')
       expect(flat).toContain('30 hits / 40 lookups')
+    })
+
+    it('restores and saves the manifest cache by default', async () => {
+      Object.assign(cacheCalls, { constructed: 0, restored: 0, saved: 0 })
+
+      await run()
+
+      expect(cacheCalls).toEqual({ constructed: 1, restored: 1, saved: 1 })
+    })
+
+    it('skips the manifest cache entirely with manifest-cache: false', async () => {
+      Object.assign(cacheCalls, { constructed: 0, restored: 0, saved: 0 })
+      mockCacheStats.value = { hits: 30, misses: 10 }
+      mockBuildConfig.mockResolvedValue(defaultConfig({ manifestCache: false }))
+
+      await run()
+
+      expect(cacheCalls).toEqual({ constructed: 0, restored: 0, saved: 0 })
+      // The orchestrator (and so the registry) gets no cache at all.
+      expect(vi.mocked(CleanupOrchestrator).mock.calls[0][3]).toBeNull()
+      expect(core.info).toHaveBeenCalledWith(
+        '[pkg-a] manifest cache: disabled (manifest-cache: false); fetching every manifest from the registry'
+      )
+      // No cache, so no hit-rate row.
+      const overview = vi.mocked(core.summary.addTable).mock.calls[0][0]
+      expect(JSON.stringify(overview)).not.toContain('Manifest cache hit rate')
     })
 
     it('omits the Manifest cache row when the cache saw no lookups', async () => {
